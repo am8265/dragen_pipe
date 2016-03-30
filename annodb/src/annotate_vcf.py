@@ -9,20 +9,33 @@ Brett Copeland <bc2675@cumc.columbia.edu>
 """
 
 import argparse
+import sys
+import subprocess
+import shlex
 from ConfigParser import SafeConfigParser
 from utilities import *
 
 SNPEFF_COMMAND = (
     "{java} -Xmx5G -jar {snpeff} eff {genome_version} -c {snpeff_config} -v "
     "-interval {intervals} -noMotif -noInteraction -noNextProt "
-    "-s {output_vcf}.annotations -o vcf {input_vcf} {threaded} > {output_vcf}")
+    "-s {output_vcf}.annotations -o vcf {input_vcf} -noLog "
+    "-nodownload{threaded}")
 CNF = "/nfs/goldstein/software/dragen/dragen.cnf"
 
-def main(input_vcf, output_vcf, parameters):
+def main(input_vcf, output_vcf, stderr, parameters):
     """run the SnpEff command given the specified parameters
     """
-    print(SNPEFF_COMMAND.format(
-        input_vcf=input_vcf, output_vcf=output_vcf, **parameters))
+    cmd = SNPEFF_COMMAND.format(
+        input_vcf=input_vcf, output_vcf=output_vcf, **parameters)
+    stderr.write(log_output(cmd))
+    stderr.flush()
+    with open(output_vcf, "w") as out:
+        p = subprocess.Popen(shlex.split(cmd), stdout=out, stderr=stderr)
+        p.wait()
+    if p.returncode:
+        raise subprocess.CalledProcessError(p.returncode, cmd)
+    if stderr is not sys.stderr:
+        stderr.close()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -41,15 +54,18 @@ if __name__ == "__main__":
                         help="custom exome BED file to use")
     parser.add_argument("--single_threaded", default=False, action="store_true",
                         help="only use a single thread")
+    parser.add_argument("--stderr", default=sys.stderr,
+                        type=argparse.FileType("a"),
+                        help="the output file to save stderr in")
     args = parser.parse_args()
     config_parser = SafeConfigParser()
     config_parser.read(CNF)
     parameters = {}
-    parameters["threaded"] = "" if args.single_threaded else "-t"
+    parameters["threaded"] = "" if args.single_threaded else " -t"
     for parameter in (
         "java", "snpeff", "genome_version", "snpeff_config", "intervals"):
         if args.__dict__[parameter]:
             parameters[parameter] = args.__dict__[parameter]
         else:
             parameters[parameter] = config_parser.get("annodb", parameter.upper())
-    main(args.INPUT_VCF, args.OUTPUT_VCF, parameters)
+    main(args.INPUT_VCF, args.OUTPUT_VCF, args.stderr, parameters)

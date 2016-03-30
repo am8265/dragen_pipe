@@ -1,6 +1,17 @@
 import argparse
 import os
 import gzip
+from socket import gethostname
+from time import ctime
+
+LOG_FORMAT = "Running on {host} @{ctime}: {command}"
+
+def log_output(command):
+    """return the string to put in the log file that pertains to the command
+    being run
+    """
+    return LOG_FORMAT.format(
+        host=gethostname(), ctime=ctime(), command=command) + "\n"
 
 def is_gzipped(file_name):
     """is the specified file gzipped?
@@ -109,7 +120,7 @@ def simplify_REF_ALT_alleles(REF, ALT):
 def create_INFO_dict(INFO):
     """take the INFO field from a VCF, parse and return a dict of values
     """
-    return dict(entry.split("=") for entry in INFO.split(";") if "=" in entry)
+    return dict(entry.split("=", 1) for entry in INFO.split(";") if "=" in entry)
 
 def merge_dicts(*dict_list):
     """merge an arbitrary number of dictionaries into a single dictionary and
@@ -157,3 +168,17 @@ def strip_suffix(string, suffix):
     """strip the suffix if present
     """
     return string[:-len(suffix)] if string.endswith(suffix) else string
+
+def natural_number(arg):
+    """return the integer value of arg if it is a natural number, otherwise
+    raise an exception
+    """
+    try:
+        value = int(arg)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            "{arg} is not a valid integer".format(arg=arg))
+    if arg < 0:
+        raise argparse.ArgumentTypeError(
+            "{arg} is negative".format(arg=arg))
+    return value
