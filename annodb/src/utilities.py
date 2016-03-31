@@ -1,10 +1,16 @@
 import argparse
+import sys
 import os
 import gzip
 from socket import gethostname
 from time import ctime
 
 LOG_FORMAT = "Running on {host} @{ctime}: {command}"
+
+def get_script_path():
+    """return the path of the script being executed
+    """
+    return os.path.dirname(os.path.realpath(sys.argv[0]))
 
 def log_output(command):
     """return the string to put in the log file that pertains to the command
