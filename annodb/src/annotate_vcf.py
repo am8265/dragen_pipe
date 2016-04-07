@@ -16,8 +16,8 @@ from ConfigParser import SafeConfigParser
 from utilities import *
 
 SNPEFF_COMMAND = (
-    "{java} -Xmx5G -jar {snpeff} eff {genome_version} -c {snpeff_config} -v "
-    "-interval {intervals} -noMotif -noInteraction -noNextProt "
+    "{java} -Xmx5G -jar {snpeff} eff {genome_version} -c {snpeff_config} "
+    "-interval {intervals} {snpeff_options} "
     "-s {output_vcf}.annotations -o vcf {input_vcf} -noLog "
     "-nodownload{threaded}")
 CNF = "/nfs/goldstein/software/dragen/dragen.cnf"
@@ -52,6 +52,8 @@ if __name__ == "__main__":
                         help="custom SnpEff configuration to use")
     parser.add_argument("--intervals", type=file_exists,
                         help="custom exome BED file to use")
+    parser.add_argument("--snpeff_options", help="specify zero or more SnpEff "
+                        "options surrounded by quotes")
     parser.add_argument("--single_threaded", default=False, action="store_true",
                         help="only use a single thread")
     parser.add_argument("--stderr", default=sys.stderr,
@@ -63,7 +65,8 @@ if __name__ == "__main__":
     parameters = {}
     parameters["threaded"] = "" if args.single_threaded else " -t"
     for parameter in (
-        "java", "snpeff", "genome_version", "snpeff_config", "intervals"):
+        "java", "snpeff", "genome_version", "snpeff_config", "intervals",
+        "snpeff_options"):
         if args.__dict__[parameter]:
             parameters[parameter] = args.__dict__[parameter]
         else:
