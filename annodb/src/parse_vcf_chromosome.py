@@ -13,36 +13,8 @@ import MySQLdb
 from time import sleep
 from ConfigParser import SafeConfigParser
 from utilities import *
-
-# the chromosomes to include
-CNF = "/nfs/goldstein/software/dragen/dragen.cnf"
-VARIANT_EXISTS_QUERY = """
-SELECT variant_id
-FROM variant_chr{CHROM}
-WHERE POS = {POS} AND REF = "{REF}" AND ALT = "{ALT}"
-LIMIT 1
-"""
-VARIANT_INSERT = """
-INSERT INTO variant_chr{CHROM} ({variant_id_placeholder}POS, REF, ALT,
-    rs_number, transcript_stable_id, effect, HGVS_c, HGVS_p, impact,
-    polyphen_humdiv, polyphen_humvar, gene)
-VALUE ({variant_id}{POS}, "{REF}", "{ALT}", {rs_number},
-    {transcript_stable_id}, {effect}, {HGVS_c}, {HGVS_p}, {impact},
-    {polyphen_humdiv}, {polyphen_humvar}, {gene})
-"""
-VCF_COLUMNS = ["CHROM", "POS", "rs_number", "REF", "ALT", "QUAL",
-           "FILTER", "INFO", "FORMAT", "call"]
-BLOCK_SIZE = 10000
-VARIANT_CALL_FORMAT = (
-    "{sample_id}\t{variant_id}\t{block_id}\t{GT}\t{DP_pileup}\t{DP}\t"
-    "{AD_REF}\t{AD_ALT}\t{GQ}\t{FS}\t{MQ}\t{QD}\t{QUAL}\t{ReadPosRankSum}\t"
-    "{MQRankSum}\t{PASS}")
-VALID_GTS = set(["0", "1"])
-
-def get_vcf_fields_dict(line):
-    """return a dict of the values of each field in the line
-    """
-    return dict(zip(VCF_COLUMNS, line.rstrip().split("\t")))
+from dragen_globals import *
+from db_statements import *
 
 def escaped_value(value):
     """return the properly escaped value for a MySQL insert
@@ -63,10 +35,10 @@ def insert_variant_entry(
         else "", variant_id="{variant_id}, ".format(variant_id=variant_id) if
         variant_id else "", POS=POS, REF=REF, ALT=ALT,
         rs_number=escaped_value(rs_number),
-        transcript_stable_id=escaped_value(transcript_stable_id),
-        effect=escaped_value(effect),
-        HGVS_c=escaped_value(HGVS_c),
-        HGVS_p=escaped_value(HGVS_p),
+        transcript_stable_id='"{transcript_stable_id}"'.format(
+            transcript_stable_id=transcript_stable_id)
+        if transcript_stable_id else '""', effect=escaped_value(effect),
+        HGVS_c=escaped_value(HGVS_c), HGVS_p=escaped_value(HGVS_p),
         impact=escaped_value(impact),
         polyphen_humdiv=escaped_value(polyphen_humdiv),
         polyphen_humvar=escaped_value(polyphen_humvar),
@@ -85,10 +57,6 @@ def insert_novel_variant(
         alt_allele, values = ann.split("|", 1)
         if alt_allele == original_ALT:
             anns.append(values.split("|"))
-    # need to ensure the effects are sorted so that if two jobs try to insert
-    # the same variant at the same time they'll process the same effect first
-    # and cause a MySQLdb.IntegrityError
-    anns = sorted(anns)
     try:
         if anns:
             (effect, impact, gene, gene_id, feature_type, feature_id,
@@ -138,7 +106,20 @@ def insert_novel_variant(
                     cur, CHROM, POS, REF, ALT, rs_number, variant_id=variant_id,
                     transcript_stable_id=feature_id, effect=eff, HGVS_c=HGVS_c,
                     HGVS_p=HGVS_p, impact=impact, gene=gene)
-        except:
+        except Exception, e:
+            # handle special corner cases of 1. there being an "N" in the reference
+            # allele and SnpEff formats the HGVS_c multiple times, i.e. ignore
+            # integrity error and 2. splice_region_variant is duplicated with
+            # multiple impacts when it's concatenated with multiple effects
+            if type(e) is MySQLdb.IntegrityError:
+                if "N" in REF:
+                    continue
+                elif eff == "splice_region_variant":
+                    cur.execute(UPDATE_SPLICE_REGION_VARIANT.format(
+                        CHROM=CHROM, impact=impact, POS=POS,
+                        variant_id=variant_id, transcript_stable_id=feature_id,
+                        effect=eff))
+                    continue
             db.rollback()
             raise
     # commit immediately once all annotations are successfully loaded for a
@@ -241,6 +222,10 @@ def main(input_vcf_fh, output_directory, sample_id, CHROM, log_fh):
                             **merge_dicts(
                                 call, {"AD_ALT":ADs[1 + x], "variant_id":variant_id,
                                        "block_id":block_id}, INFO_dict)) + "\n")
+        log_fh.write(log_output(
+            "successfully finished parsing sample_id {sample_id}'s chromosome "
+            "{CHROM} VCF".format(
+                sample_id=sample_id, CHROM=CHROM) + "\n"))
     finally:
         if db.open:
             db.close()

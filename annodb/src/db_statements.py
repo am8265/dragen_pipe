@@ -1,0 +1,37 @@
+"""
+MySQL statements used in the pipeline
+"""
+
+# check novelty of variant/get its id
+VARIANT_EXISTS_QUERY = """
+SELECT variant_id
+FROM variant_chr{CHROM}
+WHERE POS = {POS} AND REF = "{REF}" AND ALT = "{ALT}"
+LIMIT 1
+"""
+# insert a novel variant
+VARIANT_INSERT = """
+INSERT INTO variant_chr{CHROM} ({variant_id_placeholder}POS, REF, ALT,
+    rs_number, transcript_stable_id, effect, HGVS_c, HGVS_p, impact,
+    polyphen_humdiv, polyphen_humvar, gene)
+VALUE ({variant_id}{POS}, "{REF}", "{ALT}", {rs_number},
+    {transcript_stable_id}, {effect}, {HGVS_c}, {HGVS_p}, {impact},
+    {polyphen_humdiv}, {polyphen_humvar}, {gene})
+"""
+# handle SnpEff "bug" of sometimes outputting multiple impacts for
+# splice_region_variants, and take the least impactful (last)
+UPDATE_SPLICE_REGION_VARIANT = """
+UPDATE variant_chr{CHROM}
+SET impact = "{impact}"
+WHERE POS = {POS} AND variant_id = {variant_id} AND
+    transcript_stable_id = "{transcript_stable_id}" AND effect = "effect"
+"""
+# get the current maximum variant id in the specified table
+GET_MAX_VARIANT_ID = """
+SELECT auto_increment
+FROM information_schema.tables
+WHERE table_name = "variant_chr{CHROM}" AND table_schema = DATABASE()
+"""
+LOAD_TABLE = """
+LOAD DATA INFILE '{table_file}' INTO TABLE {table_name}
+"""
