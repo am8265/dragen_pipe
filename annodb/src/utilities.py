@@ -4,6 +4,7 @@ import os
 import gzip
 from socket import gethostname
 from time import ctime
+from dragen_globals import VCF_COLUMNS
 
 LOG_FORMAT = "Running on {host} @{ctime}: {command}"
 
@@ -188,3 +189,8 @@ def natural_number(arg):
         raise argparse.ArgumentTypeError(
             "{arg} is negative".format(arg=arg))
     return value
+
+def get_vcf_fields_dict(line):
+    """return a dict of the values of each field in the VCF line
+    """
+    return dict(zip(VCF_COLUMNS, line.rstrip().split("\t")))
