@@ -1,0 +1,59 @@
+#================================================================================
+# Dragen 1.7.1 Configuration File
+#================================================================================
+#
+# Author:	Joshua Bridgers (jb3816)
+# Date:		02/04/2016
+# Version:	0.4.2a
+#
+# 02/04/2016 Changes:
+# 	1. Changed output directory to fastq16-rsync from fastq16
+# 02/02/2016 Changes:
+# 	1. Added vc-emit-zero-coverage-intervals
+# 	2. Updated Dragen to 1.7.1
+#
+#================================================================================
+
+#================================================================================
+# JOINT CALLING
+#================================================================================
+
+intermediate-results-dir = /staging/tmp 
+ref-dir = /staging/REF/b37_decoy/
+
+#================================================================================
+# OUTPUT
+#================================================================================
+
+output-file-prefix = {IGMID}
+output-directory = /nfs/fastq_temp/ALIGNMENT/BUILD37/DRAGEN/{uppercaseSeqtype}/{IGMID}/
+
+#================================================================================
+# VARIANT CALLING
+#================================================================================
+
+enable-joint-genotyping = true
+vc-sample-name = {IGMID}
+vc-reference = /staging/REF/b37_decoy/hs37d5.fa  	# same as --ref-dir parameter
+
+#List of gvcf files (up to 10)
+variant = /nfs/fastq_temp/ALIGNMENT/BUILD37/DRAGEN/{uppercaseSeqtype}/{IGMID}/{IGMID}.gvcf
+
+#================================================================================
+# NOTES
+#================================================================================
+# Defaults taken from:
+# 	Dragen User Defaults Configuration File - Revision 01.002.060.01.01.14.12343
+# Adapter masking is performed during BCL
+# No hard filtering applied because we handle that from the ATAV side
+#
+# http://www.ncbi.nlm.nih.gov/projects/genome/assembly/grc/human/ #Patches to GRCh37 can be found here
+# http://www.ncbi.nlm.nih.gov/variation/docs/multi_assembly_support/ #Multi Assembly Support
+# http://exac.broadinstitute.org/faq 
+#
+# vcf hard filter settings (Same as GATK)
+# vc-hard-filter = DRAGENHardSNP:snp: QD < 2.0 || MQ < 40.0 || FS > 60.0 || MQRankSum < -12.5 || ReadPosRankSum < -8.0;DRAGENHardINDEL:indel: QD < 2.0 || ReadPosRankSum < -20.0 || FS > 200.0
+
+#================================================================================
+# FIN
+#================================================================================
