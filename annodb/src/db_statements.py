@@ -13,10 +13,10 @@ LIMIT 1
 VARIANT_INSERT = """
 INSERT INTO variant_chr{CHROM} ({variant_id_placeholder}POS, REF, ALT,
     rs_number, transcript_stable_id, effect, HGVS_c, HGVS_p, impact,
-    polyphen_humdiv, polyphen_humvar, gene)
+    polyphen_humdiv, polyphen_humvar, gene, indel)
 VALUE ({variant_id}{POS}, "{REF}", "{ALT}", {rs_number},
     {transcript_stable_id}, {effect}, {HGVS_c}, {HGVS_p}, {impact},
-    {polyphen_humdiv}, {polyphen_humvar}, {gene})
+    {polyphen_humdiv}, {polyphen_humvar}, {gene}, {indel})
 """
 # handle SnpEff "bug" of sometimes outputting multiple impacts for
 # splice_region_variants, and take the least impactful (last)
@@ -34,4 +34,9 @@ WHERE table_name = "variant_chr{CHROM}" AND table_schema = DATABASE()
 """
 LOAD_TABLE = """
 LOAD DATA INFILE '{table_file}' INTO TABLE {table_name}
+"""
+GET_ALL_INDELS = """
+SELECT DISTINCT variant_id, POS, REF, ALT
+FROM variant_chr{CHROM}
+WHERE indel = 1
 """
