@@ -20,7 +20,7 @@ NOVEL_VARIANT_OUTPUT_FORMAT = (
     "{" + "}\t{".join(
         ["variant_id", "POS", "REF", "ALT", "rs_number", "transcript_stable_id",
          "effect", "HGVS_c", "HGVS_p", "impact", "polyphen_humdiv",
-         "polyphen_humvar", "gene"]) + "}")
+         "polyphen_humvar", "gene", "indel"]) + "}")
 
 def format_NULL_value(value):
     """convert the specified value to \N for NULL where appropriate for
@@ -29,7 +29,7 @@ def format_NULL_value(value):
     return value if value else "\\N"
 
 def output_novel_variant_entry(
-    novel_fh, variant_id, POS, REF, ALT, rs_number, impact,
+    novel_fh, variant_id, POS, REF, ALT, rs_number, indel, impact,
     transcript_stable_id="", effect=None, HGVS_c=None, HGVS_p=None,
     polyphen_humdiv=None, polyphen_humvar=None, gene=None):
     """output a specific novel variant entry to novel_fh
@@ -42,7 +42,7 @@ def output_novel_variant_entry(
         HGVS_p=format_NULL_value(HGVS_p), impact=impact,
         polyphen_humdiv=format_NULL_value(polyphen_humdiv),
         polyphen_humvar=format_NULL_value(polyphen_humvar),
-        gene=format_NULL_value(gene)) + "\n")
+        gene=format_NULL_value(gene), indel=indel) + "\n")
 
 def output_novel_variant(
     novel_fh, variant_id, CHROM, POS, REF, ALT, original_ALT, rs_number, ANNs):
@@ -50,6 +50,7 @@ def output_novel_variant(
     variant_id
     """
     rs_number = "" if rs_number == "." else rs_number
+    indel = 1 if len(REF) > 1 or len(ALT) > 1 else 0
     anns = []
     for ann in ANNs.split(","):
         alt_allele, values = ann.split("|", 1)
@@ -94,7 +95,7 @@ def output_novel_variant(
                         "gene":gene}
         for annotation_values in annotations.itervalues():
             output_novel_variant_entry(
-                novel_fh, variant_id, POS, REF, ALT, rs_number,
+                novel_fh, variant_id, POS, REF, ALT, rs_number, indel,
                 **annotation_values)
     else:
         raise ValueError(

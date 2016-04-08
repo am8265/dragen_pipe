@@ -25,7 +25,7 @@ def escaped_value(value):
         return "NULL"
 
 def insert_variant_entry(
-    cur, CHROM, POS, REF, ALT, rs_number, variant_id=None,
+    cur, CHROM, POS, REF, ALT, rs_number, indel, variant_id=None,
     transcript_stable_id="", effect="", HGVS_c="", HGVS_p="", impact="",
     polyphen_humdiv="", polyphen_humvar="", gene=""):
     """perform the actual insert and escape any fields appropriately
@@ -42,7 +42,7 @@ def insert_variant_entry(
         impact=escaped_value(impact),
         polyphen_humdiv=escaped_value(polyphen_humdiv),
         polyphen_humvar=escaped_value(polyphen_humvar),
-        gene=escaped_value(gene)))
+        gene=escaped_value(gene), indel=indel))
     print(insert)
     cur.execute(insert)
 
@@ -52,6 +52,7 @@ def insert_novel_variant(
     and return the variant_id
     """
     rs_number = "" if rs_number == "." else rs_number
+    indel = 1 if len(REF) > 1 or len(ALT) > 1 else 0
     anns = []
     for ann in ANNs.split(","):
         alt_allele, values = ann.split("|", 1)
@@ -64,19 +65,20 @@ def insert_novel_variant(
              CDS_position, protein_position, distance, errors) = anns[0]
             effs = effect.split("&")
             insert_variant_entry(
-                cur, CHROM, POS, REF, ALT, rs_number,
+                cur, CHROM, POS, REF, ALT, rs_number, indel,
                 transcript_stable_id=feature_id, effect=effs[0], HGVS_c=HGVS_c,
                 HGVS_p=HGVS_p, impact=impact, gene=gene)
             cur.execute("SELECT LAST_INSERT_ID()")
             variant_id = cur.fetchone()[0]
             for eff in effs[1:]:
                 insert_variant_entry(
-                    cur, CHROM, POS, REF, ALT, rs_number, variant_id = variant_id,
-                    transcript_stable_id=feature_id, effect=effs[0], HGVS_c=HGVS_c,
-                    HGVS_p=HGVS_p, impact=impact, gene=gene)
+                    cur, CHROM, POS, REF, ALT, rs_number, indel,
+                    variant_id = variant_id, transcript_stable_id=feature_id,
+                    effect=effs[0], HGVS_c=HGVS_c, HGVS_p=HGVS_p,
+                    impact=impact, gene=gene)
         else:
             insert_variant_entry(
-                cur, CHROM, POS, REF, ALT, rs_number)
+                cur, CHROM, POS, REF, ALT, rs_number, indel)
             cur.execute("SELECT LAST_INSERT_ID()")
             variant_id = cur.fetchone()[0]
     except MySQLdb.IntegrityError:
@@ -103,9 +105,10 @@ def insert_novel_variant(
             # alternative is to use InnoDB table with FULLTEXT index
             for eff in effect.split("&"):
                 insert_variant_entry(
-                    cur, CHROM, POS, REF, ALT, rs_number, variant_id=variant_id,
-                    transcript_stable_id=feature_id, effect=eff, HGVS_c=HGVS_c,
-                    HGVS_p=HGVS_p, impact=impact, gene=gene)
+                    cur, CHROM, POS, REF, ALT, rs_number, indel,
+                    variant_id=variant_id, transcript_stable_id=feature_id,
+                    effect=eff, HGVS_c=HGVS_c, HGVS_p=HGVS_p,
+                    impact=impact, gene=gene)
         except Exception, e:
             # handle special corner cases of 1. there being an "N" in the reference
             # allele and SnpEff formats the HGVS_c multiple times, i.e. ignore
