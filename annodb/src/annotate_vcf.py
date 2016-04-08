@@ -13,14 +13,13 @@ import sys
 import subprocess
 import shlex
 from ConfigParser import SafeConfigParser
-from utilities import *
+from dragen_globals import *
 
 SNPEFF_COMMAND = (
     "{java} -Xmx5G -jar {snpeff} eff {genome_version} -c {snpeff_config} "
     "-interval {intervals} {snpeff_options} "
     "-s {output_vcf}.annotations -o vcf {input_vcf} -noLog "
     "-nodownload{threaded}")
-CNF = "/nfs/goldstein/software/dragen/dragen.cnf"
 
 def main(input_vcf, output_vcf, stderr, parameters):
     """run the SnpEff command given the specified parameters
