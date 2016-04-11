@@ -10,6 +10,9 @@ Brett Copeland <bc2675@cumc.columbia.edu>
 import argparse
 import sys
 import MySQLdb
+import zlib
+from struct import unpack
+import match_indels_chromosome
 from ConfigParser import SafeConfigParser
 from utilities import *
 from dragen_globals import *
@@ -117,6 +120,12 @@ def get_variant_id(novel_fh, cur, CHROM, POS, REF, ALT, rs_number, ANNs):
     if row:
         return row[0], block_id
     else:
+        if len(REF) > 1 or len(ALT) > 1:
+            # perform indel matching
+            matched_indel_id, matched_block_id = match_indels_chromosome(
+                cur, CHROM, POS, REF, ALT)
+            if matched_indel_id is not None:
+                return matched_indels_id, matched_block_id
         global novel_variant_id
         variant_id = novel_variant_id
         output_novel_variant(
