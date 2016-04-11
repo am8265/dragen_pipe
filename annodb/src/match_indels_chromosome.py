@@ -17,8 +17,8 @@ indels_queried = False
 #nskipped = 0
 
 def match_indel(cur, CHROM, POS, REF, ALT):
-    """return the variant_id of a match against the indels currently in the
-    database if present, otherwise None
+    """return the variant_id and block_id  of a match against the indels
+    currently in the database if present, otherwise None, None
     """
     #global nskipped
     if not indels_queried:
@@ -27,7 +27,7 @@ def match_indel(cur, CHROM, POS, REF, ALT):
     if (POS - FLANKING_SIZE) < 0 or (POS + FLANKING_SIZE) > chromosome_length:
         # only perform indel matching if the indel is not too close to either
         # end of the chromosome
-        return None
+        return None, None
     len_REF = len(REF)
     len_indel = len(ALT) - len_REF
     indel_sequence = "".join([
@@ -51,8 +51,8 @@ def match_indel(cur, CHROM, POS, REF, ALT):
                         sequence[db_POS + len(db_REF) - 1:db_POS + 2 *
                                  FLANKING_SIZE - len(db_head) - len_indel - 1]])
                     if indel_sequence == db_sequence:
-                        return variant_id
-    return None
+                        return variant_id, db_POS / BLOCK_SIZE
+    return None, None
 
 def get_all_indels(cur, CHROM):
     """populate ALL_INDELS with lists of blocks of indels of
