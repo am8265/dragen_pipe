@@ -31,6 +31,16 @@ polyphen_matrixes_by_stable_id = {"humvar":{}, "humdiv":{}}
 # transcripts that don't have PolyPhen prediction matrixes
 polyphen_stable_ids_to_ignore = {"humvar":set(), "humdiv":set()}
 
+def get_sample_name(cur, sample_id):
+    """return the sample_name of the specified sample
+    """
+    cur.execute(GET_SAMPLE_NAME.format(sample_id=sample_id))
+    try:
+        return cur.fetchone()[0]
+    except IndexError:
+        raise ValueError(
+            "could not find sample_id {sample_id}".format(sample_id=sample_id))
+
 def format_NULL_value(value):
     """convert the specified value to \N for NULL where appropriate for
     outputting and subsequent loading
@@ -117,7 +127,7 @@ def output_novel_variant(
     variant_id
     """
     VariantID = "{CHROM}-{POS}-{REF}-{ALT}".format(
-        CHROM=CHROM, POS=POSP, REF=REF, ALT=ALT)
+        CHROM=CHROM, POS=POS, REF=REF, ALT=ALT)
     rs_number = "" if rs_number == "." else rs_number
     indel = 1 if len(REF) > 1 or len(ALT) > 1 else 0
     anns = []
@@ -164,9 +174,11 @@ def output_novel_variant(
                         "gene":gene}
                     if effect == "missense_variant":
                         # calculate PolyPhen scores if possible
-                        annotations[annotations_key].update(
-                            calculate_polyphen_scores(
-                                cur, feature_id, HGVS_p, VariantID))
+                        #annotations[annotations_key].update(
+                        #    calculate_polyphen_scores(
+                        #        cur, feature_id, HGVS_p, VariantID))
+                        # database isn't ready yet
+                        pass
         for annotation_values in annotations.itervalues():
             output_novel_variant_entry(
                 novel_fh, variant_id, POS, REF, ALT, rs_number, indel,
@@ -193,7 +205,7 @@ def get_variant_id(novel_fh, cur, CHROM, POS, REF, ALT, rs_number, ANNs):
     else:
         if len(REF) > 1 or len(ALT) > 1:
             # perform indel matching
-            matched_indel_id, matched_block_id = match_indels_chromosome(
+            matched_indel_id, matched_block_id = match_indels_chromosome.match_indel(
                 cur, CHROM, POS, REF, ALT)
             if matched_indel_id is not None:
                 return matched_indels_id, matched_block_id
@@ -205,19 +217,22 @@ def get_variant_id(novel_fh, cur, CHROM, POS, REF, ALT, rs_number, ANNs):
         novel_variant_id += 1
         return variant_id, block_id
 
-def main(input_vcf_fh, output_directory, sample_id, CHROM, log_fh):
+def main(input_vcf_fh, output_directory, sample_id, CHROM, log_fh,
+         sample_name=None):
     """parse the chromosome VCF, create tables for loading the variants and
     calls, and load the variants
     """
-    log_fh.write(log_output(
-        "parsing sample_id {sample_id}'s chromosome {CHROM} VCF".format(
-            sample_id=sample_id, CHROM=CHROM) + "\n"))
     config_parser = SafeConfigParser()
     config_parser.read(CNF)
     db = MySQLdb.connect(
         read_default_file=config_parser.get("annodb", "DB_CONFIG_FILE"),
         read_default_group="clientdragen01")
     cur = db.cursor()
+    if not sample_name:
+        sample_name = get_sample_name(cur, sample_id)
+    log_fh.write(log_output(
+        "parsing sample_name {sample_name}'s chromosome {CHROM} VCF".format(
+            sample_name=sample_name, CHROM=CHROM) + "\n"))
     # keep track of what the auto-increment value should be for variant_id
     global novel_variant_id
     cur.execute(GET_MAX_VARIANT_ID.format(CHROM=CHROM))
@@ -227,9 +242,13 @@ def main(input_vcf_fh, output_directory, sample_id, CHROM, log_fh):
     try:
         with open(novel_variants_file, "w") as novel_fh, \
                 open("{output_directory}/called_variant_chr{CHROM}.txt".format(
-                    output_directory=output_directory, CHROM=CHROM), "w") as calls_fh:
+                    output_directory=output_directory, CHROM=CHROM), "w") as calls_fh, \
+                open("{output_directory}/{sample_name}_chr{CHROM}.variant_id.vcf".format(
+                    output_directory=output_directory, sample_name=sample_name,
+                    CHROM=CHROM), "w") as vcf_out:
             for line in input_vcf_fh:
-                fields = get_vcf_fields_dict(line)
+                line_fields = line.rstrip().split("\t")
+                fields = dict(zip(VCF_COLUMNS, line_fields))
                 if fields["CHROM"] != CHROM:
                     raise ValueError(
                         "error: encountered chromosome {chromosome} when "
@@ -290,17 +309,22 @@ def main(input_vcf_fh, output_directory, sample_id, CHROM, log_fh):
                             **merge_dicts(
                                 call, {"AD_ALT":ADs[1 + x], "variant_id":variant_id,
                                        "block_id":block_id}, INFO_dict)) + "\n")
+                # annotate each variant with its variant_id for storage purposes
+                line_fields[VCF_COLUMNS_DICT["INFO"]] = ("VariantID=" + ",".join(
+                    str(variant_id[0]) for variant_id in variant_ids) + ";" +
+                    fields["INFO"])
+                vcf_out.write("\t".join(line_fields) + "\n")
         log_fh.write(log_output(
-            "successfully finished parsing sample_id {sample_id}'s chromosome "
+            "successfully finished parsing sample_name {sample_name}'s chromosome "
             "{CHROM} VCF".format(
-                sample_id=sample_id, CHROM=CHROM) + "\n"))
+                sample_name=sample_name, CHROM=CHROM) + "\n"))
         cur.execute(LOAD_TABLE.format(
             table_file=novel_variants_file,
             table_name="variant_chr{CHROM}".format(CHROM=CHROM)))
         db.commit()
         log_fh.write(log_output(
-            "successfully loaded sample_id {sample_id}'s chromosome {CHROM} "
-            "novel variants".format(sample_id=sample_id, CHROM=CHROM) + "\n"))
+            "successfully loaded sample_name {sample_name}'s chromosome {CHROM} "
+            "novel variants".format(sample_name=sample_name, CHROM=CHROM) + "\n"))
     finally:
         if db.open:
             db.close()
@@ -316,8 +340,10 @@ if __name__ == "__main__":
     parser.add_argument("CHROM", choices=[str(chrom) for chrom in range(1, 23)]
                         + ["X", "Y", "MT"],
                         help="the chromosome that is being processed")
+    parser.add_argument("-n", "--sample_name", help="the sample_name for the "
+                        "sample (only used for naming out files)")
     parser.add_argument("--log", type=argparse.FileType("a"),
                         default=sys.stderr, help="log file to write errors to")
     args = parser.parse_args()
-    main(args.INPUT_VCF, args.OUTPUT_DIRECTORY,
-         args.SAMPLE_ID, args.CHROM, args.log)
+    main(args.INPUT_VCF, args.OUTPUT_DIRECTORY, args.SAMPLE_ID,
+         args.CHROM, args.log, sample_name=args.sample_name)
