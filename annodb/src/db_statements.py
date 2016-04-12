@@ -51,3 +51,8 @@ FROM homo_sapiens_variation_74_37.protein_function_predictions
 WHERE translation_md5_id = {translation_md5_id}
     AND analysis_attrib_id = {attrib_id}
 """
+GET_SAMPLE_NAME = """
+SELECT sample_name
+FROM sample
+WHERE sample_id = {sample_id}
+"""
