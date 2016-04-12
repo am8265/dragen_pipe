@@ -11,6 +11,7 @@ import argparse
 import sys
 import MySQLdb
 import zlib
+import re
 from struct import unpack
 import match_indels_chromosome
 from ConfigParser import SafeConfigParser
@@ -24,12 +25,75 @@ NOVEL_VARIANT_OUTPUT_FORMAT = (
         ["variant_id", "POS", "REF", "ALT", "rs_number", "transcript_stable_id",
          "effect", "HGVS_c", "HGVS_p", "impact", "polyphen_humdiv",
          "polyphen_humvar", "gene", "indel"]) + "}")
+HGVS_P_REGEX = re.compile(HGVS_P_PATTERN)
+# cached PolyPhen prediction matrixes
+polyphen_matrixes_by_stable_id = {"humvar":{}, "humdiv":{}}
+# transcripts that don't have PolyPhen prediction matrixes
+polyphen_stable_ids_to_ignore = {"humvar":set(), "humdiv":set()}
 
 def format_NULL_value(value):
     """convert the specified value to \N for NULL where appropriate for
     outputting and subsequent loading
     """
     return value if value else "\\N"
+
+def calculate_polyphen_scores(cur, transcript_stable_id, HGVS_p, VariantID):
+    """return the PolyPhen scores for the given missense variant
+    """
+    # cache the transcripts' matrixes for those that have them and cache the
+    # transcript IDs for those that don't to avoid having to re-query
+    global polyphen_matrixes_by_stable_id
+    global polyphen_stable_ids_to_ignore
+    hgvs_p_match = HGVS_P_REGEX.match(HGVS_p)
+    scores = {}
+    if hgvs_p_match:
+        d = hgvs_p_match.groupdict()
+        codon_position = int(hgvs_p_match["codon_position"])
+        amino_acid_change = d["amino_acid_change"]
+        offset = 3 + 2 * ((codon_position - 1) * 20 +
+                          AMINO_ACIDS[amino_acid_change])
+        for polyphen_score in ("humdiv", "humvar"):
+            if (transcript_stable_id in
+                polyphen_stable_ids_to_ignore[polyphen_score]):
+                scores[polyphen_score] = None
+                continue
+            if (transcript_stable_id not in
+                polyphen_matrixes_by_stable_id[polyphen_score]):
+                cur.execute(GET_TRANSLATION_MD5_ID.format(
+                    stable_id=transcript_stable_id))
+                md5_id_row = cur.fetchone()
+                if md5_id_row:
+                    translation_md5_id = md5_id_row[0]
+                else:
+                    polyphen_stable_ids_to_ignore[polyphen_score].add(
+                        transcript_stable_id)
+                    scores[polyphen_score] = None
+                    continue
+                cur.execute(GET_POLYPHEN_PREDICTION_MATRIX.format(
+                    translation_md5_id=translation_md5_id,
+                    attrib_id=POLYPHEN_ATTRIB_ID[polyphen_score]))
+                polyphen_matrix_row = cur.fetchone()
+                if polyphen_matrix_row:
+                    polyphen_matrixes_by_stable_id[polyphen_score][
+                        transcript_stable_id] = (
+                            zlib.decompress(polyphen_matrix_row[0],
+                                            16 + zlib.MAX_WBITS))
+                else:
+                    polyphen_stable_ids_to_ignore[polyphen_score].add(
+                        transcript_stable_id)
+                    scores[polyphen_score] = None
+                    continue
+                pred = polyphen_matrixes_by_stable_id[transcript_stable_id][
+                    offset:offset + 2]
+                value = unpack("H", pred)[0]
+                prediction = value >> 14
+                scores[polyphen_score] = value & PROB_BITMASK
+    else:
+        raise ValueError(
+            "error: could not parse HGVS_p {HGVS_p} for "
+            "{VariantID}".format(
+                HGVS_p=HGVS_p, VariantID=VariantID))
+    return scores
 
 def output_novel_variant_entry(
     novel_fh, variant_id, POS, REF, ALT, rs_number, indel, impact,
@@ -48,10 +112,12 @@ def output_novel_variant_entry(
         gene=format_NULL_value(gene), indel=indel) + "\n")
 
 def output_novel_variant(
-    novel_fh, variant_id, CHROM, POS, REF, ALT, original_ALT, rs_number, ANNs):
+    novel_fh, cur, variant_id, CHROM, POS, REF, ALT, original_ALT, rs_number, ANNs):
     """output all entries for the novel variant to novel_fh and increment
     variant_id
     """
+    VariantID = "{CHROM}-{POS}-{REF}-{ALT}".format(
+        CHROM=CHROM, POS=POSP, REF=REF, ALT=ALT)
     rs_number = "" if rs_number == "." else rs_number
     indel = 1 if len(REF) > 1 or len(ALT) > 1 else 0
     anns = []
@@ -88,22 +154,27 @@ def output_novel_variant(
                     else:
                         raise ValueError(
                             "error: duplicated ({transcript_stable_id}, {effect}"
-                            ") for {CHROM}-{POS}-{REF}-{ALT}".format(
+                            ") for {VariantID}".format(
                                 transcript_stable_id=feature_id, effect=effect,
-                                CHROM=CHROM, POS=POS, REF=REF, ALT=ALT))
+                                VariantID=VariantID))
                 else:
                     annotations[annotations_key] = {
                         "impact":impact, "transcript_stable_id":feature_id,
                         "effect":effect, "HGVS_c":HGVS_c, "HGVS_p":HGVS_p,
                         "gene":gene}
+                    if effect == "missense_variant":
+                        # calculate PolyPhen scores if possible
+                        annotations[annotations_key].update(
+                            calculate_polyphen_scores(
+                                cur, feature_id, HGVS_p, VariantID))
         for annotation_values in annotations.itervalues():
             output_novel_variant_entry(
                 novel_fh, variant_id, POS, REF, ALT, rs_number, indel,
                 **annotation_values)
     else:
         raise ValueError(
-            "error: {CHROM}-{POS}-{REF}-{ALT} has no SnpEff annotation(s)".
-            format(CHROM=CHROM, POS=POS, REF=REF, ALT=ALT))
+            "error: {VariantID} has no SnpEff annotation(s)".
+            format(VariantID=VariantID))
 
 def get_variant_id(novel_fh, cur, CHROM, POS, REF, ALT, rs_number, ANNs):
     """return the variant_id of the given variant and output it to novel_fh
@@ -129,7 +200,7 @@ def get_variant_id(novel_fh, cur, CHROM, POS, REF, ALT, rs_number, ANNs):
         global novel_variant_id
         variant_id = novel_variant_id
         output_novel_variant(
-            novel_fh, variant_id, CHROM, POS, REF, alt,
+            novel_fh, cur, variant_id, CHROM, POS, REF, alt,
             ALT, rs_number, ANNs)
         novel_variant_id += 1
         return variant_id, block_id

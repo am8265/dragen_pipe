@@ -40,3 +40,14 @@ SELECT DISTINCT variant_id, POS, REF, ALT
 FROM variant_chr{CHROM}
 WHERE indel = 1
 """
+GET_TRANSLATION_MD5_ID = """
+SELECT translation_md5_id
+FROM homo_sapiens_variation_74_37.transcript_translation_mapping
+WHERE stable_id = "{stable_id}"
+"""
+GET_POLYPHEN_PREDICTION_MATRIX = """
+SELECT prediction_matrix
+FROM homo_sapiens_variation_74_37.protein_function_predictions
+WHERE translation_md5_id = {translation_md5_id}
+    AND analysis_attrib_id = {attrib_id}
+"""
