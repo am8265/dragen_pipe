@@ -31,7 +31,7 @@ enable-auto-multifile = true
 
 output-file-prefix = {IGMID}
 output-format = BAM
-output-directory = /nfs/fastq16-rsync/ALIGNMENT/BUILD37/DRAGEN/{uppercaseSeqtype}/{IGMID}/
+output-directory = /nfs/fastq_temp/ALIGNMENT/BUILD37/DRAGEN/{uppercaseSeqtype}/{IGMID}/
 
 #================================================================================
 # READ GROUP INFO
@@ -59,7 +59,7 @@ vc-max-reads-per-region = 1000 					# Maximum number of reads per region for dow
 vc-target-coverage = 2000 					# The target coverage for downsampling.  Default 2000
 vc-enable-depth-of-coverage = true
 vc-emit-zero-coverage-intervals = true 
-vc-depth-intervals-bed = /nfs/seqscratch10/jb3816/DRAGEN/SeqCap_EZ_Exome_v3_capture.bed 
+vc-depth-intervals-bed = {captureKit} 
 dbsnp = /staging/REF/dbSNP_b144_GRCh37p13/All_20150605.vcf
 
 #================================================================================
