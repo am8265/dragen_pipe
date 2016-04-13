@@ -22,13 +22,13 @@ $reg->load_registry_from_db(
 );
 
 my $transcript_adaptor = $reg->get_adaptor('Human', 'Core', 'Transcript');
-my $dbh = DBI->connect("DBI:mysql:homo_sapiens_core_74_37;mysql_read_default_file=/nfs/goldstein/software/annodb/.my.cnf;mysql_read_default_group=clienthomo_sapiens_variation_74_37", undef, undef);
+my $dbh = DBI->connect("DBI:mysql:homo_sapiens_core_74_37;mysql_read_default_file=/nfs/goldstein/software/dragen/.my.cnf;mysql_read_default_group=clienthomo_sapiens_variation_74_37", undef, undef);
 my $query = "SELECT stable_id FROM transcript";
 my $sth = $dbh->prepare($query);
 $sth->execute();
 my $results = $sth->fetchall_arrayref;
 $sth->finish();
-my $dbh2 = DBI->connect("DBI:mysql:homo_sapiens_variation_74_37;mysql_read_default_file=/nfs/goldstein/software/annodb/.my.cnf;mysql_read_default_group=clienthomo_sapiens_variation_74_37", undef, undef);
+my $dbh2 = DBI->connect("DBI:mysql:homo_sapiens_variation_74_37;mysql_read_default_file=/nfs/goldstein/software/dragen/.my.cnf;mysql_read_default_group=clienthomo_sapiens_variation_74_37", undef, undef);
 my $md5_query = "SELECT translation_md5_id FROM translation_md5 WHERE translation_md5 = ?";
 my $md5_sth = $dbh2->prepare($md5_query);
 my $stable_id = "";
