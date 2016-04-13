@@ -54,20 +54,23 @@ def calculate_polyphen_scores(cur, transcript_stable_id, HGVS_p, VariantID):
     """
     # cache the transcripts' matrixes for those that have them and cache the
     # transcript IDs for those that don't to avoid having to re-query
+    #print(transcript_stable_id)
+    #print(HGVS_p)
+    #print(VariantID)
     global polyphen_matrixes_by_stable_id
     global polyphen_stable_ids_to_ignore
     hgvs_p_match = HGVS_P_REGEX.match(HGVS_p)
     scores = {}
     if hgvs_p_match:
         d = hgvs_p_match.groupdict()
-        codon_position = int(hgvs_p_match["codon_position"])
+        codon_position = int(d["codon_position"])
         amino_acid_change = d["amino_acid_change"]
         offset = 3 + 2 * ((codon_position - 1) * 20 +
                           AMINO_ACIDS[amino_acid_change])
         for polyphen_score in ("humdiv", "humvar"):
             if (transcript_stable_id in
                 polyphen_stable_ids_to_ignore[polyphen_score]):
-                scores[polyphen_score] = None
+                scores["polyphen_" + polyphen_score] = None
                 continue
             if (transcript_stable_id not in
                 polyphen_matrixes_by_stable_id[polyphen_score]):
@@ -79,7 +82,7 @@ def calculate_polyphen_scores(cur, transcript_stable_id, HGVS_p, VariantID):
                 else:
                     polyphen_stable_ids_to_ignore[polyphen_score].add(
                         transcript_stable_id)
-                    scores[polyphen_score] = None
+                    scores["polyphen_" + polyphen_score] = None
                     continue
                 cur.execute(GET_POLYPHEN_PREDICTION_MATRIX.format(
                     translation_md5_id=translation_md5_id,
@@ -93,13 +96,18 @@ def calculate_polyphen_scores(cur, transcript_stable_id, HGVS_p, VariantID):
                 else:
                     polyphen_stable_ids_to_ignore[polyphen_score].add(
                         transcript_stable_id)
-                    scores[polyphen_score] = None
+                    scores["polyphen_" + polyphen_score] = None
                     continue
-                pred = polyphen_matrixes_by_stable_id[transcript_stable_id][
-                    offset:offset + 2]
-                value = unpack("H", pred)[0]
-                prediction = value >> 14
-                scores[polyphen_score] = value & PROB_BITMASK
+                packed_score = polyphen_matrixes_by_stable_id[polyphen_score][
+                    transcript_stable_id][offset:offset + 2]
+                unpacked_value = unpack("H", packed_score)[0]
+                prediction = int(unpacked_value >> 14)
+                if prediction == 3:
+                    # encodes "UNKNOWN" score, so we'll just store NULL
+                    scores["polyphen_" + polyphen_score] = None
+                    continue
+                scores["polyphen_" + polyphen_score] = (
+                    unpacked_value & POLYPHEN_PROB_BITMASK)
     else:
         raise ValueError(
             "error: could not parse HGVS_p {HGVS_p} for "
@@ -176,11 +184,9 @@ def output_novel_variant(
                         "gene":gene}
                     if effect == "missense_variant":
                         # calculate PolyPhen scores if possible
-                        #annotations[annotations_key].update(
-                        #    calculate_polyphen_scores(
-                        #        cur, feature_id, HGVS_p, VariantID))
-                        # database isn't ready yet
-                        pass
+                        annotations[annotations_key].update(
+                            calculate_polyphen_scores(
+                                cur, feature_id, HGVS_p, VariantID))
         for annotation_values in annotations.itervalues():
             output_novel_variant_entry(
                 novel_fh, variant_id, POS, REF, ALT, rs_number, indel,
