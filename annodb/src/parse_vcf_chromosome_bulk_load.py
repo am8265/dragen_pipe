@@ -25,6 +25,8 @@ NOVEL_VARIANT_OUTPUT_FORMAT = (
         ["variant_id", "POS", "REF", "ALT", "rs_number", "transcript_stable_id",
          "effect", "HGVS_c", "HGVS_p", "impact", "polyphen_humdiv",
          "polyphen_humvar", "gene", "indel"]) + "}")
+MATCHED_INDEL_OUTPUT_FORMAT = (
+    "{CHROM}\t{variant_id}\t{POS}\t{REF}\t{ALT}")
 HGVS_P_REGEX = re.compile(HGVS_P_PATTERN)
 # cached PolyPhen prediction matrixes
 polyphen_matrixes_by_stable_id = {"humvar":{}, "humdiv":{}}
@@ -188,7 +190,8 @@ def output_novel_variant(
             "error: {VariantID} has no SnpEff annotation(s)".
             format(VariantID=VariantID))
 
-def get_variant_id(novel_fh, cur, CHROM, POS, REF, ALT, rs_number, ANNs):
+def get_variant_id(novel_fh, matched_indel_fh, cur, CHROM, POS,
+                   REF, ALT, rs_number, ANNs):
     """return the variant_id of the given variant and output it to novel_fh
     if it's novel
     """
@@ -208,6 +211,8 @@ def get_variant_id(novel_fh, cur, CHROM, POS, REF, ALT, rs_number, ANNs):
             matched_indel_id, matched_block_id = match_indels_chromosome.match_indel(
                 cur, CHROM, POS, REF, ALT)
             if matched_indel_id is not None:
+                matched_indel_fh.write(MATCHED_INDEL_OUTPUT_FORMAT.format(
+                    CHROM=CHROM, variant_id=matched_indel_id, REF=REF, ALT=ALT))
                 return matched_indels_id, matched_block_id
         global novel_variant_id
         variant_id = novel_variant_id
@@ -245,7 +250,9 @@ def main(input_vcf_fh, output_directory, sample_id, CHROM, log_fh,
                     output_directory=output_directory, CHROM=CHROM), "w") as calls_fh, \
                 open("{output_directory}/{sample_name}_chr{CHROM}.variant_id.vcf".format(
                     output_directory=output_directory, sample_name=sample_name,
-                    CHROM=CHROM), "w") as vcf_out:
+                    CHROM=CHROM), "w") as vcf_out, \
+                open("{output_directory}/matched_indels_chr{CHROM}.txt".format(
+                    output_directory=output_directory, CHROM=CHROM), "w") as matched_indel_fh:
             for line in input_vcf_fh:
                 line_fields = line.rstrip().split("\t")
                 fields = dict(zip(VCF_COLUMNS, line_fields))
@@ -262,8 +269,9 @@ def main(input_vcf_fh, output_directory, sample_id, CHROM, log_fh,
                 for ALT_allele in ALT_alleles:
                     variant_ids.append(
                         get_variant_id(
-                            novel_fh, cur, CHROM, int(fields["POS"]), fields["REF"],
-                            ALT_allele, fields["rs_number"], INFO_dict["ANN"]))
+                            novel_fh, matched_indel_fh, cur, CHROM, int(fields["POS"]),
+                            fields["REF"], ALT_allele, fields["rs_number"],
+                            INFO_dict["ANN"]))
                 for variant_stat in (
                     "FS", "MQ", "QD", "ReadPosRankSum", "MQRankSum"):
                     if variant_stat not in INFO_dict:
