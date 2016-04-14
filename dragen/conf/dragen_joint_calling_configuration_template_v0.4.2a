@@ -3,14 +3,8 @@
 #================================================================================
 #
 # Author:	Joshua Bridgers (jb3816)
-# Date:		02/04/2016
-# Version:	0.4.2a
-#
-# 02/04/2016 Changes:
-# 	1. Changed output directory to fastq16-rsync from fastq16
-# 02/02/2016 Changes:
-# 	1. Added vc-emit-zero-coverage-intervals
-# 	2. Updated Dragen to 1.7.1
+# Desc:         Configuration file for Dragen 1.7.1 for joint calling from gVCF
+#               files
 #
 #================================================================================
 
