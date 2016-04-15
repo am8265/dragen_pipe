@@ -11,10 +11,31 @@ def get_filename_from_fullpath(full_path):
     
     return full_path.split('/')[-1]
 
+
 def run_cmd(cmd_to_run):
     ''' Run a command
     '''
     os.system(cmd_to_run) ## Replace this with subprocess 
+
+
+def run_markduplicates(options):
+    ''' Run Markduplicates
+    '''
+    ## Unpack arguments
+    java_location = options.java_location
+    picard_location = options.picard_location
+    bam_file = options.bam_file 
+    output_file = options.output_dir + options.sample +".markduplicates.txt"
+    temp_output_bam = options.scratch_dir + 'temp.bam'
+
+    ## Define the picard command to run 
+    markduplicates_cmd = "%s -jar %s MarkDuplicates INPUT=%s OUTPUT=%s METRICS_FILE=%s"%(java_location,picard_location,bam_file,temp_output_bam,output_file)
+    ## Execute the command
+    run_cmd(markduplicates_cmd)
+
+    ## Remove the temp bam file
+    os.system('rm %s'%(temp_output_bam))
+
 
 def create_targetfile(options):
     ''' Use this function to create a target interval file list
@@ -45,11 +66,18 @@ def run_wgsmetrics(options):
     reference_file = options.reference_file
     bam_file = options.bam_file 
     output_file = options.output_dir + options.sample +".metrics.txt"
- 
+    
+    
     ## Define the CollectWgsMetrics Command
     if(options.wgsinterval == True):
-        target_file = options.target_file
-        wgs_cmd = "%s -jar %s CollectWgsMetrics R=%s O=%s I=%s INTERVAL=%s MQ=20 Q=10"%(java_location,picard_location,reference_file,output_file,bam_file,target_file)
+        if(options.create_targetfile == True):
+            output_name = get_filename_from_fullpath(bed_file)
+            target_file = options.output_dir + output_name + ".list"
+        else:    
+            target_file = options.target_file
+            
+        wgs_cmd = "%s -jar %s CollectWgsMetrics R=%s O=%s I=%s INTERVALS=%s MQ=20 Q=10"%(java_location,picard_location,reference_file,output_file,bam_file,target_file)
+        print wgs_cmd
     else:
         wgs_cmd = "%s -jar %s CollectWgsMetrics R=%s O=%s I=%s MQ=20 Q=10"%(java_location,picard_location,reference_file,output_file,bam_file)
 
@@ -69,21 +97,62 @@ def run_hsmetrics(options):
     sample = options.sample
     output_file = options.scratch + options.sample + ".hsmetrics.txt" 
 
-    
+    if(options.create_targetfile == True):
+        output_name = get_filename_from_fullpath(bed_file)
+        target_file = options.output_dir + output_name + ".list"
+    else:    
+        target_file = options.target_file
+
     ## Define the command to run
     hsmetrics_cmd = "%s -jar %s CalculateHsMetrics BI=%s TI=%s METRIC_ACCUMULATION_LEVEL=ALL_READS I=%s O=%s MQ=20 Q=10"%(java_location,picard_location,bait_file,target_file,bam_file,output_file)
     
     ## Run the command
-    run_cmd(hsmetrics_cmd) 
+    run_cmd(hsmetrics_cmd)
     
-    
-def process_metricsfile():
+
+def process_hsmetrics(options):
     ''' Process the HsMetrics Output
     '''
 
-def output_metrics():
-    ''' Output the processed file
+    i=0
+    metrics_file = options.scratch + options.sample + ".hsmetrics.txt"
+    metrics = []
+    headers = []
+    with open(metrics_file) as IN:
+        for line in IN:
+            if(line[0]!='#'):
+                i+=1
+                if(i==2): # First line after the ## header lines is the headers for our metrics
+                    headers=line.strip('\n').split('\t')
+                if(i==3): # The metrics line is the 2nd line after the ## header lines  
+                    metrics=line.strip('\n').split('\t')
+
+    hsmetrics = dict(zip(headers,metrics))
+
+    ##Output the required columns 
+
+
+def process_wgsmetrics(options):
+    ''' Process the wgsMetrics Output
     '''
+
+    i=0
+    metrics_file = options.scratch + options.sample + ".metrics.txt"
+    metrics = []
+    headers = []
+    with open(metrics_file) as IN:
+        for line in IN:
+            if(line[0]!='#'):
+                i+=1
+                if(i==2): # First line after the ## header lines is the headers for our metrics
+                    headers=line.strip('\n').split('\t')
+                if(i==3): # The metrics line is the 2nd line after the ## header lines  
+                    metrics=line.strip('\n').split('\t')
+    
+    
+    wgsmetrics = dict(zip(headers,metrics))
+    ## Output required columns (PCT_1X,PCT_5X,PCT_10X,PCT_15X,PCT20X,MEAN_COVERAGE)
+    
     
 def main(options):
     ''' Main Function
@@ -91,19 +160,16 @@ def main(options):
    
     if(options.create_targetfile == True):
         create_targetfile(options)
-
+        print "Created TargetFile\n"
+        
     if(options.seq_type.upper() == 'GENOME'):
         run_wgsmetrics(options)
+        process_wgsmetrics(options)
     
-    elif(options.seq_type.upper() == 'EXOME'):
+    else:
         run_hsmetrics(options)
-
-    #run_hsmetrics()
-
-    #process_metricsfile()
-
-    #output_metrics()
-
+        process_hsmetrics(options)
+        
     
 if __name__ == '__main__':
 
@@ -127,10 +193,8 @@ if __name__ == '__main__':
     parser.add_option("--wgsinterval",action="store_true",help="FLAG-True/False",dest="wgsinterval",default="False")
 
     (options,args) = parser.parse_args()
-
-    #if(len(options)<2):
-        #print "Specify Arguments ! exiting...\n Use -h/--help for the help menu"
-        #sys.exit()
+        
+        
 
     if (options.scratch == "."):
         print "No given scratch directory - using current directory"
@@ -142,7 +206,7 @@ if __name__ == '__main__':
         options.pythondir = options.pythondir + "/"
     if options.output_dir[-1] != "/":
         options.output_dir = options.output_dir + "/"   
-    if (options.bam_file == "" and options.create_targetfile==False):
+    if (options.bam_file == "" and options.seq_type!=""):
         print "No BAM file - exiting..."
         sys.exit()   
     if (options.bed_file == "" and options.create_targetfile==True):
@@ -151,10 +215,10 @@ if __name__ == '__main__':
     if (options.target_file == "" and options.create_targetfile==False):
         print "No Target File Provided - exiting..."
         sys.exit()    
-    if (options.bait_file == "" and options.seq_type.upper() == 'EXOME'):
+    if (options.bait_file == "" and options.seq_type.upper() not in ['GENOME','']):
         print "No Bait File Provided - exiting..."
         sys.exit()
-    if (options.sample == "" and options.create_targetfile==False):
+    if (options.sample == "" and options.seq_type.upper()!=''):
         print "No sample id - Exiting..."
         sys.exit()
     if (options.prepid == ""):
@@ -168,7 +232,7 @@ if __name__ == '__main__':
         print "Specify Java location !\nexiting ..."
         sys.exit()
     if (options.seqdict_file == "" and create_targetfile == True):
-        print "Specify the Sequence Dictionary File To Use!\nexiting ..."
+        print "Specify the Sequence Dictionary File To Use For Creating the TargetFile!\nexiting ..."
         sys.exit()
 
     main(options)
