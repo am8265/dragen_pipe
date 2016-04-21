@@ -69,10 +69,9 @@ prepIDs=`sdb -e "select s.prepID from SeqType s join prepT p on p.prepID=s.prepI
 
 	#echo  "select s.prepID from SeqType s join prepT p on p.prepID=s.prepID where s.DBID=(select DBID from SampleT where CHGVID='$s') and s.SeqType='$SEQTYPE' and p.failedPrep='0' and exomekit='$EXOMEKIT' ORDER BY p.prepDate DESC"
         #echo $s $prepIDs
-        for prepID in $prepIDs ; do
+        pseudo_prepid=$(sdb -e "INSERT INTO pseudo_prepid (pseudo_prepid,prepid) VALUES (NULL,'$prepIDs') ; SELECT LAST_INSERT_ID();" -NB)
 
-                #insert pseudo_prepid
-                pseudo_prepid=$(sdb -e "INSERT INTO pseudo_prepid (pseudo_prepid,prepid) VALUES (NULL,'$prepIDs') ; SELECT LAST_INSERT_ID();" -NB)
+        for prepID in $prepIDs ; do
                 sdb -e "UPDATE seqdbClone set pseudo_prepid='$pseudo_prepid' WHERE prepid=$prepID"
                 sdb -e "INSERT INTO dragen_queue (pseudo_prepid,sample_name,sample_type,capture_kit,priority) VALUES ($pseudo_prepid,'$s','$(echo $SEQTYPE | sed 's/ /_/g')','$EXOMEKIT',4)"
 	done
