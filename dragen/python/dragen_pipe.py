@@ -33,8 +33,8 @@ def main(samples, debug, execute, database):
             read_default_file=parameters["DB_CONFIG_FILE"])
     curs = db.cursor()
 
-    if samples == True: #Automated run
-
+    #Automated run
+    if samples == True:
         info = get_next_sample(curs,debug)
         if info is None:
             print "No samples were found"
@@ -44,45 +44,101 @@ def main(samples, debug, execute, database):
             dragen_id = info[4]
             sample = dragen_sample(info[0],info[1],info[2],info[3],curs)
             single_sample_setup(curs,sample,parameters)
-            run_sample(sample)
-            query = "DELETE FROM dragen_queue WHERE dragen_id={0}".format(dragen_id)
-            if debug:
-                print query
-            curs.execute(query)
+            error_code = run_sample(sample,debug)
+
+            if error_code == 0:
+                rm_query = "DELETE FROM dragen_queue WHERE dragen_id={0}".format(dragen_id)
+                if debug:
+                    print rm_query
+                curs.execute(rm_query)
+
             info = get_next_sample(curs,debug)
 
-        pass
+    #Run through a sample file
     else:
-        pass
-        #dragen_id = get_sample(sample_name,sample_type,capture_kit)
-        #single_sample_setup(dragen_id)
+        for line in samples.readlines():
+            info = line.strip().split('\t')
+            prep_query = ("SELECT pseudo_prepid "
+                "FROM seqdbClone "
+                "WHERE CHGVID='{0}' AND seqtype ='{1}' "
+                "ORDER BY prepid desc limit 1"
+                ).format(info[0],info[1])
+            curs.execute(prep_query)
+            pseudo_prepid = curs.fetchone()
+            sample = dragen_sample(info[0],info[1],pseudo_prepid[0],info[2],curs)
+            single_sample_setup(curs,sample,parameters)
+            error_code = run_sample(sample,debug)
 
-def run_sample(sample):
-    cmd = ['dragen', '-f', '-v', '-c', sample.metadata['conf_file'], sample.metadata['out_file']]
-    subprocess.call(cmd, stdout=sample.metadata['dragen_stdout'],stderr=sample.metadata['dragen_stderr'])
+            if error_code == 0:
 
-def single_sample_setup(curs,sample,parameters):
+                rm_query = ('DELETE FROM dragen_queue WHERE pseudo_prepid={0}'
+                    ).format(pseudo_prepid[0])
+                if debug:
+                    print rm_query
+                curs.execute(rm_query)
 
-    setup_dir(sample)
+def run_sample(sample,debug):
+    cmd = ['dragen', '-f', '-v', '-c', sample.metadata['conf_file']]
+    if debug:
+        print ' '.join(cmd)
+
+    dragen_stderr = open(sample.metadata['dragen_stderr'],'a')
+    with open(sample.metadata['dragen_stdout'],'a') as dragen_stdout:
+
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE,stderr=dragen_stderr)
+        for line in iter(process.stdout.readline, ''):
+            if debug:
+                sys.stdout.write(line)
+            dragen_stdout.write(line)
+
+        process.communicate()
+        dragen_code = process.wait()
+    if debug:
+       print "Dragen error code: {0}".format(dragen_code)
+
+    dragen_stdout.close()
+    dragen_stderr.close()
+    return dragen_code
+
+def set_seqtime(curs,sample):
     query = ("SELECT FROM_UNIXTIME(Seqtime) "
             "FROM Flowcell WHERE FCIllumID='{first_flowcell}'"
             ).format(**sample.metadata)
     curs.execute(query)
     seqtime = curs.fetchone()
+
+    if seqtime: #In case there is not flowcell information
+        seqtime = seqtime[0].date().isoformat() #ISO8601 format for RGDT field
+    else:
+        seqtime = '1970-1-1'
     sample.set('seqtime',seqtime)
+
+def single_sample_setup(curs,sample,parameters):
+
+    setup_dir(curs,sample)
 
     create_config(sample)
     #create_gvcf_config(sample)
     #create_joint_call_config(sample)
     #create_post_dragen_shell(sample,parsed_CNF)
 
-def setup_dir(sample):
+def setup_dir(curs,sample):
     mkdir_cmd = ['mkdir','-p',sample.metadata['script_dir']]
     subprocess.call(mkdir_cmd)
     mkdir_cmd = ['mkdir','-p',sample.metadata['log_dir']]
     subprocess.call(mkdir_cmd)
     mkdir_cmd = ['mkdir','-p',sample.metadata['fastq_dir']]
     subprocess.call(mkdir_cmd)
+
+    """Removes any fastq.gz files in the fastq folder. Symlink only fastqs
+        should be in this folder.  This is just in case the sample was run
+        through once, created symlinks but later was sequenced again.  All
+        output is hidden (written to /dev/null/"""
+    dev_null = open(os.devnull, 'w')
+    files = glob(str(sample.metadata['fastq_dir']) + '/*fastq.gz')
+    for file in files:
+        os.remove(file)
+
 
     first_read1 = get_first_read(sample,1)
     first_read2 = get_first_read(sample,2)
@@ -95,9 +151,8 @@ def setup_dir(sample):
                     '001.fastq.gz','{0:03d}.fastq.gz'.format(fastq_counter))
             new_fastq_read2 = first_read2.split('/')[-1].replace(
                     '001.fastq.gz','{0:03d}.fastq.gz'.format(fastq_counter))
-
             ln_cmd1 = ['ln','-s',fastq,sample.metadata['fastq_dir']+'/'+new_fastq_read1]
-            ln_cmd2 = ['ln','-s',fastq,sample.metadata['fastq_dir']+'/'+new_fastq_read2]
+            ln_cmd2 = ['ln','-s',fastq.replace('R1','R2'),sample.metadata['fastq_dir']+'/'+new_fastq_read2]
 
             if fastq_counter == 1:
                 sample.set('first_fastq1',sample.metadata['fastq_dir']+'/'+new_fastq_read1)
@@ -105,28 +160,43 @@ def setup_dir(sample):
                 sample.set('first_lane',sample.metadata['lane'][0][0][0])
                 sample.set('first_flowcell',sample.metadata['lane'][0][0][1])
 
-            #print ln_cmd1
-            #print ln_cmd2
             subprocess.call(ln_cmd1)
             subprocess.call(ln_cmd2)
 
+    set_seqtime(curs,sample)
 
 def get_first_read(sample,read_number):
-    #Using first fastq as template for all fastq.gz 
+    #Using first fastq as template for all fastq.gz
     first_fastq_loc = sample.metadata['fastq_loc'][0]
+    #print '{0}/*L00{1}_R{2}_001.fastq.gz'.format(first_fastq_loc,sample.metadata['lane'][0][0][0],read_number)
     read = glob('{0}/*L00{1}_R{2}_001.fastq.gz'.format(first_fastq_loc,sample.metadata['lane'][0][0][0],read_number))
-    return read[0]
+    #The fastqs might still be on the quantum tapes
+    if read == []:
+        read = glob(('/stornext/seqfinal/casava1.8/whole_exome/{0}/{1}/*L00{2}_R{3}_001.fastq.gz'
+            ).format(sample.metadata['sample_name'],sample.metadata['lane'][0][0][1],
+                sample.metadata['lane'][0][0][0],read_number))
 
+        if read == []:
+            print sample.metadata['sample_name']
+            raise Exception, "Fastq file not found!"
+        else:
+            """fastq_loc was based off of database so needs to be set to the
+                quantum location"""
+            sample.set('fastq_loc',glob(('/stornext/seqfinal/casava1.8/whole_exome/{0}/*XX'
+                ).format(sample.metadata['sample_name'])))
+    return read[0]
 
 def get_next_sample(curs,debug):
     query = ("SELECT sample_name,sample_type,pseudo_prepid,capture_kit,dragen_id "
         "FROM dragen_queue "
-        "ORDER BY PRIORITY DESC LIMIT 1 ")
-    if debug:
-        print query
+        "WHERE PRIORITY < 99 "
+        "ORDER BY PRIORITY ASC LIMIT 1 ")
 
     curs.execute(query)
     dragen_id = curs.fetchone()
+    if debug:
+        print query
+        print 'Dragen_queue info: {0}'.format(dragen_id)
     return dragen_id
 
 if __name__ == "__main__":

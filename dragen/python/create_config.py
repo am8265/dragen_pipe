@@ -48,7 +48,7 @@ RGPL = Illumina 		# Platform/technology
 RGSM = {sample_name}  		# Sample Name
 RGPU = {first_flowcell}.{first_lane}		# Platform unit
 RGCN = IGM  			# Sequencing Center
-RGDT = {seqtime}		# Date the run was produced
+RGDT = {seqtime}		# Date the run was produced.  Format:ISO_8601
 
 #================================================================================
 # VARIANT CALLING
