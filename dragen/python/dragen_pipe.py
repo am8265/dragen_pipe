@@ -10,14 +10,14 @@ import os
 import sys
 import subprocess
 from create_config import create_config
-#from create_gvcf_config import create_gvcf_config
+from create_gvcf_config import create_gvcf_config
 #from create_joint_call_config import create_joint_call_config
 from ConfigParser import SafeConfigParser
 from datetime import datetime
 from dragen_sample import dragen_sample
 from glob import glob
 
-def main(samples, debug, execute, database):
+def main(samples, debug, execute, gvcf, database):
     CNF = "/nfs/goldstein/software/dragen/dragen.cnf" # defaults file for pipeline
     config_parser = SafeConfigParser()
     config_parser.read(CNF)
@@ -44,13 +44,7 @@ def main(samples, debug, execute, database):
             dragen_id = info[4]
             sample = dragen_sample(info[0],info[1],info[2],info[3],curs)
             single_sample_setup(curs,sample,parameters)
-            error_code = run_sample(sample,debug)
-
-            if error_code == 0:
-                rm_query = "DELETE FROM dragen_queue WHERE dragen_id={0}".format(dragen_id)
-                if debug:
-                    print rm_query
-                curs.execute(rm_query)
+            run_sample(sample,dragen_id,debug)
 
             info = get_next_sample(curs,debug)
 
@@ -67,21 +61,16 @@ def main(samples, debug, execute, database):
             pseudo_prepid = curs.fetchone()
             sample = dragen_sample(info[0],info[1],pseudo_prepid[0],info[2],curs)
             single_sample_setup(curs,sample,parameters)
-            error_code = run_sample(sample,debug)
+            run_sample(sample,0,debug)
 
-            if error_code == 0:
 
-                rm_query = ('DELETE FROM dragen_queue WHERE pseudo_prepid={0}'
-                    ).format(pseudo_prepid[0])
-                if debug:
-                    print rm_query
-                curs.execute(rm_query)
-
-def run_sample(sample,debug):
+def run_sample(sample,dragen_id,debug):
     cmd = ['dragen', '-f', '-v', '-c', sample.metadata['conf_file']]
     if debug:
         print ' '.join(cmd)
 
+    if dragen_id != 0: # All manually run samples will have a dragen_id of 0
+        update_queue(dragen_id)
     dragen_stderr = open(sample.metadata['dragen_stderr'],'a')
     with open(sample.metadata['dragen_stdout'],'a') as dragen_stdout:
 
@@ -92,13 +81,32 @@ def run_sample(sample,debug):
             dragen_stdout.write(line)
 
         process.communicate()
-        dragen_code = process.wait()
+        error_code = process.wait()
+
     if debug:
-       print "Dragen error code: {0}".format(dragen_code)
+       print "Dragen error code: {0}".format(error_code)
+    if error_code == 0:
+        rm_query = "DELETE FROM {0} WHERE dragen_id={1}".format("tmp_dragen",dragen_id)
+        if debug:
+            print rm_query
+        curs.execute(rm_query)
 
     dragen_stdout.close()
     dragen_stderr.close()
-    return dragen_code
+    return error_code
+
+def update_queue(dragen_id):
+    insert_query = ("INSERT INTO tmp_dragen 
+            SELECT * FROM dragen_queue WHERE dragen_id={0}"
+            ).format(dragen_id)
+    rm_query = ("DELETE FROM {0} WHERE dragen_id={1}")
+        .format("dragen_queue",dragen_id)
+
+    curs.execute(insert_query)
+    curs.execute(rm_query)
+    if debug:
+        print insert_query
+        print rm_query
 
 def set_seqtime(curs,sample):
     query = ("SELECT FROM_UNIXTIME(Seqtime) "
@@ -168,7 +176,7 @@ def setup_dir(curs,sample):
 def get_first_read(sample,read_number):
     #Using first fastq as template for all fastq.gz
     first_fastq_loc = sample.metadata['fastq_loc'][0]
-    #print '{0}/*L00{1}_R{2}_001.fastq.gz'.format(first_fastq_loc,sample.metadata['lane'][0][0][0],read_number)
+    print '{0}/*L00{1}_R{2}_001.fastq.gz'.format(first_fastq_loc,sample.metadata['lane'][0][0][0],read_number)
     read = glob('{0}/*L00{1}_R{2}_001.fastq.gz'.format(first_fastq_loc,sample.metadata['lane'][0][0][0],read_number))
     #The fastqs might still be on the quantum tapes
     if read == []:
@@ -207,18 +215,13 @@ if __name__ == "__main__":
     group.add_argument("--samples", type=open,
                         help="Provide a file with a list of samples with one "
                         "sample per line")
-    group.add_argument("-p", "--prepid", action="append", nargs="+",
-                        help="Specify prepid")
-    group.add_argument("--prepids", type=open,
-                        help="Provide a file with a list of prepid with one "
-                        "prepid per line")
     group.add_argument("-a", "--auto", default=False, action="store_true",
                         help="Run pipeline in automated mode")
     parser.add_argument("-d", "--debug", default=False, action="store_true",
                         help="Verbose output for debugging")
     # --> Add code to accept regexp in auto mode <--#
     # --> Add code to for custom config files <--#
-    parser.add_argument("--execute", default=True, action="store_false",
+    parser.add_argument("--gvcf", default=True, action="store_false",
                         help="Automatically run dragen")
     parser.add_argument("--test", default=False, action="store_true",
                         help="Query and updates to the database occur on the "
@@ -244,5 +247,5 @@ if __name__ == "__main__":
         args.database="sequenceDB"
 
 
-    main(samples, args.debug, args.execute, args.database)
+    main(samples, args.debug, args.execute, args.gvcf, args.database)
 

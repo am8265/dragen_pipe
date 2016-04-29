@@ -23,10 +23,10 @@ def create_config(sample):
 # SAMPLE SETUP
 #================================================================================
 
-intermediate-results-dir = /staging/tmp 
+intermediate-results-dir = /staging/tmp
 ref-dir = /staging/REF/b37_decoy/
-fastq-file1 = {first_fastq1} 
-fastq-file2 = {first_fastq2} 
+fastq-file1 = {first_fastq1}
+fastq-file2 = {first_fastq2}
 fastq-offset = 33 		# For CASAVA1.8 samples
 enable-auto-multifile = true
 
@@ -54,7 +54,7 @@ RGDT = {seqtime}		# Date the run was produced.  Format:ISO_8601
 # VARIANT CALLING
 #================================================================================
 
-enable-variant-caller = true 
+enable-variant-caller = true
 vc-reference = /staging/REF/b37_decoy/hs37d5.fa # same as --ref-dir parameter
 vc-min-call-qual = 20 				# Default 30
 vc-min-read-qual = 20 				# Min MAPQ. #Default 20
@@ -63,20 +63,24 @@ vc-min-reads-per-start-pos = 5 			# default 5; don’t downsample below 5 at a g
 vc-max-reads-per-region = 1000 			# Maximum number of reads per region for downsampling.  Default 1000
 vc-target-coverage = 2000 			# The target coverage for downsampling.  Default 2000
 vc-enable-depth-of-coverage = true
-vc-emit-zero-coverage-intervals = true 
+vc-emit-zero-coverage-intervals = true
 vc-depth-intervals-bed = {bed_file_loc}
-dbsnp = /staging/REF/dbSNP_b144_GRCh37p13/All_20150605.vcf
+dbsnp = /staging/REF/dbSNP_b144_GRCh37p13/All_20150605.vcf"""
 
+    if gvcf_flag == True:
+        raw_config+="""vc-emit-ref-confidence = GVCF				#Activates GVCF mode"""
+
+    raw_config+="""
 #================================================================================
 # ALIGNMENT
 #================================================================================
 
-enable-map-align-output = true 
-enable-bam-compression = true 
-enable-bam-indexing = true 
-enable-sort = true 
+enable-map-align-output = true
+enable-bam-compression = true
+enable-bam-indexing = true
+enable-sort = true
 enable-duplicate-marking = true
-remove-duplicates = false  
+remove-duplicates = false
 enable-sampling = true 			# automatically detect paired-end parameters with aligner test
 enable-deterministic-sort = true 	# ensure sort order is completely repeatable at cost of a small decrease in speed
 
@@ -122,7 +126,7 @@ map-orientations = 0 	# 0=Normal, 1=No Rev Comp, 2=No Forward  (paired end requi
 #
 # http://www.ncbi.nlm.nih.gov/projects/genome/assembly/grc/human/ #Patches to GRCh37 can be found here
 # http://www.ncbi.nlm.nih.gov/variation/docs/multi_assembly_support/ #Multi Assembly Support
-# http://exac.broadinstitute.org/faq 
+# http://exac.broadinstitute.org/faq
 #
 # vcf hard filter settings (Same as GATK)
 # vc-hard-filter = DRAGENHardSNP:snp: QD < 2.0 || MQ < 40.0 || FS > 60.0 || MQRankSum < -12.5 || ReadPosRankSum < -8.0;DRAGENHardINDEL:indel: QD < 2.0 || ReadPosRankSum < -20.0 || FS > 200.0
