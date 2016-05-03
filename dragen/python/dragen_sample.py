@@ -12,14 +12,17 @@ import time
 from glob import glob
 
 def get_prepid(curs, sample, pseudo_prepid):
+    """Retrieve qualifying prepids for a given pseudo_prepid"""
     query = ("SELECT prepid FROM pseudo_prepid where pseudo_prepid={0}"
             ).format(sample["pseudo_prepid"])
 
     curs.execute(query)
     prepids = curs.fetchall()
-    return prepids[0]
+    prepids = [x[0] for x in prepids]
+    return prepids
 
 def get_bed_file_loc(curs,capture_kit):
+    """Retrieve the bed file location for a given capture_kit name"""
     query = (("SELECT region_file_lsrc FROM captureKit WHERE prepT_name='{0}' "
         "and chr = 'all'"
         ).format(capture_kit))
@@ -28,7 +31,8 @@ def get_bed_file_loc(curs,capture_kit):
     return bed_file_loc[0]
 
 def get_fastq_loc(curs, sample):
-    fastq_locs = []
+    locs = []
+
     for prepid in sample["prepid"]:
         query = ("SELECT seqsataloc,FCIllumID FROM Flowcell f "
             "JOIN Lane l ON f.FCID=l.FCID "
@@ -44,7 +48,6 @@ def get_fastq_loc(curs, sample):
         will have to be manually.  There will be two types of samples that
         under this catergory: Old Casava 1.8 sample (pre-seqDB) and Casava 1.7
         samples sequenced by the Illumina GAII."""
-        locs = []
         if seqsatalocs:
 
             for flowcell in seqsatalocs:
@@ -71,10 +74,13 @@ def get_fastq_loc(curs, sample):
                     for flowcell in fastq_loc:
                         locs.append(os.path.realpath(flowcell))
                 else:
-                    raise Exception, "Fastq files not found!"
+                    print seqsatalocs,prepid
+                    raise Exception, "Sample {0} Fastq files not found!".format(sample['sample_name'])
+    return locs
 
-        return locs
 def get_output_dir(sample):
+    """Generate ouput directory for Dragen results.  Dependent on seqtype"""
+
     """Custom capture samples need to be partitioned by capture_kit since they are often
        sequenced with multiple capture kits.  Example: EpiMIR and SchizoEpi
     """
@@ -89,6 +95,8 @@ def get_output_dir(sample):
     return output_dir
 
 def get_lanes(curs,sample):
+    """retrieve all qualifying lanes for the prepids associated with the sample"""
+
     lanes = []
     """For cases where there is not flowell information the sequeuncing
     will have to be manually.  There will be two types of samples that
@@ -122,13 +130,6 @@ def get_lanes(curs,sample):
             lanes = (lanes,)
     return lanes
 
-
-#class prep:
-#(self, sample_name, sample_type, capture_kit, curs):
-#class flowcell_lane
-#(self, flowcell, lane, , curs):
-#class dragen_old_sample:
-
 class dragen_sample:
     # store all relevant information about a sample in a dictionary
     def __init__(self, sample_name, sample_type, pseudo_prepid, capture_kit, curs):
@@ -143,9 +144,12 @@ class dragen_sample:
             self.metadata['bed_file_loc'] = '/nfs/goldsteindata/refDB/captured_regions/Build37/65MB_build37/SeqCap_EZ_Exome_v3_capture.bed'
         self.metadata['prepid'] = get_prepid(curs, self.metadata, pseudo_prepid)
         self.metadata['fastq_loc'] = get_fastq_loc(curs, self.metadata)
+
         self.metadata['output_dir'] = get_output_dir(self.metadata)
         self.metadata['script_dir'] = self.metadata['output_dir']+'/scripts'
         self.metadata['conf_file'] = "{script_dir}/{sample_name}.dragen.conf".format(**self.metadata)
+        self.metadata['gvcf_conf_file'] = "{script_dir}/{sample_name}.dragen.gVCF.conf".format(**self.metadata)
+
         self.metadata['fastq_dir'] = self.metadata['output_dir']+'/fastq'
         self.metadata['log_dir'] = self.metadata['output_dir']+'/logs'
         self.metadata['dragen_stdout'] = "{log_dir}/{sample_name}.out".format(**self.metadata)
@@ -172,3 +176,10 @@ class dragen_sample:
         """set the specified attribute to the given value
         """
         self.metadata[attribute] = value
+
+#class prep:
+#(self, sample_name, sample_type, capture_kit, curs):
+#class flowcell_lane
+#(self, flowcell, lane, , curs):
+#class dragen_old_sample:
+
