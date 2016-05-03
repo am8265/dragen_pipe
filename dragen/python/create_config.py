@@ -5,7 +5,7 @@ Create dragen configuration file for single sample runs
 """
 
 from datetime import datetime
-def create_config(sample):
+def create_config(sample,gvcf_flag):
 
     raw_config="""
 
@@ -65,10 +65,11 @@ vc-target-coverage = 2000 			# The target coverage for downsampling.  Default 20
 vc-enable-depth-of-coverage = true
 vc-emit-zero-coverage-intervals = true
 vc-depth-intervals-bed = {bed_file_loc}
-dbsnp = /staging/REF/dbSNP_b144_GRCh37p13/All_20150605.vcf"""
+dbsnp = /staging/REF/dbSNP_b144_GRCh37p13/All_20150605.vcf
+"""
 
     if gvcf_flag == True:
-        raw_config+="""vc-emit-ref-confidence = GVCF				#Activates GVCF mode"""
+        raw_config+="""vc-emit-ref-confidence = GVCF		#Activates GVCF mode"""
 
     raw_config+="""
 #================================================================================
@@ -143,7 +144,6 @@ def output_config(sample,raw_config):
     final_config = raw_config.format(**sample.metadata)
     out_file = "{conf_file}".format(**sample.metadata)
 
-    print out_file
     out = open(out_file,'w')
     out.write(final_config)
     out.close()

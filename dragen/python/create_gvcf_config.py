@@ -5,7 +5,7 @@ Create dragen configuration file for gvcf creation from bam alignment
 """
 
 from datetime import datetime
-def create_config(sample):
+def create_gvcf_config(sample):
 
     raw_config="""
 #================================================================================
