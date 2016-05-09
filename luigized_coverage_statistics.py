@@ -5,22 +5,29 @@ import os
 import utils 
 import luigi
 
+## Todo :
+## 1. Add new tasks from redmine
+## 2. Change os to subprocess
+## 3. Look into how root task is initialized in luigi
+
 
 class CreateTargetFile(luigi.Task):
     """ 
     A Luigi Task
     """
 
-    ## Parameters for this task 
-    bed_file = luigi.Parameter()
-    java_location = luigi.Parameter()
-    picard_location = luigi.Parameter()
-    seqdict_file = luigi.Parameter()
-    output_dir = luigi.Parameter()
+    args = luigi.DictParameter()            
+    output_file = (self.args['output_dir'] +
+                   utils.get_filename_from_fullpath(self.args['bed_file']) +
+                   ".list")
     
-    ## Prepare the output name for the TargetFile
-    output_name = utils.get_filename_from_fullpath(self.bed_file)
-    output_file = self.output_dir + self.output_name + ".list"
+    def requires(self):
+        """ 
+        Dependcy for this task is the existence of the bedfile
+        and the human build37 sequence dictionary file
+        """
+        
+        return [luigi.LocalTarget(self.args['bed_file']),luigi.LocalTarget(self.args['seqdict_file'])]
     
     def output(self):
         """
@@ -28,40 +35,33 @@ class CreateTargetFile(luigi.Task):
         In this case, a successful executation of this task will create a
         file on the local file system
         """      
-                
+
         return luigi.LocalTarget(self.output_file)
 
     def run(self):
         """
         Run Picard BedToIntervalList 
         """
+       
+        bedtointerval_cmd = ("%s -jar %s BedToIntervalList I=%s SD=%s" 
+                             "OUTPUT=%s"%(self.args['java_location'],
+                                         self.args['picard_location'],
+                                         self.args['bed_file'],
+                                         self.args['seqdict_file'],
+                                         self.output_file))    
+        
+        os.system("touch %s"%self.output_file)
+        #os.system(bedtointerval_cmd)
 
-        bedtointerval_cmd = ("%s -jar %s BedToIntervalList I=%s SD=%s 
-                             OUTPUT=%s"%(self.java_location,
-                                         self.picard_location,
-                                         self.bed_file,
-                                         self.seqdict_file,
-                                         self.output_file))
-        os.system(bedtointerval_cmd)
-
-class RunHsMetrics(luigi.Task):
+        
+class RunMetrics(luigi.Task):
     """ 
     A luigi task
     """
 
-    ## Parameters for this task
-    java_location = luigi.Parameter()
-    picard_location = luigi.Parameter()
-    bait_file = luigi.Parameter()
-    target_file = luigi.Parameter()
-    bam_file = luigi.Parameter()
-    sample = luigi.Parameter()
-    output_dir = luigi.Parameter()
-    create_targetfile = luigi.BoolParameter()
+    args = luigi.DictParameter()
+    output_file = args['scratch'] + args['sample'] + '.hsmetrics.txt'
     
-    ## Prepare the outputfile name
-    output_file = self.output_dir + self.sample + ".hsmetrics.txt"
-
     def output(self):
         """
         The output produced by this task 
@@ -73,20 +73,41 @@ class RunHsMetrics(luigi.Task):
         The dependency for this task is the CreateTargetFile task
         if the appropriate flag is specified by the user
         """
-        if self.create_targetfile == True:
+        if self.args['create_targetfile'] == True:
             return CreateTargetFile()
     
     def run(self):
         """
-        Run Picard CalculateHsMetrics
+        Run Picard CalculateHsMetrics or WgsMetrics
         """
         
-        hsmetrics_cmd = ("%s -jar %s CalculateHsMetrics BI=%s TI=%s 
-                         METRIC_ACCUMULATION_LEVEL=ALL_READS I=%s O=%s
-                         MQ=20 Q=10"%(java_location,picard_location,
-                                      bait_file,target_file,bam_file,
-                                      output_file))
-        ## Run the command
-        os.system(hsmetrics_cmd)
+        if self.args['seq_type'].upper() == 'GENOME':
+            if self.args['wgsinterval'] == True: ##
+                wgs_cmd = ("%s -jar %s CollectWgsMetrics R=%s O=%s I=%s"
+                           "INTERVALS=%s MQ=20 Q=10"%(self.args['java_locat
+            
+            os.system(wgsmetrics_cmd)
+        else:
+            hsmetrics_cmd = ("%s -jar %s CalculateHsMetrics BI=%s TI=%s" 
+                         "METRIC_ACCUMULATION_LEVEL=ALL_READS I=%s O=%s"
+                         "MQ=20 Q=10"%(self.args['java_location'],
+                                       self.args['picard_location'],
+                                       self.args['bait_file'],
+                                       self.args['target_file'],
+                                       self.args['bam_file'],
+                                       self.output_file))
+            ## Run the command
+            os.system(hsmetrics_cmd)
 
-        
+    
+class RootTask(luigi.WrapperTask):
+    """
+    Root Task for the pipeline. Entry point for
+    dependency graph 
+    """
+    
+    args = luigi.DictParameter() ## User defined commandline args
+    
+    
+    def requires(self):
+        return [RunMetrics()]
