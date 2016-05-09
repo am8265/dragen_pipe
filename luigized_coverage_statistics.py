@@ -19,8 +19,6 @@ import luigi
 
 
 
-
-
 class CreateTargetFile(luigi.Task):
     """ 
     A Luigi Task
@@ -64,7 +62,7 @@ class CreateTargetFile(luigi.Task):
         #os.system(bedtointerval_cmd)
 
         
-class RunMetrics(luigi.Task):
+class RunCvgMetrics(luigi.Task):
     """ 
     A luigi task
     """
@@ -84,6 +82,9 @@ class RunMetrics(luigi.Task):
         if the appropriate flag is specified by the user
         """
         if self.args['create_targetfile'] == True:
+            self.args['target_file'] = (self.args['output_dir'] +
+                   utils.get_filename_from_fullpath(self.args['bed_file']) +
+                   ".list")
             return CreateTargetFile()
         
         if self.args['wgsinterval'] == True:
@@ -94,16 +95,29 @@ class RunMetrics(luigi.Task):
         Run Picard CalculateHsMetrics or WgsMetrics
         """
         
-        if self.args['seq_type'].upper() == 'GENOME':
-            if self.args['wgsinterval'] == True: ##
+        if self.args['seq_type'].upper() == 'GENOME': ## If it is a genome sample
+            if self.args['wgsinterval'] == True: ## Restrict wgs metrics to an interval
                 wgs_cmd = ("%s -jar %s CollectWgsMetrics R=%s O=%s I=%s"
                            "INTERVALS=%s MQ=20 Q=10"
                            %(self.args['java_location'],
                              self.args['picard_location'],
                              self.args['reference_file'],
-            
+                             self.output_file,
+                             self.args['bam_file'],
+                             self.args['target_file']))
+                
+            else: ## Run wgs metrics across the genome
+                wgs_cmd = ("%s -jar %s CollectWgsMetrics R=%s O=%s I=%s"
+                           "MQ=20 Q=10"
+                           %(self.args['java_location'],
+                             self.args['picard_location'],
+                             self.args['reference_file'],
+                             self.output_file,
+                             self.args['bam_file']))
+                
             os.system(wgsmetrics_cmd)
-        else:
+                             
+        else: ## Anything other than genome i.e. Exome or Custom Capture 
             hsmetrics_cmd = ("%s -jar %s CalculateHsMetrics BI=%s TI=%s" 
                          "METRIC_ACCUMULATION_LEVEL=ALL_READS I=%s O=%s"
                          "MQ=20 Q=10"%(self.args['java_location'],
@@ -126,4 +140,4 @@ class RootTask(luigi.WrapperTask):
     
     
     def requires(self):
-        return [RunMetrics()]
+        return [RunCvgMetrics(),RunInsertSizeMetrics()]
