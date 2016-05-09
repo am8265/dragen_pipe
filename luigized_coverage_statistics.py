@@ -5,10 +5,20 @@ import os
 import utils 
 import luigi
 
+##################################################################################################
+##        Run as :                                                                              ##  
+##        luigi --module luigized_coverage_statistics RootTask --args                           ##
+##        '{"java":"java location", "picard":"picard location", "bed_file":"bed location"...}'  ##
+##        --local-scheduler                                                                     ##
+##################################################################################################
+
 ## Todo :
 ## 1. Add new tasks from redmine
 ## 2. Change os to subprocess
 ## 3. Look into how root task is initialized in luigi
+
+
+
 
 
 class CreateTargetFile(luigi.Task):
@@ -75,6 +85,9 @@ class RunMetrics(luigi.Task):
         """
         if self.args['create_targetfile'] == True:
             return CreateTargetFile()
+        
+        if self.args['wgsinterval'] == True:
+            return luigi.LocalTarget(self.args['reference_file'])
     
     def run(self):
         """
@@ -84,7 +97,10 @@ class RunMetrics(luigi.Task):
         if self.args['seq_type'].upper() == 'GENOME':
             if self.args['wgsinterval'] == True: ##
                 wgs_cmd = ("%s -jar %s CollectWgsMetrics R=%s O=%s I=%s"
-                           "INTERVALS=%s MQ=20 Q=10"%(self.args['java_locat
+                           "INTERVALS=%s MQ=20 Q=10"
+                           %(self.args['java_location'],
+                             self.args['picard_location'],
+                             self.args['reference_file'],
             
             os.system(wgsmetrics_cmd)
         else:
