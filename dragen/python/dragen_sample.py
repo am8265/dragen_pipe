@@ -37,7 +37,7 @@ def get_fastq_loc(curs, sample):
         query = ("SELECT seqsataloc,FCIllumID FROM Flowcell f "
             "JOIN Lane l ON f.FCID=l.FCID "
             "JOIN prepT p ON l.prepID=p.prepID "
-            "WHERE (FailR1 IS NULL or FailR2 IS NULL) "
+            "WHERE (FailR1 IS NULL and FailR2 IS NULL) "
             "AND l.prepID={0} AND f.fail=0 "
             "GROUP BY f.fcid"
             ).format(prepid)
@@ -45,11 +45,10 @@ def get_fastq_loc(curs, sample):
         seqsatalocs = curs.fetchall()
 
         """For cases where there is not flowell information the sequeuncing
-        will have to be manually.  There will be two types of samples that
-        under this catergory: Old Casava 1.8 sample (pre-seqDB) and Casava 1.7
-        samples sequenced by the Illumina GAII."""
+        will have to found be manually.  There will be two types of samples
+        that under this catergory: Old Casava 1.8 sample (pre-seqDB) and
+        Casava 1.7 samples sequenced by the Illumina GAII."""
         if seqsatalocs:
-
             for flowcell in seqsatalocs:
                 if 'seqsata' in flowcell[0]:
                     fastq_loc = ('/nfs/{0}/seqfinal/whole_genome/{1}/{2}'
@@ -74,7 +73,6 @@ def get_fastq_loc(curs, sample):
                     for flowcell in fastq_loc:
                         locs.append(os.path.realpath(flowcell))
                 else:
-                    print seqsatalocs,prepid
                     raise Exception, "Sample {0} Fastq files not found!".format(sample['sample_name'])
     return locs
 
@@ -110,11 +108,15 @@ def get_lanes(curs,sample):
         query = ("SELECT lanenum,FCIllumID from Flowcell f "
             "JOIN Lane l ON f.FCID=l.FCID "
             "JOIN prepT p ON l.prepID=p.prepID "
-            "WHERE (FailR1 IS NULL or FailR2 IS NULL) "
+            "WHERE (FailR1 IS NULL and FailR2 IS NULL) "
             "AND l.prepID={0} AND p.failedPrep=0 "
             ).format(prepid)
         curs.execute(query)
         lane = curs.fetchall()
+
+        print lane
+        print query
+
         if lane:
             lanes.append(lane)
         else:
@@ -152,8 +154,8 @@ class dragen_sample:
 
         self.metadata['fastq_dir'] = self.metadata['output_dir']+'/fastq'
         self.metadata['log_dir'] = self.metadata['output_dir']+'/logs'
-        self.metadata['dragen_stdout'] = "{log_dir}/{sample_name}.out".format(**self.metadata)
-        self.metadata['dragen_stderr'] = "{log_dir}/{sample_name}.err".format(**self.metadata)
+        self.metadata['dragen_stdout'] = "{log_dir}/{sample_name}.dragen.out".format(**self.metadata)
+        self.metadata['dragen_stderr'] = "{log_dir}/{sample_name}.dragen.err".format(**self.metadata)
 
         self.metadata['lane'] = get_lanes(curs,self.metadata)
 
