@@ -9,8 +9,9 @@ import MySQLdb
 import os
 import sys
 import subprocess
-from create_config import create_config
-from create_gvcf_config import create_gvcf_config
+#from create_config import create_config
+from create_align_config import create_align_config
+#from create_gvcf_config import create_gvcf_config
 #from create_joint_call_config import create_joint_call_config
 from ConfigParser import SafeConfigParser
 from datetime import datetime
@@ -46,7 +47,7 @@ def main(samples, debug, dontexecute, gvcf, database):
             dragen_id = info[4]
             sample = dragen_sample(info[0],info[1],info[2],info[3],curs)
             single_sample_setup(curs,sample,parameters,gvcf,debug)
-            run_sample(curs,sample,dragen_id,debug)
+            run_sample(curs,sample,dragen_id,dontexecute,debug)
             info = get_next_sample(curs,debug)
 
     #Run through a sample file
@@ -69,10 +70,11 @@ def run_sample(curs,sample,dragen_id,dontexecute,debug):
     if debug:
         print ' '.join(cmd)
 
-    if dragen_id != 0: # All manually run samples will have a dragen_id of 0
-        update_queue(dragen_id)
     dragen_stderr = open(sample.metadata['dragen_stderr'],'a')
     if dontexecute == False:
+        if dragen_id != 0: # All manually run samples will have a dragen_id of 0
+            update_queue(curs,dragen_id,debug)
+
         with open(sample.metadata['dragen_stdout'],'a') as dragen_stdout:
 
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE,stderr=dragen_stderr)
@@ -98,7 +100,8 @@ def run_sample(curs,sample,dragen_id,dontexecute,debug):
         dragen_stderr.close()
     else:
         print "Sample {sample_name} config complete.".format(**sample.metadata)
-def update_queue(dragen_id):
+
+def update_queue(curs,dragen_id,debug):
     insert_query = ("INSERT INTO tmp_dragen "
             "SELECT * FROM dragen_queue WHERE dragen_id={0}"
             ).format(dragen_id)
@@ -126,7 +129,8 @@ def single_sample_setup(curs,sample,parameters,gvcf,debug):
 
     setup_dir(curs,sample,debug)
 
-    create_config(sample,gvcf)
+    create_align_config(sample)
+    #create_config(sample,gvcf)
     #create_gvcf_config(sample)
     #create_joint_call_config(sample)
     #create_post_dragen_shell(sample,parsed_CNF)
@@ -236,10 +240,6 @@ if __name__ == "__main__":
         samples = args.sample
     elif args.samples:
         samples = args.samples
-    elif args.prepid:
-        samples = args.prepid
-    elif args.prepids:
-        samples = args.prepids
     else:
         samples = args.auto
 
