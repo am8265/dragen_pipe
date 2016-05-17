@@ -94,7 +94,7 @@ def run_sample(curs,sample,dragen_id,dontexecute,debug):
                 print rm_query
             curs.execute(rm_query)
         else:
-            print "Sample was not deleted from dragen_queue due to error code: {0}",error_code
+            print "Sample was not deleted from tmp_dragen due to error code: {0}".format(error_code)
 
         dragen_stdout.close()
         dragen_stderr.close()
@@ -190,6 +190,7 @@ def get_first_read(sample,read_number,debug):
 
         if read == []:
             print sample.metadata['sample_name']
+
             raise Exception, "Fastq file not found!"
         else:
             """fastq_loc was based off of database so needs to be set to the
