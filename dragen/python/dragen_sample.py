@@ -114,9 +114,6 @@ def get_lanes(curs,sample):
         curs.execute(query)
         lane = curs.fetchall()
 
-        print lane
-        print query
-
         if lane:
             lanes.append(lane)
         else:
