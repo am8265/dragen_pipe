@@ -1,11 +1,11 @@
 #!/nfs/goldstein/software/python2.7.7/bin/python
 # -*- coding: utf-8 -*-
 """
-Create dragen configuration file for single sample alignment runs
+Create dragen alignment configuration file for single sample runs
 """
 
 from datetime import datetime
-def create_config(sample,gvcf_flag):
+def create_align_config(sample):
 
     raw_config="""
 
@@ -14,8 +14,8 @@ def create_config(sample,gvcf_flag):
 #================================================================================
 #
 # Author:	Joshua Bridgers (jb3816)
-# Desc: 	Configuration file for Dragen 1.7.1 for alignment calling from
-#           Casava 1.8 raw fastq files
+# Desc: 	Configuration file for Dragen 1.7.1 for alignment and variant
+# 		calling from Casava 1.8 raw fastq files
 #
 #================================================================================
 
@@ -106,9 +106,7 @@ map-orientations = 0 	# 0=Normal, 1=No Rev Comp, 2=No Forward  (paired end requi
 # http://www.ncbi.nlm.nih.gov/projects/genome/assembly/grc/human/ #Patches to GRCh37 can be found here
 # http://www.ncbi.nlm.nih.gov/variation/docs/multi_assembly_support/ #Multi Assembly Support
 # http://exac.broadinstitute.org/faq
-#
-# vcf hard filter settings (Same as GATK)
-# vc-hard-filter = DRAGENHardSNP:snp: QD < 2.0 || MQ < 40.0 || FS > 60.0 || MQRankSum < -12.5 || ReadPosRankSum < -8.0;DRAGENHardINDEL:indel: QD < 2.0 || ReadPosRankSum < -20.0 || FS > 200.0
+#================================================================================
 
 #================================================================================
 # FIN
