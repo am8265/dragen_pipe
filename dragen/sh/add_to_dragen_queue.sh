@@ -1,6 +1,5 @@
 #Yield_Sum.sh
 #Takes list of sample IDs and seqtype, and outputs run summary information
-IFS=$'\n'
 INPUT_LIST=$1
 SEQTYPE=$2
 EXOMEKIT=$3
@@ -65,14 +64,15 @@ fi
 
 for s in $SAMPLES ; do
 
-prepIDs=`sdb -e "select s.prepID from SeqType s join prepT p on p.prepID=s.prepID where s.DBID=(select DBID from SampleT where CHGVID='$s') and s.SeqType='$SEQTYPE' and p.failedPrep='0' and exomekit='$EXOMEKIT' ORDER BY p.prepDate DESC" -NB`
-
+	prepIDs=`sdb -e "select s.prepID from SeqType s join prepT p on p.prepID=s.prepID where s.DBID=(select DBID from SampleT where CHGVID='$s') and s.SeqType='$SEQTYPE' and p.failedPrep='0' and exomekit='$EXOMEKIT' ORDER BY p.prepDate DESC" -NB`
+	
 	#echo  "select s.prepID from SeqType s join prepT p on p.prepID=s.prepID where s.DBID=(select DBID from SampleT where CHGVID='$s') and s.SeqType='$SEQTYPE' and p.failedPrep='0' and exomekit='$EXOMEKIT' ORDER BY p.prepDate DESC"
-        #echo $s $prepIDs
+        echo $s $prepIDs
         pseudo_prepid=$(sdb -e "INSERT INTO pseudo_prepid (pseudo_prepid,prepid) VALUES (NULL,'$prepIDs') ; SELECT LAST_INSERT_ID();" -NB)
 
         for prepID in $prepIDs ; do
+		echo $prepID,$pseudo_prepid
                 sdb -e "UPDATE seqdbClone set pseudo_prepid='$pseudo_prepid' WHERE prepid=$prepID"
-                sdb -e "INSERT INTO dragen_queue (pseudo_prepid,sample_name,sample_type,capture_kit,priority) VALUES ($pseudo_prepid,'$s','$(echo $SEQTYPE | sed 's/ /_/g')','$EXOMEKIT',4)"
+                #sdb -e "INSERT INTO dragen_queue (pseudo_prepid,sample_name,sample_type,capture_kit,priority) VALUES ($pseudo_prepid,'$s','$(echo $SEQTYPE | sed 's/ /_/g')','$EXOMEKIT',4)"
 	done
 done
