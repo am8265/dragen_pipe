@@ -85,11 +85,11 @@ def get_output_dir(sample):
        sequenced with multiple capture kits.  Example: EpiMIR and SchizoEpi
     """
     if sample['sample_type'] == 'custom_capture':
-        output_dir = ('/nfs/fastq_temp/ALIGNMENT/BUILD37/DRAGEN/{0}/{1}/{2}'
+        output_dir = ('/nfs/fastq_temp3/ALIGNMENT/BUILD37/DRAGEN/{0}/{1}/{2}'
             ).format(sample['sample_type'].upper(),
                     sample['capture_kit'],sample['sample_name'])
     else:
-        output_dir = ('/nfs/fastq_temp/ALIGNMENT/BUILD37/DRAGEN/{0}/{1}'
+        output_dir = ('/nfs/fastq_temp3/ALIGNMENT/BUILD37/DRAGEN/{0}/{1}'
             ).format(sample['sample_type'].upper(),sample['sample_name'])
 
     return output_dir
