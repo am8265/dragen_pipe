@@ -16,7 +16,18 @@ import luigi
 ## 1. Add new tasks from redmine
 ## 2. Change os to subprocess
 ## 3. Look into how root task is initialized in luigi
+## 4. Define better dependencies 
 
+
+class RootTask(luigi.WrapperTask):
+    """
+    Wrapper Task
+    """
+
+    test = luigi.Parameter()
+    
+    def requires(self):
+        return RunCvgMetrics()
 
 
 class config(luigi.Config):
@@ -24,7 +35,7 @@ class config(luigi.Config):
     picard = luigi.Parameter()
     reference_file = luigi.Parameter()
     seqdict_file = luigi.Parameter()
-    bed_file = luigi.Parameter()
+    bed_file = luigi.Parameter(default='/home/rp2801/coverage_statistics/ccds_14.bed')
     bam_file = luigi.Parameter()
     target_file = luigi.Parameter()
     create_targetfile = luigi.BooleanParameter()
@@ -34,6 +45,7 @@ class config(luigi.Config):
     wgsinterval = luigi.BooleanParameter()
     scratch = luigi.Parameter()
     output_dir = luigi.Parameter()
+
 
 
 class MyExtTask(luigi.ExternalTask):
@@ -48,8 +60,10 @@ class RunCvgMetrics(luigi.Task):
     A luigi task
     """
     
-    
+    print RootTask.test
     output_file = config().scratch+config().sample+'cvg.metrics.txt'
+
+
     if config().create_targetfile == True:
         target_file = ((config().scratch) +
         (utils.get_filename_from_fullpath(config().bed_file)) +
@@ -74,7 +88,8 @@ class RunCvgMetrics(luigi.Task):
         if config().wgsinterval == True:
             return MyExtTask(config().reference_file)
         else:
-            return CreateTargetFile()
+            if config().create_targetfile == True:
+                return CreateTargetFile()
                 
         
     def run(self):
@@ -87,9 +102,9 @@ class RunCvgMetrics(luigi.Task):
                 wgs_cmd = ("%s -jar %s CollectWgsMetrics R=%s O=%s I=%s"
                            "INTERVALS=%s MQ=20 Q=10"
                            %(config().java,
-                             config(),picard,
+                             config().picard,
                              config().reference_file,
-                             config().output_file,
+                             self.output_file,
                              config().bam_file,
                              self.target_file))
                 
@@ -99,11 +114,11 @@ class RunCvgMetrics(luigi.Task):
                            %(config().java,
                              config().picard,
                              config().reference_file,
-                             config().output_file,
+                             self.output_file,
                              config().bam_file))
 
                 
-            #os.system(wgsmetrics_cmd)
+            #os.system(wgs_cmd)
             os.system("touch %s"%(self.output_file))
                              
         else: ## Anything other than genome i.e. Exome or Custom Capture 
@@ -158,9 +173,8 @@ class CreateTargetFile(luigi.Task):
                                          config().seqdict_file,
                                          self.output_file))    
         
-        os.system("touch %s"%self.output_file)
-        #os.system(bedtointerval_cmd)
+        #os.system("touch %s"%self.output_file)
+        os.system(bedtointerval_cmd)
 
         
     
-
