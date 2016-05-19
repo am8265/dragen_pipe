@@ -33,6 +33,9 @@ class config(luigi.Config):
     filter_snp = luigi.Parameter()
     filter_indel = luigi.Parameter()
 
+    config2 = configuration.get_config()
+    tset = config.get('base_directory')
+
     #scratch = getScratch()
 
     def getScratch():
@@ -58,7 +61,7 @@ class RealignerTargetCreator(luigi.Task):
         os.system("echo {0}".format(cmd))
         print luigi.LocalTarget(config().interval_list),config().interval_list
 
-    def require():
+    def requires():
         return luigi.LocalTarget(config().bam)
 
 class IndelRealigner(luigi.Task):
@@ -78,7 +81,7 @@ class IndelRealigner(luigi.Task):
             "-known {dbSNPLoc}").format(**config().__dict__)
         os.system("echo {0}".format(cmd))
 
-    def require(self):
+    def requires(self):
         return RealignerTargetCreator()
 
     def output(self):
@@ -100,8 +103,8 @@ class BaseRecalibrator(luigi.Target):
         os.system("echo {0}".format(cmd))
 
         rm_cmd = ['rm',config().bam]
-        subprocess(rm_cmd)
-    def require(self):
+        #subprocess.call(rm_cmd)
+    def requires(self):
         return IndelRealigner
 
     def output(self):
@@ -119,7 +122,7 @@ class PrintReads(luigi.Target):
             "-o {realn_recal_bam} "
             "-nct 4").format(**config().__dict__)
 
-    def require(self):
+    def requires(self):
         return BaseRecalibrator
 
     def output(self):
@@ -140,9 +143,9 @@ class HaplotypeCaller(luigi.Target):
             "-nct 4").format(**config().__dict__)
 
         rm_cmd = ['rm',config().realn_bam]
-        subprocess(rm_cmd)
+        #subprocess.call(rm_cmd)
 
-    def require(self):
+    def requires(self):
         return BaseRecalibrator
 
     def output(self):
@@ -159,7 +162,7 @@ class SelectVariantsSNP(luigi.Target):
             "--selectType SNP "
             "-o {snp_vcf}").format(**config().__dict__)
 
-    def require(self):
+    def requires(self):
         return HaplotypeCaller
 
     def output(self):
@@ -176,7 +179,7 @@ class SelectVariantsINDEL(luigi.Target):
             "--selectType INDEL "
             "-o {indel_vcf}").format(**config().__dict__)
 
-    def require(self):
+    def requires(self):
         return HaplotypeCaller
 
     def output(self):
@@ -211,7 +214,7 @@ class VariantRecalibratorSNP(luigi.Target):
             "-resource:dbsnp,known=true,training=false,truth=false,prior=2.0 {dbSNP} "
             ).format(**config().__dict__)
 
-    def require(self):
+    def requires(self):
         return SelectVariantsSNP
 
     def output(self):
@@ -245,7 +248,7 @@ class VariantRecalibratorINDEL(luigi.Target):
             "-an MQRankSum "
             "-an InbreedingCoeff "
             "-mode INDEL ").format(**config().__dict__)
-    def require(self):
+    def requires(self):
         return HaplotypeCaller
 
     def output(self):
@@ -265,7 +268,7 @@ class ApplyRecalibrationSNP(luigi.Target):
             "--ts_filter_level 99.0 "
             "-mode SNP ".format(**config().__dict__)
 
-    def require(self):
+    def requires(self):
         return VariantRecalibratorSNP
 
     def output(self):
@@ -285,7 +288,7 @@ class ApplyRecalibrationINDEL(luigi.Target):
             "--ts_filter_level 99.0 "
             "-mode INDEL ".format(**config().__dict__)
 
-    def require(self):
+    def requires(self):
         return VariantRecalibratorINDEL
 
     def output(self):
@@ -303,7 +306,7 @@ class VariantFiltrationSNP(luigi.Target):
             "--filterName \"SNP_filter\" "
             "-o {snp_filtered} ").format(**config().__dict__)
 
-    def require(self):
+    def requires(self):
         return SelectVariantsSNP
 
     def output(self):
@@ -321,25 +324,11 @@ class VariantFiltrationINDEL(luigi.Target):
             "--filterName \"INDEL_filter\" "
             "-o {indel_filtered} "
 
-    def require(self):
+    def requires(self):
         return SelectVariantsINDEL
 
     def output(self):
         return luigi.LocalTarget(config().indel_filtered)
-
-class IndelMatching(luigi.Target):
-
-    def run(self):
-        cmd = ""
-
-    def require():
-        if sample_type == 'genome':
-            return ApplyRecalibrationINDEL
-        else:
-            return VariantFiltrationINDEL
-
-    def output(self):
-        return luigi.LocalTarget(config().indel_filter_matched)
 
 """
 class CombineVariants(luigi.Target):
