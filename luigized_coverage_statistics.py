@@ -19,33 +19,31 @@ import luigi
 ## 4. Define better dependencies 
 
 
-class RootTask(luigi.WrapperTask):
-    """
-    Wrapper Task
-    """
-
-    test = luigi.Parameter()
-    
-    def requires(self):
-        return RunCvgMetrics()
-
-
 class config(luigi.Config):
     java = luigi.Parameter()
     picard = luigi.Parameter()
     reference_file = luigi.Parameter()
     seqdict_file = luigi.Parameter()
     bed_file = luigi.Parameter(default='/home/rp2801/coverage_statistics/ccds_14.bed')
-    bam_file = luigi.Parameter()
     target_file = luigi.Parameter()
     create_targetfile = luigi.BooleanParameter()
-    seq_type = luigi.Parameter()
     bait_file = luigi.Parameter()
-    sample = luigi.Parameter()
     wgsinterval = luigi.BooleanParameter()
     scratch = luigi.Parameter()
     output_dir = luigi.Parameter()
+    sample = luigi.Parameter()
+    bam_file = luigi.Parameter()
+    seq_type = luigi.Parameter()
 
+
+class RootTask(luigi.WrapperTask):
+    """
+    Wrapper Task
+    """
+
+    bam_file = luigi.Parameter()
+    def requires(self):
+        return RunCvgMetrics(config().bam_file)
 
 
 class MyExtTask(luigi.ExternalTask):
@@ -60,8 +58,9 @@ class RunCvgMetrics(luigi.Task):
     A luigi task
     """
     
-    print RootTask.test
-    output_file = config().scratch+config().sample+'cvg.metrics.txt'
+    
+    bam_file = luigi.Parameter()
+    output_file = config().scratch+config().sample+'.cvg.metrics.txt'
 
 
     if config().create_targetfile == True:
@@ -85,12 +84,9 @@ class RunCvgMetrics(luigi.Task):
         if the appropriate flag is specified by the user
         """
 
-        if config().wgsinterval == True:
-            return MyExtTask(config().reference_file)
-        else:
-            if config().create_targetfile == True:
+        if config().create_targetfile == True:
                 return CreateTargetFile()
-                
+        
         
     def run(self):
         """
@@ -166,12 +162,7 @@ class CreateTargetFile(luigi.Task):
         Run Picard BedToIntervalList 
         """
        
-        bedtointerval_cmd = ("%s -jar %s BedToIntervalList I=%s SD=%s" 
-                             "OUTPUT=%s"%(config().java,
-                                         config().picard,
-                                         config().bed_file,
-                                         config().seqdict_file,
-                                         self.output_file))    
+        bedtointerval_cmd = ("%s -jar %s BedToIntervalList I=%s SD=%s OUTPUT=%s"%(config().java,config().picard,config().bed_file,config().seqdict_file,self.output_file))    
         
         #os.system("touch %s"%self.output_file)
         os.system(bedtointerval_cmd)
