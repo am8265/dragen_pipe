@@ -1,5 +1,6 @@
 import luigi
 import os
+import shlex
 import sys
 import subprocess
 from dragen_sample import dragen_sample
@@ -22,7 +23,7 @@ Mills1000g="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/Mills_and_1
 dbSNP="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/dbsnp_138.b37.vcf"
 
 
-class RootTask(luigi.Task):
+class RootTask(LocalSGEJobTask):
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
     sample_type = luigi.Parameter()
@@ -31,12 +32,12 @@ class RootTask(luigi.Task):
     def requires(self):
         if sample_type == 'genome':
             return self.clone(IndelRealigner)
-    def run(self):
+    def work(self):
         os.system('touch /home/jb3816/{0}.complete'.format(self.sample_name))
     def output(self):
         return luigi.LocalTarget('/home/jb3816/{0}.complete'.format(self.sample_name))
 
-class RealignerTargetCreator(luigi.Task):
+class RealignerTargetCreator(LocalSGEJobTask):
     """class for creating targets for indel realignment BAMs from Dragen"""
 
     base_directory = luigi.Parameter()
@@ -61,11 +62,13 @@ class RealignerTargetCreator(luigi.Task):
             base_directory=self.base_directory, sample_name=self.sample_name)
         self.interval_list = "{scratch}/{sample_name}/{sample_name}.interval_list".format(
             scratch=self.scratch, sample_name=self.sample_name)
+        self.RealignerTargetCreator_script = "{scratch}/{sample_name}/scripts/RealignerTargetCreator.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name)
 
-    def run(self):
-        print
-        print self.bam
-        print
+    def work(self):
+        os.system("mkdir -p {0}/scripts".format(self.scratch + self.sample_name))
+        os.system("mkdir -p {0}/logs".format(self.scratch + self.sample_name))
+
         cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
@@ -83,13 +86,17 @@ class RealignerTargetCreator(luigi.Task):
                 Mills1000g=Mills1000g,
                 dbSNP=dbSNP)
         #os.system("echo {cmd}".format(cmd=cmd))
-        os.system("mkdir -p {0}".format(self.scratch + self.sample_name))
-        os.system("touch {0}".format(self.interval_list))
+        with open(self.RealignerTargetCreator_script,'w') as o:
+            o.write(cmd + "\n")
+            subprocess.check_call(shlex.split(cmd))
+        with self.output().open("w") as out:
+            out.write("test")
+        #os.system("touch {0}".format(self.interval_list))
 
     def output(self):
         return luigi.LocalTarget(self.interval_list)
 
-class IndelRealigner(luigi.Task):
+class IndelRealigner(LocalSGEJobTask):
     """class to create BAM with realigned BAMs"""
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
@@ -116,7 +123,7 @@ class IndelRealigner(luigi.Task):
         self.realn_bam = "{scratch}/{sample_name}/{sample_name}.realn.bam".format(
             scratch=self.scratch, sample_name=self.sample_name)
 
-    def run(self):
+    def work(self):
         cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
@@ -145,7 +152,7 @@ class IndelRealigner(luigi.Task):
     def output(self):
         return luigi.LocalTarget(self.realn_bam)
 
-class BaseRecalibrator(luigi.Task):
+class BaseRecalibrator(LocalSGEJobTask):
     """class to create a recalibration table with realigned BAMs"""
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
@@ -172,7 +179,7 @@ class BaseRecalibrator(luigi.Task):
         self.recal_table = "{scratch}/{sample_name}/{sample_name}.recal_table".format(
             scratch=self.scratch, sample_name=self.sample_name)
 
-    def run(self):
+    def work(self):
         cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
@@ -203,7 +210,7 @@ class BaseRecalibrator(luigi.Task):
     def output(self):
         return luigi.LocalTarget(self.recal_table)
 
-class PrintReads(luigi.Task):
+class PrintReads(LocalSGEJobTask):
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
@@ -225,7 +232,7 @@ class PrintReads(luigi.Task):
         self.recal_bam = "{scratch}/{sample_name}/{sample_name}.realn.recal.bam".format(
             scratch=self.scratch, sample_name=self.sample_name)
 
-    def run(self):
+    def work(self):
         cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
@@ -250,7 +257,7 @@ class PrintReads(luigi.Task):
     def output(self):
         return luigi.LocalTarget(self.recal_bam)
 
-class HaplotypeCaller(luigi.Task):
+class HaplotypeCaller(LocalSGEJobTask):
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
@@ -274,7 +281,7 @@ class HaplotypeCaller(luigi.Task):
         self.vcf = "{scratch}/{sample_name}/{sample_name}.raw.vcf".format(
             scratch=self.scratch, sample_name=self.sample_name)
 
-    def run(self):
+    def work(self):
        cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
@@ -304,7 +311,7 @@ class HaplotypeCaller(luigi.Task):
     def output(self):
         return luigi.LocalTarget(self.vcf)
 
-class VariantRecalibratorSNP(luigi.Task):
+class VariantRecalibratorSNP(LocalSGEJobTask):
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
@@ -330,7 +337,7 @@ class VariantRecalibratorSNP(luigi.Task):
         self.snp_rscript = "{scratch}/{sample_name}/{sample_name}.snp.rscript".format(
             scratch=self.scratch, sample_name=self.sample_name)
 
-    def run(self):
+    def work(self):
         cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
@@ -371,17 +378,18 @@ class VariantRecalibratorSNP(luigi.Task):
         os.system("touch {0}".format(self.snp_tranches))
         os.system("touch {0}".format(self.snp_rscript))
         os.system("touch {0}".format(self.snp_recal))
-        print 
+
     def requires(self):
         return self.clone(HaplotypeCaller)
 
     def output(self):
-        return luigi.LocalTarget(self.snp_recal,self.snp_tranches,self.snp_rscript)
+        #return luigi.LocalTarget(self.snp_rscript),luigi.LocalTarget(self.snp_tranches),luigi.LocalTarget(self.snp_recal)
+        return luigi.LocalTarget(self.snp_recal)
 
         ####double check resources version ####
         ####double check dbsnp version ####
 
-class VariantRecalibratorINDEL(luigi.Task):
+class VariantRecalibratorINDEL(LocalSGEJobTask):
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
@@ -409,8 +417,8 @@ class VariantRecalibratorINDEL(luigi.Task):
         self.indel_rscript = "{scratch}/{sample_name}/{sample_name}.indel.rscript".format(
             scratch=self.scratch, sample_name=self.sample_name)
 
-    def run(self):
-       cmd = ("{java} -Xmx{max_mem}g "
+    def work(self):
+        cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
             "-T VariantRecalibrator "
@@ -442,18 +450,18 @@ class VariantRecalibratorINDEL(luigi.Task):
                 indel_rscript=self.indel_rscript,
                 dbSNP=dbSNP,
                 Mills1000g=Mills1000g)
-       os.system("echo {0}".format(cmd))
-       os.system("touch {0}".format(self.indel_tranches))
-       os.system("touch {0}".format(self.indel_rscript))
-       os.system("touch {0}".format(self.indel_recal))
+        os.system("echo {0}".format(cmd))
+        os.system("touch {0}".format(self.indel_recal))
+        os.system("touch {0}".format(self.indel_tranches))
+        os.system("touch {0}".format(self.indel_rscript))
 
     def requires(self):
         return self.clone(VariantRecalibratorSNP)
 
     def output(self):
-        return luigi.LocalTarget(self.indel_recal,self.indel_tranches,self.indel_rscript)
+        return luigi.LocalTarget(self.indel_recal)
 
-class ApplyRecalibrationSNP(luigi.Task):
+class ApplyRecalibrationSNP(LocalSGEJobTask):
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
@@ -470,14 +478,14 @@ class ApplyRecalibrationSNP(luigi.Task):
         super(ApplyRecalibrationSNP, self).__init__(*args, **kwargs)
         self.vcf = "{scratch}/{sample_name}/{sample_name}.snp.vcf".format(
             scratch=self.scratch, sample_name=self.sample_name)
-        self.snp_recal = "{scratch}/{sample_name}/{sample_name}.snp.recal".format(
+        self.snp_recal = "{scratch}/{sample_name}/{sample_name}.snp.recal2".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.snp_tranches = "{scratch}/{sample_name}/{sample_name}.snp.tranches".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.snp_filtered = "{scratch}/{sample_name}/{sample_name}.snp.filtered.vcf".format(
             scratch=self.scratch, sample_name=self.sample_name)
 
-    def run(self):
+    def work(self):
        cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
@@ -504,7 +512,7 @@ class ApplyRecalibrationSNP(luigi.Task):
     def output(self):
         return luigi.LocalTarget(self.snp_filtered)
 
-class ApplyRecalibrationINDEL(luigi.Task):
+class ApplyRecalibrationINDEL(LocalSGEJobTask):
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
@@ -528,7 +536,7 @@ class ApplyRecalibrationINDEL(luigi.Task):
         self.indel_filtered = "{scratch}/{sample_name}/{sample_name}.snp.indel.filtered.vcf".format(
             scratch=self.scratch, sample_name=self.sample_name)
 
-    def run(self):
+    def work(self):
        cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
@@ -543,9 +551,9 @@ class ApplyRecalibrationINDEL(luigi.Task):
                 max_mem=max_mem,
                 ref=ref,
                 snp_filtered=self.snp_filtered,
+                indel_recal=self.indel_recal,
                 indel_tranches=self.indel_tranches,
-                indel_filtered=self.indel_filtered,
-                indel_recal=self.indel_recal)
+                indel_filtered=self.indel_filtered)
        os.system("echo {0}".format(cmd))
        os.system("touch {0}".format(self.indel_filtered))
 
@@ -555,7 +563,7 @@ class ApplyRecalibrationINDEL(luigi.Task):
     def output(self):
         return luigi.LocalTarget(self.indel_filtered)
 
-class VariantFiltrationSNP(luigi.Task):
+class VariantFiltrationSNP(LocalSGEJobTask):
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
@@ -575,7 +583,7 @@ class VariantFiltrationSNP(luigi.Task):
         self.snp_filtered = "{scratch}/{sample_name}/{sample_name}.snp.filtered.vcf".format(
             scratch=self.scratch, sample_name=self.sample_name)
 
-    def run(self):
+    def work(self):
        cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
@@ -598,7 +606,7 @@ class VariantFiltrationSNP(luigi.Task):
     def output(self):
         return luigi.LocalTarget(self.snp_filtered)
 
-class VariantFiltrationINDEL(luigi.Task):
+class VariantFiltrationINDEL(LocalSGEJobTask):
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
@@ -618,7 +626,7 @@ class VariantFiltrationINDEL(luigi.Task):
         self.indel_filtered = "{scratch}/{sample_name}/{sample_name}.snp.indel.filtered.vcf".format(
             scratch=self.scratch, sample_name=self.sample_name)
 
-    def run(self):
+    def work(self):
        cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
@@ -640,101 +648,3 @@ class VariantFiltrationINDEL(luigi.Task):
 
     def output(self):
         return luigi.LocalTarget(self.indel_filtered)
-
-"""
-class CombineVariants(luigi.Task):
-
-    def run(self):
-       cmd = ("{java} -Xmx{max_mem}g "
-            "-jar {gatk}/GenomeAnalysisTK.jar "
-            "-R {ref} "
-"""
-
-
-
-"""
-
-class SelectVariantsSNP(luigi.Task):
-    base_directory = luigi.Parameter()
-    sample_name = luigi.Parameter()
-    scratch = luigi.Parameter()
-    java = luigi.Parameter(default=java,
-        description = 'java version used')
-    gatk = luigi.Parameter(default=gatk,
-        description = 'gatk version used')
-    max_mem = luigi.Parameter(default=max_mem,
-        description = 'heap size for java in Gb')
-    ref = luigi.Parameter(default=ref,
-        description = 'reference genome location')
-
-    def __init__(self, *args, **kwargs):
-        super(SelectVariantsSNP, self).__init__(*args, **kwargs)
-        self.vcf = "{scratch}/{sample_name}/{sample_name}.raw.vcf".format(
-            scratch=self.scratch, sample_name=self.sample_name)
-        self.snp_vcf = "{scratch}/{sample_name}/{sample_name}.snp.vcf".format(
-            scratch=self.scratch, sample_name=self.sample_name)
-
-    def run(self):
-        cmd = ("{java} -Xmx{max_mem}g "
-            "-jar {gatk}/GenomeAnalysisTK.jar "
-            "-R {ref} "
-            "-T SelectVariants "
-            "-V {vcf} "
-            "--selectType SNP "
-            "-o {snp_vcf}").format(java=java,
-                gatk=gatk,
-                max_mem=max_mem,
-                ref=ref,
-                vcf=self.vcf,
-                snp_vcf=self.snp_vcf)
-        os.system("echo {0}".format(cmd))
-        os.system("touch {0}".format(self.snp_vcf))
-
-    def requires(self):
-        return self.clone(HaplotypeCaller)
-
-    def output(self):
-        return luigi.LocalTarget(self.snp_vcf)
-
-class SelectVariantsINDEL(luigi.Task):
-    base_directory = luigi.Parameter()
-    sample_name = luigi.Parameter()
-    scratch = luigi.Parameter()
-    java = luigi.Parameter(default=java,
-        description = 'java version used')
-    gatk = luigi.Parameter(default=gatk,
-        description = 'gatk version used')
-    max_mem = luigi.Parameter(default=max_mem,
-        description = 'heap size for java in Gb')
-    ref = luigi.Parameter(default=ref,
-        description = 'reference genome location')
-
-    def __init__(self, *args, **kwargs):
-        super(SelectVariantsINDEL, self).__init__(*args, **kwargs)
-        self.vcf = "{scratch}/{sample_name}/{sample_name}.raw.vcf".format(
-            scratch=self.scratch, sample_name=self.sample_name)
-        self.indel_vcf = "{scratch}/{sample_name}/{sample_name}.indel.vcf".format(
-            scratch=self.scratch, sample_name=self.sample_name)
-
-    def run(self):
-       cmd = ("{java} -Xmx{max_mem}g "
-            "-jar {gatk}/GenomeAnalysisTK.jar "
-            "-R {ref} "
-            "-T SelectVariants "
-            "-V {vcf} "
-            "--selectType INDEL "
-            "-o {indel_vcf}").format(java=java,
-                gatk=gatk,
-                max_mem=max_mem,
-                ref=ref,
-                vcf=self.vcf,
-                indel_vcf=self.indel_vcf)
-       os.system("echo {0}".format(cmd))
-       os.system("touch {0}".format(self.indel_vcf))
-
-    def requires(self):
-        return self.clone(HaplotypeCaller)
-
-    def output(self):
-        return luigi.LocalTarget(self.indel_vcf)
-"""
