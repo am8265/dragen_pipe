@@ -32,7 +32,7 @@ class RootTask(LocalSGEJobTask):
     chr_list = luigi.Parameter()
 
     def requires(self):
-        if sample_type == 'genome':
+        if self.sample_type == 'genome':
             return self.clone(IndelRealigner)
     def work(self):
         os.system('touch /home/jb3816/{0}.complete'.format(self.sample_name))
@@ -46,6 +46,7 @@ class RealignerTargetCreator(LocalSGEJobTask):
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -106,6 +107,7 @@ class IndelRealigner(LocalSGEJobTask):
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -167,6 +169,8 @@ class BaseRecalibrator(LocalSGEJobTask):
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+
     java = luigi.Parameter(default=java,
         description = 'java version used')
     gatk = luigi.Parameter(default=gatk,
@@ -238,6 +242,7 @@ class PrintReads(LocalSGEJobTask):
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -293,6 +298,7 @@ class HaplotypeCaller(LocalSGEJobTask):
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -359,6 +365,7 @@ class GenotypeGVCFs(LocalSGEJobTask):
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -421,6 +428,7 @@ class SelectVariantsSNP(LocalSGEJobTask):
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -446,10 +454,10 @@ class SelectVariantsSNP(LocalSGEJobTask):
         cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
-            "-T SelectVariantsSNP "
-            "-I {vcf} "
-            "-o {snp_vcf} "
-            "-V {gvcf}").format(java=java,
+            "-T SelectVariants "
+            "-V {vcf} "
+            "-selectType SNP "
+            "-o {snp_vcf}").format(java=java,
                 gatk=gatk,
                 max_mem=max_mem,
                 ref=ref,
@@ -472,6 +480,7 @@ class SelectVariantsINDEL(LocalSGEJobTask):
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -497,10 +506,10 @@ class SelectVariantsINDEL(LocalSGEJobTask):
         cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
-            "-T SelectVariantsSNP "
-            "-I {vcf} "
-            "-o {snp_vcf} "
-            "-V {gvcf}").format(java=java,
+            "-T SelectVariants "
+            "-V {vcf} "
+            "-selectType INDEL "
+            "-o {snp_vcf}").format(java=java,
                 gatk=gatk,
                 max_mem=max_mem,
                 ref=ref,
@@ -524,6 +533,7 @@ class VariantRecalibratorSNP(LocalSGEJobTask):
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -562,8 +572,8 @@ class VariantRecalibratorSNP(LocalSGEJobTask):
             "-an MQ "
             "-an MQRankSum "
             "-an ReadPosRankSum "
-            "-an InbreedingCoeff "
             "-mode SNP "
+            "--maxGaussians 4 "
             "-tranche 100.0 -tranche 99.9 -tranche 99.0 -tranche 90.0 "
             "-recalFile {snp_recal} "
             "-tranchesFile {snp_tranches} "
@@ -589,7 +599,13 @@ class VariantRecalibratorSNP(LocalSGEJobTask):
             subprocess.check_call(shlex.split(cmd))
 
     def requires(self):
-        return self.clone(SelectVariantsSNP)
+        if self.sample_type == 'genome':
+            return self.clone(SelectVariantsSNP)
+        elif self.sample_type == 'exome':
+            return self.clone(SelectVariantsSNP)
+        else:
+            raise Exception, "Sample type: %s not supported in this module" % self.sample_type
+
 
     def output(self):
         #return luigi.LocalTarget(self.snp_rscript),luigi.LocalTarget(self.snp_tranches),luigi.LocalTarget(self.snp_recal)
@@ -602,6 +618,7 @@ class VariantRecalibratorINDEL(LocalSGEJobTask):
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -660,7 +677,10 @@ class VariantRecalibratorINDEL(LocalSGEJobTask):
             subprocess.check_call(shlex.split(cmd))
 
     def requires(self):
-        return self.clone(VariantRecalibratorSNP)
+        if self.sample_type == 'genome':
+            return self.clone(VariantRecalibratorSNP)
+        else:
+            raise Exception, "Sample type: %s not supported in this module" % self.sample_type
 
     def output(self):
         return luigi.LocalTarget(self.indel_recal)
@@ -670,6 +690,7 @@ class ApplyRecalibrationSNP(LocalSGEJobTask):
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -698,7 +719,7 @@ class ApplyRecalibrationSNP(LocalSGEJobTask):
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
             "-T ApplyRecalibration "
-            "-I {vcf} "
+            "-input {vcf} "
             "-tranchesFile {snp_tranches} "
             "-recalFile {snp_recal} "
             "-o {snp_filtered} "
@@ -716,7 +737,12 @@ class ApplyRecalibrationSNP(LocalSGEJobTask):
             subprocess.check_call(shlex.split(cmd))
 
     def requires(self):
-        return self.clone(VariantRecalibratorINDEL)
+        if self.sample_type == 'genome':
+            return self.clone(VariantRecalibratorINDEL)
+        elif self.sample_type == 'exome':
+            return self.clone(VariantRecalibratorSNP)
+        else:
+            raise Exception, "Sample type: %s not supported in this module" % self.sample_type
 
     def output(self):
         return luigi.LocalTarget(self.snp_filtered)
@@ -726,6 +752,7 @@ class ApplyRecalibrationINDEL(LocalSGEJobTask):
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -754,7 +781,7 @@ class ApplyRecalibrationINDEL(LocalSGEJobTask):
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
             "-T ApplyRecalibration "
-            "-I {snp_filtered} "
+            "-input {snp_filtered} "
             "-tranchesFile {indel_tranches} "
             "-recalFile {indel_recal} "
             "-o {indel_filtered} "
@@ -772,7 +799,10 @@ class ApplyRecalibrationINDEL(LocalSGEJobTask):
            subprocess.check_call(shlex.split(cmd))
 
     def requires(self):
-        return self.clone(ApplyRecalibrationSNP)
+        if self.sample_type == 'genome':
+            return self.clone(ApplyRecalibrationSNP)
+        else:
+            raise Exception, "Sample type: %s not supported in this module" % self.sample_type
 
     def output(self):
         return luigi.LocalTarget(self.indel_filtered)
@@ -782,6 +812,7 @@ class VariantFiltrationSNP(LocalSGEJobTask):
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -820,7 +851,10 @@ class VariantFiltrationSNP(LocalSGEJobTask):
            subprocess.check_call(shlex.split(cmd))
 
     def requires(self):
-        return self.clone(SelectVariantsINDEL)
+        if self.sample_type == 'custom_capture':
+            return self.clone(SelectVariantsSNP)
+        else:
+            raise Exception, "Sample type: %s not supported in this module" % self.sample_type
 
     def output(self):
         return luigi.LocalTarget(self.snp_filtered)
@@ -830,6 +864,7 @@ class VariantFiltrationINDEL(LocalSGEJobTask):
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -868,7 +903,11 @@ class VariantFiltrationINDEL(LocalSGEJobTask):
            subprocess.check_call(shlex.split(cmd))
 
     def requires(self):
-        return self.clone(VariantFiltrationSNP)
-
+        if self.sample_type == 'exome':
+            return self.clone(ApplyRecalibrationSNP),self.clone(SelectVariantsINDEL)
+        elif self.sample_type == 'custom_capture':
+            return self.clone(VariantFiltrationINDEL)
+        else:
+            raise Exception, "Sample type: %s not supported in this module" % self.sample_type
     def output(self):
         return luigi.LocalTarget(self.indel_filtered)
