@@ -20,8 +20,8 @@ hapmap="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/hapmap_3.3.b37.
 omni="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/1000G_omni2.5.b37.vcf"
 g1000="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/1000G_phase1.indels.b37.vcf"
 Mills1000g="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/Mills_and_1000G_gold_standard.indels.b37.vcf"
-dbSNP="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/dbsnp_138.b37.vcf"
-
+dbSNP="/nfs/goldsteindata/refDB/dbSNP/dbsnp_147.b37.vcf"
+chr_list="/nfs/goldstein/software/dragen_pipe/dragen/conf/chr_list.bed"
 
 class RootTask(LocalSGEJobTask):
     base_directory = luigi.Parameter()
@@ -29,6 +29,7 @@ class RootTask(LocalSGEJobTask):
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
+    chr_list = luigi.Parameter()
 
     def requires(self):
         if sample_type == 'genome':
@@ -90,12 +91,11 @@ class RealignerTargetCreator(LocalSGEJobTask):
                 bam=self.bam,
                 interval_list=self.interval_list,
                 Mills1000g=Mills1000g,
+                chr_list=chr_list,
                 dbSNP=dbSNP)
-        #os.system("echo {cmd}".format(cmd=cmd))
         with open(self.script,'w') as o:
             o.write(cmd + "\n")
             subprocess.check_call(shlex.split(cmd))
-        #os.system("touch {0}".format(self.interval_list))
 
     def output(self):
         yield luigi.LocalTarget(self.interval_list)
@@ -167,7 +167,6 @@ class BaseRecalibrator(LocalSGEJobTask):
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
-
     java = luigi.Parameter(default=java,
         description = 'java version used')
     gatk = luigi.Parameter(default=gatk,
@@ -215,6 +214,7 @@ class BaseRecalibrator(LocalSGEJobTask):
                 realn_bam=self.realn_bam,
                 recal_table=self.recal_table,
                 Mills1000g=Mills1000g,
+                capture_kit_bed=self.capture_kit_bed,
                 dbSNP=dbSNP)
         with open(self.script,'w') as o:
             o.write(cmd + "\n")
@@ -314,7 +314,7 @@ class HaplotypeCaller(LocalSGEJobTask):
             scratch=self.scratch, sample_name=self.sample_name)
         self.recal_bam = "{scratch}/{sample_name}/{sample_name}.realn.recal.bam".format(
             scratch=self.scratch, sample_name=self.sample_name)
-        self.vcf = "{scratch}/{sample_name}/{sample_name}.raw.vcf".format(
+        self.gvcf = "{scratch}/{sample_name}/{sample_name}.g.vcf".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
             scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
@@ -325,17 +325,19 @@ class HaplotypeCaller(LocalSGEJobTask):
             "-R {ref} "
             "-T HaplotypeCaller "
             "-I {recal_bam} "
-            "-o {vcf} "
-            "-L 21 "
+            "-o {gvcf} "
             "-stand_call_conf 20 "
             "-stand_emit_conf 20 "
+            "--emitRefConfidence GVCF "
+            "--variant_index_type LINEAR "
+            "--variant_index_parameter 128000 "
             "--dbsnp {dbSNP} "
             "-nct 4").format(java=java,
                 gatk=gatk,
                 max_mem=max_mem,
                 ref=ref,
                 recal_bam=self.recal_bam,
-                vcf=self.vcf,
+                gvcf=self.gvcf,
                 dbSNP=dbSNP)
 
         with open(self.script,'w') as o:
@@ -350,7 +352,172 @@ class HaplotypeCaller(LocalSGEJobTask):
         return self.clone(PrintReads)
 
     def output(self):
+        return luigi.LocalTarget(self.gvcf)
+
+class GenotypeGVCFs(LocalSGEJobTask):
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+
+    java = luigi.Parameter(default=java,
+        description = 'java version used')
+    gatk = luigi.Parameter(default=gatk,
+        description = 'gatk version used')
+    max_mem = luigi.Parameter(default=max_mem,
+        description = 'heap size for java in Gb')
+    ref = luigi.Parameter(default=ref,
+        description = 'reference genome location')
+    dbSNP = luigi.Parameter(default=dbSNP,
+        description = 'dbSNP location')
+    n_cpu = 4
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    def __init__(self, *args, **kwargs):
+        super(GenotypeGVCFs, self).__init__(*args, **kwargs)
+        self.recal_table = "{scratch}/{sample_name}/{sample_name}.recal_table".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.recal_bam = "{scratch}/{sample_name}/{sample_name}.realn.recal.bam".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.gvcf = "{scratch}/{sample_name}/{sample_name}.g.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.vcf = "{scratch}/{sample_name}/{sample_name}.raw.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+
+    def work(self):
+        cmd = ("{java} -Xmx{max_mem}g "
+            "-jar {gatk}/GenomeAnalysisTK.jar "
+            "-R {ref} "
+            "-T GenotypeGVCFs "
+            "-o {vcf} "
+            "-stand_call_conf 20 "
+            "-stand_emit_conf 20 "
+            "-V {gvcf}").format(java=java,
+                gatk=gatk,
+                max_mem=max_mem,
+                ref=ref,
+                gvcf=self.gvcf,
+                vcf=self.vcf)
+
+        with open(self.script,'w') as o:
+            o.write(cmd + "\n")
+            subprocess.check_call(shlex.split(cmd))
+
+       #rm_cmd = ['rm',self.recal_bam]
+       #print rm_cmd
+       #subprocess.call(rm_cmd)
+
+    def requires(self):
+        return self.clone(HaplotypeCaller)
+
+    def output(self):
         return luigi.LocalTarget(self.vcf)
+
+class SelectVariantsSNP(LocalSGEJobTask):
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+
+    java = luigi.Parameter(default=java,
+        description = 'java version used')
+    gatk = luigi.Parameter(default=gatk,
+        description = 'gatk version used')
+    max_mem = luigi.Parameter(default=max_mem,
+        description = 'heap size for java in Gb')
+    ref = luigi.Parameter(default=ref,
+        description = 'reference genome location')
+
+    def __init__(self, *args, **kwargs):
+        super(SelectVariantsSNP, self).__init__(*args, **kwargs)
+        self.recal_table = "{scratch}/{sample_name}/{sample_name}.recal_table".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.vcf = "{scratch}/{sample_name}/{sample_name}.raw.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.snp_vcf = "{scratch}/{sample_name}/{sample_name}.snp.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+
+    def work(self):
+        cmd = ("{java} -Xmx{max_mem}g "
+            "-jar {gatk}/GenomeAnalysisTK.jar "
+            "-R {ref} "
+            "-T SelectVariantsSNP "
+            "-I {vcf} "
+            "-o {snp_vcf} "
+            "-V {gvcf}").format(java=java,
+                gatk=gatk,
+                max_mem=max_mem,
+                ref=ref,
+                snp_vcf=self.snp_vcf,
+                vcf=self.vcf)
+
+        with open(self.script,'w') as o:
+            o.write(cmd + "\n")
+            subprocess.check_call(shlex.split(cmd))
+
+
+    def requires(self):
+        return self.clone(GenotypeGVCFs)
+
+    def output(self):
+        return luigi.LocalTarget(self.snp_vcf)
+
+class SelectVariantsINDEL(LocalSGEJobTask):
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+
+    java = luigi.Parameter(default=java,
+        description = 'java version used')
+    gatk = luigi.Parameter(default=gatk,
+        description = 'gatk version used')
+    max_mem = luigi.Parameter(default=max_mem,
+        description = 'heap size for java in Gb')
+    ref = luigi.Parameter(default=ref,
+        description = 'reference genome location')
+
+    def __init__(self, *args, **kwargs):
+        super(SelectVariantsINDEL, self).__init__(*args, **kwargs)
+        self.recal_table = "{scratch}/{sample_name}/{sample_name}.recal_table".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.vcf = "{scratch}/{sample_name}/{sample_name}.raw.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.indel_vcf = "{scratch}/{sample_name}/{sample_name}.indel.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+
+    def work(self):
+        cmd = ("{java} -Xmx{max_mem}g "
+            "-jar {gatk}/GenomeAnalysisTK.jar "
+            "-R {ref} "
+            "-T SelectVariantsSNP "
+            "-I {vcf} "
+            "-o {snp_vcf} "
+            "-V {gvcf}").format(java=java,
+                gatk=gatk,
+                max_mem=max_mem,
+                ref=ref,
+                snp_vcf=self.snp_vcf,
+                vcf=self.vcf)
+
+        with open(self.script,'w') as o:
+            o.write(cmd + "\n")
+            subprocess.check_call(shlex.split(cmd))
+
+
+    def requires(self):
+        return self.clone(SelectVariantsSNP)
+
+    def output(self):
+        return luigi.LocalTarget(self.indel_vcf)
+
 
 class VariantRecalibratorSNP(LocalSGEJobTask):
     base_directory = luigi.Parameter()
@@ -371,7 +538,7 @@ class VariantRecalibratorSNP(LocalSGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(VariantRecalibratorSNP, self).__init__(*args, **kwargs)
-        self.vcf = "{scratch}/{sample_name}/{sample_name}.raw.vcf".format(
+        self.snp_vcf = "{scratch}/{sample_name}/{sample_name}.snp.vcf".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.snp_recal = "{scratch}/{sample_name}/{sample_name}.snp.recal".format(
             scratch=self.scratch, sample_name=self.sample_name)
@@ -387,19 +554,17 @@ class VariantRecalibratorSNP(LocalSGEJobTask):
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
             "-T VariantRecalibrator "
-            "--input {vcf} "
+            "--input {snp_vcf} "
             "-an DP "
             "-an QD "
             "-an FS "
             "-an SOR "
+            "-an MQ "
             "-an MQRankSum "
             "-an ReadPosRankSum "
-            "-an MQ "
+            "-an InbreedingCoeff "
             "-mode SNP "
-            "-tranche 100.0 "
-            "-tranche 99.9 "
-            "-tranche 99.0 "
-            "-tranche 90.0 "
+            "-tranche 100.0 -tranche 99.9 -tranche 99.0 -tranche 90.0 "
             "-recalFile {snp_recal} "
             "-tranchesFile {snp_tranches} "
             "-rscriptFile {snp_rscript} "
@@ -411,7 +576,7 @@ class VariantRecalibratorSNP(LocalSGEJobTask):
                 gatk=gatk,
                 max_mem=max_mem,
                 ref=ref,
-                vcf=self.vcf,
+                snp_vcf=self.snp_vcf,
                 snp_recal=self.snp_recal,
                 snp_tranches=self.snp_tranches,
                 snp_rscript=self.snp_rscript,
@@ -424,13 +589,12 @@ class VariantRecalibratorSNP(LocalSGEJobTask):
             subprocess.check_call(shlex.split(cmd))
 
     def requires(self):
-        return self.clone(HaplotypeCaller)
+        return self.clone(SelectVariantsSNP)
 
     def output(self):
         #return luigi.LocalTarget(self.snp_rscript),luigi.LocalTarget(self.snp_tranches),luigi.LocalTarget(self.snp_recal)
         return luigi.LocalTarget(self.snp_recal)
 
-        ####double check resources version ####
         ####double check dbsnp version ####
 
 class VariantRecalibratorINDEL(LocalSGEJobTask):
@@ -454,13 +618,11 @@ class VariantRecalibratorINDEL(LocalSGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(VariantRecalibratorINDEL, self).__init__(*args, **kwargs)
-        self.vcf = "{scratch}/{sample_name}/{sample_name}.raw.vcf".format(
+        self.indel_vcf = "{scratch}/{sample_name}/{sample_name}.indel.vcf".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.indel_recal = "{scratch}/{sample_name}/{sample_name}.indel.recal".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.indel_tranches = "{scratch}/{sample_name}/{sample_name}.indel.tranches".format(
-            scratch=self.scratch, sample_name=self.sample_name)
-        self.indel_rscript = "{scratch}/{sample_name}/{sample_name}.indel.rscript".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
             scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
@@ -470,33 +632,28 @@ class VariantRecalibratorINDEL(LocalSGEJobTask):
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
             "-T VariantRecalibrator "
-            "-I {vcf} "
-            "-tranche 100.0 "
-            "-tranche 99.9 "
-            "-tranche 99.0 "
-            "-tranche 90.0 "
-            "-recalFile {indel_recal} "
-            "-tranchesFile {indel_tranches} "
-            "-rscriptFile {indel_rscript} "
-            "--maxGaussians 4 "
-            "-resource:mills,known=false,training=true,truth=true,prior=12.0 {Mills1000g} "
-            "-resource:dbsnp,known=true,training=false,truth=false,prior=2.0 {dbSNP} "
+            "-I {indel_vcf} "
             "-an QD "
             "-an DP "
             "-an FS "
             "-an SOR "
-            "-an ReadPosRankSum "
             "-an MQRankSum "
+            "-an ReadPosRankSum "
             "-an InbreedingCoeff "
-            "-mode INDEL ").format(java=java,
+            "-mode INDEL "
+            "--maxGaussians 4 "
+            "-tranche 100.0 -tranche 99.9 -tranche 99.0 -tranche 90.0 "
+            "-recalFile {indel_recal} "
+            "-tranchesFile {indel_tranches} "
+            "-resource:mills,known=true,training=true,truth=true,prior=12.0 {Mills1000g} "
+            ).format(java=java,
                 gatk=gatk,
                 max_mem=max_mem,
                 ref=ref,
-                vcf=self.vcf,
+                indel_vcf=self.indel_vcf,
                 indel_recal=self.indel_recal,
                 indel_tranches=self.indel_tranches,
                 indel_rscript=self.indel_rscript,
-                dbSNP=dbSNP,
                 Mills1000g=Mills1000g)
         with open(self.script,'w') as o:
             o.write(cmd + "\n")
@@ -504,7 +661,6 @@ class VariantRecalibratorINDEL(LocalSGEJobTask):
 
     def requires(self):
         return self.clone(VariantRecalibratorSNP)
-        #return self.clone(VariantRecalibratorINDEL)
 
     def output(self):
         return luigi.LocalTarget(self.indel_recal)
@@ -528,7 +684,7 @@ class ApplyRecalibrationSNP(LocalSGEJobTask):
         super(ApplyRecalibrationSNP, self).__init__(*args, **kwargs)
         self.vcf = "{scratch}/{sample_name}/{sample_name}.snp.vcf".format(
             scratch=self.scratch, sample_name=self.sample_name)
-        self.snp_recal = "{scratch}/{sample_name}/{sample_name}.snp.recal2".format(
+        self.snp_recal = "{scratch}/{sample_name}/{sample_name}.snp.recal".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.snp_tranches = "{scratch}/{sample_name}/{sample_name}.snp.tranches".format(
             scratch=self.scratch, sample_name=self.sample_name)
@@ -638,7 +794,7 @@ class VariantFiltrationSNP(LocalSGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(VariantFiltrationSNP, self).__init__(*args, **kwargs)
-        self.vcf = "{scratch}/{sample_name}/{sample_name}.raw.vcf".format(
+        self.snp_vcf = "{scratch}/{sample_name}/{sample_name}.snp.vcf".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.snp_filtered = "{scratch}/{sample_name}/{sample_name}.snp.filtered.vcf".format(
             scratch=self.scratch, sample_name=self.sample_name)
@@ -650,21 +806,21 @@ class VariantFiltrationSNP(LocalSGEJobTask):
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
             "-T VariantFiltration "
-            "-V {vcf} "
+            "-V {snp_vcf} "
             "--filterExpression \"QD < 2.0 || FS > 60.0 || MQ < 40.0 || MQRankSum < -12.5 || ReadPosRankSum < -8.0\" "
             "--filterName \"SNP_filter\" "
             "-o {snp_filtered} ").format(java=java,
                 gatk=gatk,
                 max_mem=max_mem,
                 ref=ref,
-                vcf=self.vcf,
+                snp_vcf=self.snp_vcf,
                 snp_filtered=self.snp_filtered)
        with open(self.script,'w') as o:
            o.write(cmd + "\n")
            subprocess.check_call(shlex.split(cmd))
 
     def requires(self):
-        return self.clone(HaplotypeCaller)
+        return self.clone(SelectVariantsINDEL)
 
     def output(self):
         return luigi.LocalTarget(self.snp_filtered)
@@ -686,9 +842,9 @@ class VariantFiltrationINDEL(LocalSGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(VariantFiltrationINDEL, self).__init__(*args, **kwargs)
-        self.snp_filtered = "{scratch}/{sample_name}/{sample_name}.snp.filtered.vcf".format(
+        self.indel_vcf = "{scratch}/{sample_name}/{sample_name}.indel.vcf".format(
             scratch=self.scratch, sample_name=self.sample_name)
-        self.indel_filtered = "{scratch}/{sample_name}/{sample_name}.snp.indel.filtered.vcf".format(
+        self.indel_filtered = "{scratch}/{sample_name}/{sample_name}.indel.filtered.vcf".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
             scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
@@ -698,14 +854,14 @@ class VariantFiltrationINDEL(LocalSGEJobTask):
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
             "-T VariantFiltration "
-            "-V {snp_filtered} "
+            "-V {indel_vcf} "
             "--filterExpression \"QD < 2.0 || FS > 200.0 || ReadPosRankSum < -20.0\" "
             "--filterName \"INDEL_filter\" "
             "-o {indel_filtered}").format(java=java,
                 gatk=gatk,
                 max_mem=max_mem,
                 ref=ref,
-                snp_filtered=self.snp_filtered,
+                indel_vcf=self.indel_vcf,
                 indel_filtered=self.indel_filtered)
        with open(self.script,'w') as o:
            o.write(cmd + "\n")
