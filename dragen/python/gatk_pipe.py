@@ -96,9 +96,11 @@ class RealignerTargetCreator(SGEJobTask):
                 Mills1000g=Mills1000g,
                 chr_list=chr_list,
                 dbSNP=dbSNP)
+        if not os.path.isdir(os.path.dirname(self.script)):
+            os.makedirs(os.path.dirname(self.script))
         with open(self.script,'w') as o:
             o.write(cmd + "\n")
-            subprocess.check_call(shlex.split(cmd))
+        subprocess.check_call(shlex.split(cmd))
 
     def output(self):
         yield luigi.LocalTarget(self.interval_list)
@@ -928,11 +930,11 @@ class CombineVariants(SGEJobTask):
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
-    tabix = luigi.Parameter(default=java,
+    tabix = luigi.Parameter(default=tabix,
         description = 'tabix version used')
-    picard = luigi.Parameter(default=java,
+    picard = luigi.Parameter(default=picard,
         description = 'picard version used')
-    bgzip = luigi.Parameter(default=java,
+    bgzip = luigi.Parameter(default=bgzip,
         description = 'bgzip version used')
 
     n_cpu = 1
