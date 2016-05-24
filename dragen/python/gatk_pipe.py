@@ -1,11 +1,10 @@
-import luigi
 import os
 import shlex
 import sys
 import subprocess
-from dragen_sample import dragen_sample
-#from luigi import configuration
+import luigi
 from luigi.contrib.sge import SGEJobTask, LocalSGEJobTask
+from dragen_sample import dragen_sample
 
 """
 Run samples through a luigized GATK pipeline after they have finished the
@@ -14,6 +13,9 @@ Dragen based alignment
 
 gatk="/nfs/goldstein/software/GATK-3.5.0"
 java="/nfs/goldstein/goldsteinlab/software/java/jdk1.7.0_03/bin/java"
+bgzip="/nfs/goldstein/software/bin/bgzip"
+tabix="/nfs/goldstein/software/bin/tabix"
+picard="/nfs/goldstein/software/picard-tools-1.131/picard.jar"
 max_mem="15"
 ref="/nfs/goldsteindata/refDB/HS_Build37/BWA_INDEX_hs37d5_BWAmem/hs37d5.fa"
 hapmap="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/hapmap_3.3.b37.vcf"
@@ -23,7 +25,7 @@ Mills1000g="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/Mills_and_1
 dbSNP="/nfs/goldsteindata/refDB/dbSNP/dbsnp_147.b37.vcf"
 chr_list="/nfs/goldstein/software/dragen_pipe/dragen/conf/chr_list.bed"
 
-class RootTask(LocalSGEJobTask):
+class RootTask(SGEJobTask):
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
     sample_type = luigi.Parameter()
@@ -39,7 +41,7 @@ class RootTask(LocalSGEJobTask):
     def output(self):
         return luigi.LocalTarget('/home/jb3816/{0}.complete'.format(self.sample_name))
 
-class RealignerTargetCreator(LocalSGEJobTask):
+class RealignerTargetCreator(SGEJobTask):
     """class for creating targets for indel realignment BAMs from Dragen"""
 
     base_directory = luigi.Parameter()
@@ -101,7 +103,7 @@ class RealignerTargetCreator(LocalSGEJobTask):
     def output(self):
         yield luigi.LocalTarget(self.interval_list)
 
-class IndelRealigner(LocalSGEJobTask):
+class IndelRealigner(SGEJobTask):
     """class to create BAM with realigned BAMs"""
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
@@ -163,7 +165,7 @@ class IndelRealigner(LocalSGEJobTask):
     def output(self):
         return luigi.LocalTarget(self.realn_bam)
 
-class BaseRecalibrator(LocalSGEJobTask):
+class BaseRecalibrator(SGEJobTask):
     """class to create a recalibration table with realigned BAMs"""
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
@@ -237,7 +239,7 @@ class BaseRecalibrator(LocalSGEJobTask):
     def output(self):
         return luigi.LocalTarget(self.recal_table)
 
-class PrintReads(LocalSGEJobTask):
+class PrintReads(SGEJobTask):
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
@@ -293,7 +295,7 @@ class PrintReads(LocalSGEJobTask):
     def output(self):
         return luigi.LocalTarget(self.recal_bam)
 
-class HaplotypeCaller(LocalSGEJobTask):
+class HaplotypeCaller(SGEJobTask):
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
@@ -360,7 +362,7 @@ class HaplotypeCaller(LocalSGEJobTask):
     def output(self):
         return luigi.LocalTarget(self.gvcf)
 
-class GenotypeGVCFs(LocalSGEJobTask):
+class GenotypeGVCFs(SGEJobTask):
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
@@ -423,7 +425,7 @@ class GenotypeGVCFs(LocalSGEJobTask):
     def output(self):
         return luigi.LocalTarget(self.vcf)
 
-class SelectVariantsSNP(LocalSGEJobTask):
+class SelectVariantsSNP(SGEJobTask):
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
@@ -475,7 +477,7 @@ class SelectVariantsSNP(LocalSGEJobTask):
     def output(self):
         return luigi.LocalTarget(self.snp_vcf)
 
-class SelectVariantsINDEL(LocalSGEJobTask):
+class SelectVariantsINDEL(SGEJobTask):
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
@@ -513,7 +515,7 @@ class SelectVariantsINDEL(LocalSGEJobTask):
                 gatk=gatk,
                 max_mem=max_mem,
                 ref=ref,
-                snp_vcf=self.snp_vcf,
+                snp_vcf=self.indel_vcf,
                 vcf=self.vcf)
 
         with open(self.script,'w') as o:
@@ -528,7 +530,7 @@ class SelectVariantsINDEL(LocalSGEJobTask):
         return luigi.LocalTarget(self.indel_vcf)
 
 
-class VariantRecalibratorSNP(LocalSGEJobTask):
+class VariantRecalibratorSNP(SGEJobTask):
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
@@ -613,7 +615,7 @@ class VariantRecalibratorSNP(LocalSGEJobTask):
 
         ####double check dbsnp version ####
 
-class VariantRecalibratorINDEL(LocalSGEJobTask):
+class VariantRecalibratorINDEL(SGEJobTask):
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
@@ -685,7 +687,7 @@ class VariantRecalibratorINDEL(LocalSGEJobTask):
     def output(self):
         return luigi.LocalTarget(self.indel_recal)
 
-class ApplyRecalibrationSNP(LocalSGEJobTask):
+class ApplyRecalibrationSNP(SGEJobTask):
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
@@ -747,7 +749,7 @@ class ApplyRecalibrationSNP(LocalSGEJobTask):
     def output(self):
         return luigi.LocalTarget(self.snp_filtered)
 
-class ApplyRecalibrationINDEL(LocalSGEJobTask):
+class ApplyRecalibrationINDEL(SGEJobTask):
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
@@ -807,7 +809,7 @@ class ApplyRecalibrationINDEL(LocalSGEJobTask):
     def output(self):
         return luigi.LocalTarget(self.indel_filtered)
 
-class VariantFiltrationSNP(LocalSGEJobTask):
+class VariantFiltrationSNP(SGEJobTask):
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
@@ -859,7 +861,7 @@ class VariantFiltrationSNP(LocalSGEJobTask):
     def output(self):
         return luigi.LocalTarget(self.snp_filtered)
 
-class VariantFiltrationINDEL(LocalSGEJobTask):
+class VariantFiltrationINDEL(SGEJobTask):
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
@@ -874,6 +876,10 @@ class VariantFiltrationINDEL(LocalSGEJobTask):
         description = 'heap size for java in Gb')
     ref = luigi.Parameter(default=ref,
         description = 'reference genome location')
+
+    n_cpu = 2
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(VariantFiltrationINDEL, self).__init__(*args, **kwargs)
@@ -911,3 +917,122 @@ class VariantFiltrationINDEL(LocalSGEJobTask):
             raise Exception, "Sample type: %s not supported in this module" % self.sample_type
     def output(self):
         return luigi.LocalTarget(self.indel_filtered)
+
+
+class CombineVariants(SGEJobTask):
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+
+    java = luigi.Parameter(default=java,
+        description = 'java version used')
+    tabix = luigi.Parameter(default=java,
+        description = 'tabix version used')
+    picard = luigi.Parameter(default=java,
+        description = 'picard version used')
+    bgzip = luigi.Parameter(default=java,
+        description = 'bgzip version used')
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    def __init__(self, *args, **kwargs):
+        super(CombineVariants, self).__init__(*args, **kwargs)
+        self.snp_filtered = "{scratch}/{sample_name}/{sample_name}.snp.filtered.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.vcf = "{scratch}/{sample_name}/{sample_name}.raw.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.indel_filtered = "{scratch}/{sample_name}/{sample_name}.indel.filtered.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.final_vcf = "{scratch}/{sample_name}/{sample_name}.analysisReady.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.final_vcf_gz = "{scratch}/{sample_name}/{sample_name}.analysisReady.vcf.gz".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.tmp_vcf = "{scratch}/{sample_name}/{sample_name}.tmp.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+
+    def work(self):
+        filter_flag = 0
+        with open(self.tmp_vcf,'w') as vcf_out:
+            with open(self.snp_filtered) as header:
+                for line in header.readlines():
+                    if line[0] == '#':
+                        if line[0:8] == '##FILTER' and filter_flag == 0 :
+                            filter_flag = 1
+                            #SNP specific filters
+                            if self.sample_type == 'exome' or self.sample_type =='genome':
+                                vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.00to99.90,Description="Truth sensitivity tranche level for SNP model\n')
+                                vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.90to100.00+,Description="Truth sensitivity tranche level for SNP model\n')
+                                vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.90to100.00,Description="Truth sensitivity tranche level for SNP model\n')
+                            else:
+                                vcf_out.write('##FILTER=<ID=SNP_filter,Description="QD < 2.0 || FS > 60.0 || MQ < 40.0 || MQRankSum < -12.5 || ReadPosRankSum < -8.0">\n')
+
+                            #Indel specific filters
+                            if self.sample_type =='genome':
+                                vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.00to99.90,Description="Truth sensitivity tranche level for INDEL model\n')
+                                vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.90to100.00+,Description="Truth sensitivity tranche level for INDEL model\n')
+                                vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.90to100.00,Description="Truth sensitivity tranche level for INDEL model\n')
+                            else:
+                                vcf_out.write('##FILTER=<ID=INDEL_filter,Description="QD < 2.0 || FS > 200.0 || ReadPosRankSum < -20.0">\n')
+                        if line[0:13] == "##INFO=<ID=AN":
+                                vcf_out.write('##INFO=<ID=AnnoDBID,Number=1,Type=String,Description="AnnoDBID">\n')
+                        vcf_out.write(line)
+                    else:
+                        break
+            with open(self.snp_filtered) as snps:
+                for snp in snps.readlines():
+                    if snp[0] != '#':
+                        vcf_out.write(snp)
+            with open(self.indel_filtered) as indels:
+                for indel in indels.readlines():
+                    if indel[0] != '#':
+                        vcf_out.write(indel)
+
+        pre_cmd = ("/bin/bash -c cat <(head -1000 {vcf} | grep ^#) "
+            "<(grep -v ^# {snp_filtered}) "
+            "<(grep -v ^# {indel_filtered}) >> "
+            "{tmp_vcf} "
+            ).format(snp_filtered=self.snp_filtered,
+                indel_filtered=self.indel_filtered,
+                tmp_vcf=self.tmp_vcf,
+                vcf=self.vcf)
+
+        sort_cmd = ("{java} -jar {picard} "
+            "SortVcf "
+            "I={tmp_vcf} "
+            "O={final_vcf}").format(java=java,
+                picard=picard,
+                tmp_vcf=self.tmp_vcf,
+                final_vcf=self.final_vcf)
+
+        bgzip_cmd = ("{bgzip} {final_vcf}").format(bgzip=bgzip,final_vcf=self.final_vcf)
+        tabix_cmd = ("{tabix} {final_vcf}.gz").format(tabix=tabix,final_vcf=self.final_vcf)
+
+        #rm_cmd = ('').format()
+        with open(self.script,'w') as o:
+            o.write(pre_cmd + "\n")
+            o.write(sort_cmd + "\n")
+            o.write(bgzip_cmd + "\n")
+            o.write(tabix_cmd + "\n")
+            #o.write(rm_cmd + "\n")
+
+        subprocess.check_call(shlex.split(sort_cmd))
+        subprocess.check_call(shlex.split(bgzip_cmd))
+        subprocess.check_call(shlex.split(tabix_cmd))
+
+    def requires(self):
+        if self.sample_type == 'exome':
+            return self.clone(VariantFiltrationINDEL)
+        elif self.sample_type == 'custom_capture':
+            return self.clone(VariantFiltrationINDEL)
+        elif self.sample_type == 'genome':
+            return self.clone(ApplyRecalibrationINDEL)
+        else:
+            raise Exception, "Sample type: %s not supported in this module" % self.sample_type
+    def output(self):
+        return luigi.LocalTarget(self.final_vcf_gz)
