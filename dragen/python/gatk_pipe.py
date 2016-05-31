@@ -13,11 +13,15 @@ Run samples through a luigized GATK pipeline after they have finished the
 Dragen based alignment
 """
 
+#Pipeline programs
 gatk="/nfs/goldstein/software/GATK-3.5.0"
 java="/nfs/goldstein/goldsteinlab/software/java/jdk1.7.0_03/bin/java"
 bgzip="/nfs/goldstein/software/bin/bgzip"
 tabix="/nfs/goldstein/software/bin/tabix"
 picard="/nfs/goldstein/software/picard-tools-1.131/picard.jar"
+bedtools="/nfs/goldstein/software/bedtools-2.25.0/bin/bedtools"
+
+#GATK parameters
 max_mem="15"
 ref="/nfs/goldsteindata/refDB/HS_Build37/BWA_INDEX_hs37d5_BWAmem/hs37d5.fa"
 hapmap="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/hapmap_3.3.b37.vcf"
@@ -25,7 +29,7 @@ omni="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/1000G_omni2.5.b37
 g1000="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/1000G_phase1.indels.b37.vcf"
 Mills1000g="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/Mills_and_1000G_gold_standard.indels.b37.vcf"
 dbSNP="/nfs/goldsteindata/refDB/dbSNP/dbsnp_147.b37.vcf"
-chr_list="/nfs/goldstein/software/dragen_pipe/dragen/conf/chr_list.bed"
+interval="/nfs/goldstein/software/dragen_pipe/dragen/conf/hs37d5.intervals"
 
 class RootTask(SGEJobTask):
     base_directory = luigi.Parameter()
@@ -33,7 +37,7 @@ class RootTask(SGEJobTask):
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
-    chr_list = luigi.Parameter()
+    interval = luigi.Parameter()
 
     def requires(self):
         if self.sample_type == 'genome':
@@ -51,6 +55,7 @@ class RealignerTargetCreator(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    interval = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -64,6 +69,7 @@ class RealignerTargetCreator(SGEJobTask):
         description = 'dbSNP location')
     Mills1000g = luigi.Parameter(default=Mills1000g,
         description = 'Mills, Devin curated dataset')
+
     n_cpu = 4
     parallel_env = "threaded"
     shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
@@ -85,6 +91,7 @@ class RealignerTargetCreator(SGEJobTask):
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
             "-T RealignerTargetCreator "
+            "-L {interval} "
             "-I {bam} "
             "-o {interval_list} "
             "-known {Mills1000g} "
@@ -93,10 +100,11 @@ class RealignerTargetCreator(SGEJobTask):
                 gatk=gatk,
                 max_mem=max_mem,
                 ref=ref,
+                interval=interval,
                 bam=self.bam,
                 interval_list=self.interval_list,
                 Mills1000g=Mills1000g,
-                chr_list=chr_list,
+                interval=interval,
                 dbSNP=dbSNP)
         if not os.path.isdir(os.path.dirname(self.script)):
             os.makedirs(os.path.dirname(self.script))
@@ -114,6 +122,7 @@ class IndelRealigner(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    interval = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -148,6 +157,7 @@ class IndelRealigner(SGEJobTask):
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
             "-T IndelRealigner "
+            "-L {interval} "
             "-I {bam} "
             "-o {realn_bam} "
             "-targetIntervals {interval_list} "
@@ -158,9 +168,11 @@ class IndelRealigner(SGEJobTask):
                 gatk=gatk,
                 max_mem=max_mem,
                 ref=ref,
+                interval=interval,
                 bam=self.bam,
                 realn_bam=self.realn_bam,
                 interval_list=self.interval_list,
+                interval=interval,
                 Mills1000g=Mills1000g,
                 dbSNP=dbSNP)
         with open(self.script,'w') as o:
@@ -180,6 +192,7 @@ class BaseRecalibrator(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    interval = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -216,6 +229,7 @@ class BaseRecalibrator(SGEJobTask):
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
             "-T BaseRecalibrator "
+            "-L {interval} "
             "-I {realn_bam} "
             "-nct 4 "
             "-o {recal_table} "
@@ -225,6 +239,7 @@ class BaseRecalibrator(SGEJobTask):
                 gatk=gatk,
                 max_mem=max_mem,
                 ref=ref,
+                interval=interval,
                 realn_bam=self.realn_bam,
                 recal_table=self.recal_table,
                 Mills1000g=Mills1000g,
@@ -253,6 +268,7 @@ class PrintReads(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    interval = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -262,6 +278,7 @@ class PrintReads(SGEJobTask):
         description = 'heap size for java in Gb')
     ref = luigi.Parameter(default=ref,
         description = 'reference genome location')
+
     n_cpu = 4
     parallel_env = "threaded"
     shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
@@ -282,6 +299,7 @@ class PrintReads(SGEJobTask):
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
             "-T PrintReads "
+            "-L {interval} "
             "-I {realn_bam} "
             "-BQSR {recal_table} "
             "-o {recal_bam} "
@@ -289,6 +307,7 @@ class PrintReads(SGEJobTask):
                 gatk=gatk,
                 max_mem=max_mem,
                 ref=ref,
+                interval=interval,
                 realn_bam=self.realn_bam,
                 recal_table=self.recal_table,
                 recal_bam=self.recal_bam)
@@ -309,6 +328,7 @@ class HaplotypeCaller(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    interval = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -340,6 +360,7 @@ class HaplotypeCaller(SGEJobTask):
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
             "-T HaplotypeCaller "
+            "-L {interval} "
             "-I {recal_bam} "
             "-o {gvcf} "
             "-stand_call_conf 20 "
@@ -352,6 +373,7 @@ class HaplotypeCaller(SGEJobTask):
                 gatk=gatk,
                 max_mem=max_mem,
                 ref=ref,
+                interval=interval,
                 recal_bam=self.recal_bam,
                 gvcf=self.gvcf,
                 dbSNP=dbSNP)
@@ -376,6 +398,7 @@ class GenotypeGVCFs(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    interval = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -410,6 +433,7 @@ class GenotypeGVCFs(SGEJobTask):
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
             "-T GenotypeGVCFs "
+            "-L {interval} "
             "-o {vcf} "
             "-stand_call_conf 20 "
             "-stand_emit_conf 20 "
@@ -417,6 +441,7 @@ class GenotypeGVCFs(SGEJobTask):
                 gatk=gatk,
                 max_mem=max_mem,
                 ref=ref,
+                interval=interval,
                 gvcf=self.gvcf,
                 vcf=self.vcf)
 
@@ -440,6 +465,7 @@ class SelectVariantsSNP(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    interval = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -470,12 +496,14 @@ class SelectVariantsSNP(SGEJobTask):
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
             "-T SelectVariants "
+            "-L {interval} "
             "-V {vcf} "
             "-selectType SNP "
             "-o {snp_vcf}").format(java=java,
                 gatk=gatk,
                 max_mem=max_mem,
                 ref=ref,
+                interval=interval,
                 snp_vcf=self.snp_vcf,
                 vcf=self.vcf)
 
@@ -496,6 +524,7 @@ class SelectVariantsINDEL(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    interval = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -526,12 +555,14 @@ class SelectVariantsINDEL(SGEJobTask):
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
             "-T SelectVariants "
+            "-L {interval} "
             "-V {vcf} "
             "-selectType INDEL "
             "-o {snp_vcf}").format(java=java,
                 gatk=gatk,
                 max_mem=max_mem,
                 ref=ref,
+                interval=interval,
                 snp_vcf=self.indel_vcf,
                 vcf=self.vcf)
 
@@ -553,6 +584,7 @@ class VariantRecalibratorSNP(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    interval = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -587,6 +619,7 @@ class VariantRecalibratorSNP(SGEJobTask):
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
             "-T VariantRecalibrator "
+            "-L {interval} "
             "--input {snp_vcf} "
             "-an DP "
             "-an QD "
@@ -609,6 +642,7 @@ class VariantRecalibratorSNP(SGEJobTask):
                 gatk=gatk,
                 max_mem=max_mem,
                 ref=ref,
+                interval=interval,
                 snp_vcf=self.snp_vcf,
                 snp_recal=self.snp_recal,
                 snp_tranches=self.snp_tranches,
@@ -642,6 +676,7 @@ class VariantRecalibratorINDEL(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    interval = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -676,6 +711,7 @@ class VariantRecalibratorINDEL(SGEJobTask):
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
             "-T VariantRecalibrator "
+            "-L {interval} "
             "-I {indel_vcf} "
             "-an QD "
             "-an DP "
@@ -694,6 +730,7 @@ class VariantRecalibratorINDEL(SGEJobTask):
                 gatk=gatk,
                 max_mem=max_mem,
                 ref=ref,
+                interval=interval,
                 indel_vcf=self.indel_vcf,
                 indel_recal=self.indel_recal,
                 indel_tranches=self.indel_tranches,
@@ -718,6 +755,7 @@ class ApplyRecalibrationSNP(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    interval = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -750,6 +788,7 @@ class ApplyRecalibrationSNP(SGEJobTask):
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
             "-T ApplyRecalibration "
+            "-L {interval} "
             "-input {vcf} "
             "-tranchesFile {snp_tranches} "
             "-recalFile {snp_recal} "
@@ -759,6 +798,7 @@ class ApplyRecalibrationSNP(SGEJobTask):
                 gatk=gatk,
                 max_mem=max_mem,
                 ref=ref,
+                interval=interval,
                 vcf=self.vcf,
                 snp_tranches=self.snp_tranches,
                 snp_filtered=self.snp_filtered,
@@ -784,6 +824,7 @@ class ApplyRecalibrationINDEL(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    interval = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -813,6 +854,7 @@ class ApplyRecalibrationINDEL(SGEJobTask):
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
             "-T ApplyRecalibration "
+            "-L {interval} "
             "-input {snp_filtered} "
             "-tranchesFile {indel_tranches} "
             "-recalFile {indel_recal} "
@@ -822,6 +864,7 @@ class ApplyRecalibrationINDEL(SGEJobTask):
                 gatk=gatk,
                 max_mem=max_mem,
                 ref=ref,
+                interval=interval,
                 snp_filtered=self.snp_filtered,
                 indel_recal=self.indel_recal,
                 indel_tranches=self.indel_tranches,
@@ -845,6 +888,7 @@ class VariantFiltrationSNP(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    interval = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -873,6 +917,7 @@ class VariantFiltrationSNP(SGEJobTask):
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
             "-T VariantFiltration "
+            "-L {interval} "
             "-V {snp_vcf} "
             "--filterExpression \"QD < 2.0 || FS > 60.0 || MQ < 40.0 || MQRankSum < -12.5 || ReadPosRankSum < -8.0\" "
             "--filterName \"SNP_filter\" "
@@ -880,6 +925,7 @@ class VariantFiltrationSNP(SGEJobTask):
                 gatk=gatk,
                 max_mem=max_mem,
                 ref=ref,
+                interval=interval,
                 snp_vcf=self.snp_vcf,
                 snp_filtered=self.snp_filtered)
        with open(self.script,'w') as o:
@@ -901,6 +947,7 @@ class VariantFiltrationINDEL(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    interval = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -929,6 +976,7 @@ class VariantFiltrationINDEL(SGEJobTask):
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
             "-T VariantFiltration "
+            "-L {interval} "
             "-V {indel_vcf} "
             "--filterExpression \"QD < 2.0 || FS > 200.0 || ReadPosRankSum < -20.0\" "
             "--filterName \"INDEL_filter\" "
@@ -936,6 +984,7 @@ class VariantFiltrationINDEL(SGEJobTask):
                 gatk=gatk,
                 max_mem=max_mem,
                 ref=ref,
+                interval=interval,
                 indel_vcf=self.indel_vcf,
                 indel_filtered=self.indel_filtered)
        with open(self.script,'w') as o:
@@ -959,6 +1008,7 @@ class CombineVariants(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    interval = luigi.Parameter()
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
