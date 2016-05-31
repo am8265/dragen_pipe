@@ -11,10 +11,21 @@ import sys
 import time
 from glob import glob
 
-def get_prepid(curs, sample, pseudo_prepid):
-    """Retrieve qualifying prepids for a given pseudo_prepid"""
-    query = ("SELECT prepid FROM pseudo_prepid where pseudo_prepid={0}"
-            ).format(sample["pseudo_prepid"])
+def get_prepid(curs, sample):
+    """Retrieve qualifying prepids"""
+    query = ("SELECT p.prepid "
+            "FROM prepT p "
+            "JOIN SeqType st on p.prepID = st.prepID "
+            "WHERE CHGVID='{sample_name}' AND "
+            "failedPrep=0 AND "
+            "seqtype='{sample_type}' AND "
+            "exomeKit='{capture_kit}'"
+            ).format(sample_name=sample['sample_name'],
+                    sample_type=sample['sample_type'],
+                    capture_kit=sample['capture_kit'])
+
+    #query = ("SELECT prepid FROM pseudo_prepid where pseudo_prepid={0}"
+    #        ).format(sample["pseudo_prepid"])
 
     curs.execute(query)
     prepids = curs.fetchall()
@@ -73,6 +84,8 @@ def get_fastq_loc(curs, sample):
                     for flowcell in fastq_loc:
                         locs.append(os.path.realpath(flowcell))
                 else:
+                    print '/stornext/seqfinal/casava1.8/whole_{0}/{1}/*XX'.format(
+                    sample['sample_type'].lower(),sample['sample_name'])
                     raise Exception, "Sample {0} Fastq files not found!".format(sample['sample_name'])
     return locs
 
@@ -83,11 +96,11 @@ def get_output_dir(sample):
        sequenced with multiple capture kits.  Example: EpiMIR and SchizoEpi
     """
     if sample['sample_type'] == 'custom_capture':
-        output_dir = ('/nfs/fastq_temp3/ALIGNMENT/BUILD37/DRAGEN/{0}/{1}/{2}'
+        output_dir = ('/nfs/fastq_temp2/ALIGNMENT/BUILD37/DRAGEN/{0}/{1}/{2}'
             ).format(sample['sample_type'].upper(),
                     sample['capture_kit'],sample['sample_name'])
     else:
-        output_dir = ('/nfs/fastq_temp3/ALIGNMENT/BUILD37/DRAGEN/{0}/{1}'
+        output_dir = ('/nfs/fastq_temp2/ALIGNMENT/BUILD37/DRAGEN/{0}/{1}'
             ).format(sample['sample_type'].upper(),sample['sample_name'])
 
     return output_dir
@@ -136,12 +149,17 @@ class dragen_sample:
         self.metadata['sample_name'] = sample_name
         self.metadata['sample_type'] = sample_type.lower()
         self.metadata['pseudo_prepid'] = pseudo_prepid
-        self.metadata['capture_kit'] = capture_kit
-        if self.metadata['sample_type'] != 'genome':
-            self.metadata['bed_file_loc'] = get_bed_file_loc(curs,self.metadata['capture_kit'])
+        if sample_type.lower() != 'genome':
+            self.metadata['capture_kit'] = capture_kit
         else:
+            self.metadata['capture_kit'] = 'N/A'
+        if self.metadata['sample_type'] == 'genome':
+            #Genome samples are set using the most current capture kit for any case which requires a target region.
             self.metadata['bed_file_loc'] = '/nfs/goldsteindata/refDB/captured_regions/Build37/65MB_build37/SeqCap_EZ_Exome_v3_capture.bed'
-        self.metadata['prepid'] = get_prepid(curs, self.metadata, pseudo_prepid)
+        else:
+            self.metadata['bed_file_loc'] = get_bed_file_loc(curs,self.metadata['capture_kit'])
+
+        self.metadata['prepid'] = get_prepid(curs, self.metadata)
         self.metadata['fastq_loc'] = get_fastq_loc(curs, self.metadata)
 
         self.metadata['output_dir'] = get_output_dir(self.metadata)
@@ -155,7 +173,6 @@ class dragen_sample:
         self.metadata['dragen_stderr'] = "{log_dir}/{sample_name}.dragen.err".format(**self.metadata)
 
         self.metadata['lane'] = get_lanes(curs,self.metadata)
-
 
     def get_attribute(self, attribute):
         """return the value requested if present, otherwise raise a TypeError
@@ -175,10 +192,4 @@ class dragen_sample:
         """set the specified attribute to the given value
         """
         self.metadata[attribute] = value
-
-#class prep:
-#(self, sample_name, sample_type, capture_kit, curs):
-#class flowcell_lane
-#(self, flowcell, lane, , curs):
-#class dragen_old_sample:
 
