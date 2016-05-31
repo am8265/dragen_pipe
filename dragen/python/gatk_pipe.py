@@ -1,3 +1,5 @@
+#!/nfs/goldstein/software/python2.7.7/bin/python2.7
+
 import os
 import shlex
 import sys
@@ -125,6 +127,10 @@ class IndelRealigner(SGEJobTask):
         description = 'dbSNP location')
     Mills1000g = luigi.Parameter(default=Mills1000g,
         description = 'Mills, Devin curated dataset')
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(IndelRealigner, self).__init__(*args, **kwargs)
@@ -381,7 +387,8 @@ class GenotypeGVCFs(SGEJobTask):
         description = 'reference genome location')
     dbSNP = luigi.Parameter(default=dbSNP,
         description = 'dbSNP location')
-    n_cpu = 4
+
+    n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
 
@@ -443,6 +450,10 @@ class SelectVariantsSNP(SGEJobTask):
     ref = luigi.Parameter(default=ref,
         description = 'reference genome location')
 
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
     def __init__(self, *args, **kwargs):
         super(SelectVariantsSNP, self).__init__(*args, **kwargs)
         self.recal_table = "{scratch}/{sample_name}/{sample_name}.recal_table".format(
@@ -494,6 +505,10 @@ class SelectVariantsINDEL(SGEJobTask):
         description = 'heap size for java in Gb')
     ref = luigi.Parameter(default=ref,
         description = 'reference genome location')
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(SelectVariantsINDEL, self).__init__(*args, **kwargs)
@@ -549,6 +564,10 @@ class VariantRecalibratorSNP(SGEJobTask):
         description = 'reference genome location')
     dbSNP = luigi.Parameter(default=dbSNP,
         description = 'dbSNP location')
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(VariantRecalibratorSNP, self).__init__(*args, **kwargs)
@@ -637,6 +656,10 @@ class VariantRecalibratorINDEL(SGEJobTask):
     Mills1000g = luigi.Parameter(default=Mills1000g,
         description = 'Mills, Devin curated dataset')
 
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
     def __init__(self, *args, **kwargs):
         super(VariantRecalibratorINDEL, self).__init__(*args, **kwargs)
         self.indel_vcf = "{scratch}/{sample_name}/{sample_name}.indel.vcf".format(
@@ -705,6 +728,10 @@ class ApplyRecalibrationSNP(SGEJobTask):
     ref = luigi.Parameter(default=ref,
         description = 'reference genome location')
 
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
     def __init__(self, *args, **kwargs):
         super(ApplyRecalibrationSNP, self).__init__(*args, **kwargs)
         self.vcf = "{scratch}/{sample_name}/{sample_name}.snp.vcf".format(
@@ -766,6 +793,7 @@ class ApplyRecalibrationINDEL(SGEJobTask):
         description = 'heap size for java in Gb')
     ref = luigi.Parameter(default=ref,
         description = 'reference genome location')
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(ApplyRecalibrationINDEL, self).__init__(*args, **kwargs)
@@ -827,6 +855,10 @@ class VariantFiltrationSNP(SGEJobTask):
     ref = luigi.Parameter(default=ref,
         description = 'reference genome location')
 
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
     def __init__(self, *args, **kwargs):
         super(VariantFiltrationSNP, self).__init__(*args, **kwargs)
         self.snp_vcf = "{scratch}/{sample_name}/{sample_name}.snp.vcf".format(
@@ -879,7 +911,7 @@ class VariantFiltrationINDEL(SGEJobTask):
     ref = luigi.Parameter(default=ref,
         description = 'reference genome location')
 
-    n_cpu = 2
+    n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
 
@@ -981,6 +1013,7 @@ class CombineVariants(SGEJobTask):
                                 vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.90to100.00,Description="Truth sensitivity tranche level for INDEL model\n')
                             else:
                                 vcf_out.write('##FILTER=<ID=INDEL_filter,Description="QD < 2.0 || FS > 200.0 || ReadPosRankSum < -20.0">\n')
+                        #AnnoDBID annotation will be added during the annotation pipeline
                         if line[0:13] == "##INFO=<ID=AN":
                                 vcf_out.write('##INFO=<ID=AnnoDBID,Number=1,Type=String,Description="AnnoDBID">\n')
                         vcf_out.write(line)
