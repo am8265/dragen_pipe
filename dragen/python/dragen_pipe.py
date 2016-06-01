@@ -9,10 +9,7 @@ import MySQLdb
 import os
 import sys
 import subprocess
-#from create_config import create_config
 from create_align_config import create_align_config
-#from create_gvcf_config import create_gvcf_config
-#from create_joint_call_config import create_joint_call_config
 from ConfigParser import SafeConfigParser
 from datetime import datetime
 from dragen_sample import dragen_sample
@@ -89,10 +86,17 @@ def run_sample(curs,sample,dragen_id,dontexecute,debug):
         if debug:
            print "Dragen error code: {0}".format(error_code)
         if error_code == 0:
+            insert_query = ("INSERT INTO gatk_queue "
+            "SELECT * FROM tmp_dragen WHERE dragen_id={0}"
+            ).format(dragen_id)
             rm_query = "DELETE FROM {0} WHERE dragen_id={1}".format("tmp_dragen",dragen_id)
             if debug:
+                print insert_query
                 print rm_query
+
+            curs.execute(insert_query)
             curs.execute(rm_query)
+
         else:
             print "Sample was not deleted from tmp_dragen due to error code: {0}".format(error_code)
 
@@ -184,10 +188,15 @@ def get_first_read(sample,read_number,debug):
     read = glob('{0}/*L00{1}_R{2}_001.fastq.gz'.format(first_fastq_loc,sample.metadata['lane'][0][0][0],read_number))
     #The fastqs might still be on the quantum tapes
     if read == []:
-        read = glob(('/stornext/seqfinal/casava1.8/whole_exome/{0}/{1}/*L00{2}_R{3}_001.fastq.gz'
-            ).format(sample.metadata['sample_name'],sample.metadata['lane'][0][0][1],
-                sample.metadata['lane'][0][0][0],read_number))
-
+        stornext_loc =('/stornext/seqfinal/casava1.8/whole_{sample_type}/{sample_name}/{FCIllumID}/*L00{sample_lane}_R{read_number}_001.fastq.gz'
+            ).format(sample_type=sample.metadata['sample_type'].lower(),
+                sample_name=sample.metadata['sample_name'],
+                FCIllumID=sample.metadata['lane'][0][0][1],
+                sample_lane=sample.metadata['lane'][0][0][0],
+                read_number=read_number)
+        read = glob(stornext_loc)
+        if debug:
+            print stornext_loc
         if read == []:
             print sample.metadata['sample_name']
 
