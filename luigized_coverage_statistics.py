@@ -55,6 +55,9 @@ class config(luigi.Config):
     sampleped_loc = luigi.Parameter()
     relatedness_markers = luigi.Parameter()
     bedtools_loc = luigi.Parameter()
+    pypy_loc = luigi.Parameter()
+    coverage_binner_loc = luigi.Parameter()
+    
 
 class RootTask(luigi.WrapperTask):
     """
@@ -71,6 +74,7 @@ class RootTask(luigi.WrapperTask):
         return [ParsePicardOutputs(self.output_file,self.bam_file)]
 
 
+
 class MyExtTask(luigi.ExternalTask):
     """
     Checks whether the file specified exists on disk
@@ -81,18 +85,37 @@ class MyExtTask(luigi.ExternalTask):
         return luigi.LocalTarget(self.file_loc)
 
 
-class ParsePicardOutputs(LocalSGEJobTask):
+
+class ParsePicardOutputs(SGEJobTask):
     """
     Simple Parser for Picard output
     """
 
 
-    output_file = luigi.Parameter()
+    sample = luigi.Parameter()
     bam_file = luigi.Parameter()
+    seq_type = luigi.Parameter()
+
     n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/home/rp2801/git"
 
+    def __init__(self,*args,**kwargs):
+        """
+        Initialize Class Variables
+        """
+
+        super(ParsePicardOutputs,self).__init__(*args,**kwargs)
+        
+        ## The input and output file to this task
+        self.cvg_file = "{scratch}{samp}.cvg.metrics.txt".format(
+            scratch=config().scratch, samp=self.sample)
+
+        self.output_file = "{scratch}{samp}.cvg.metrics.txt.transposed".format(
+            scratch=config().scratch, samp=self.sample)
+
+        ## Define the command to be run 
+        self.cmd = """cat %s | grep -v '^#'| head -3 | awk -f /home/rp2801/git/dragen_pipe/transpose.awk > %s """%(self.output_file,self.output_file)
 
     def requires(self):
         """ 
@@ -100,7 +123,7 @@ class ParsePicardOutputs(LocalSGEJobTask):
         and the completion of the RunCvgMetrics Task
         """
         
-        return RunCvgMetrics(self.bam_file,self.output_file)
+        return RunCvgMetrics(self.bam_file,self.sample,self.seq_type)
 
     def output(self):
         """
@@ -114,23 +137,59 @@ class ParsePicardOutputs(LocalSGEJobTask):
         Just a simple shell command is enough!
         """
         
-        cmd = """cat %s | grep -v '^#'| head -3 | awk -f /home/rp2801/git/dragen_pipe/transpose.awk > %s.transposed """%(self.output_file,self.output_file)
         #os.system(cmd)
         os.system("""touch %s.transposed"""%(self.output_file))
 
 
-class RunCvgMetrics(LocalSGEJobTask):
+
+class RunCvgMetrics(SGEJobTask):
     """ 
     A luigi task
     """
     
     
-    bam_file = luigi.Parameter(default='/nfs/seqscratch11/filtered.Schiz6113363.production.bam')
-    #output_file = config().scratch+config().sample+'.cvg.metrics.txt'
-    output_file = luigi.Parameter()
+    bam_file = luigi.Parameter()
+    sample = luigi.Parameter()
+    seq_type = luigi.Parameter()
+    
+    
     n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/home/rp2801/git"
+
+
+    def __init__(self,*args,**kwargs):
+        """
+        Initialize Class Variables
+        """
+
+        super(RunCvgMetrics,self).__init__(*args,**kwargs)
+
+        ## Initialize the output file
+        self.output_file = "{scratch}{samp}.cvg.metrics.txt".format(
+            scratch=config().scratch, samp=self.sample)
+
+    
+        ## Initialize the targetfile name if it needs to be created
+        if config().create_targetfile == True:
+            self.target_file = ((config().scratch) +
+                           (utils.get_filename_from_fullpath(config().bed_file)) +
+                           (".list"))
+        else:
+            self.target_file = config().target_file 
+
+        ## Setup the command to be run 
+
+        if self.seq_type.upper() == 'GENOME': ## If it is a genome sample
+            if self.wgsinterval == True: ## Restrict wgs metrics to an interval
+                cvg_cmd = ("%s -jar %s CollectWgsMetrics R=%s O=%s I=%s INTERVALS=%s MQ=20 Q=10"%(config().java,config().picard,config().reference_file,self.output_file,self.bam_file,self.target_file))
+                
+            else: ## Run wgs metrics across the genome
+                cvg_cmd = ("%s -jar %s CollectWgsMetrics R=%s O=%s I=%s MQ=20 Q=10"%(config().java,config().picard,config().reference_file,self.output_file,self.bam_file))
+              
+                             
+        else: ## Anything other than genome i.e. Exome or Custom Capture( maybe have an elif here to check further ?)
+            cvg_cmd = ("%s -jar %s CalculateHsMetrics BI=%s TI=%s METRIC_ACCUMULATION_LEVEL=ALL_READS I=%s O=%s MQ=20 Q=10"%(config().java,config().picard,config().bait_file,self.target_file,self.bam_file,self.output_file))
 
         
     def output(self):
@@ -145,13 +204,6 @@ class RunCvgMetrics(LocalSGEJobTask):
         The dependency for this task is the CreateTargetFile task
         if the appropriate flag is specified by the user
         """
-        if config().create_targetfile == True:
-            self.target_file = ((config().scratch) +
-                           (utils.get_filename_from_fullpath(config().bed_file)) +
-                           (".list"))
-        else:
-            self.target_file = config().target_file
-
 
         if config().create_targetfile == True:
             yield [CreateTargetFile(),MyExtTask(self.bam_file)]
@@ -163,25 +215,8 @@ class RunCvgMetrics(LocalSGEJobTask):
         """
         Run Picard CalculateHsMetrics or WgsMetrics
         """
- 
-        print config().seq_type
-        print config().create_targetfile 
-
-        if config().seq_type.upper() == 'GENOME': ## If it is a genome sample
-            if config().wgsinterval == True: ## Restrict wgs metrics to an interval
-                wgs_cmd = ("%s -jar %s CollectWgsMetrics R=%s O=%s I=%s INTERVALS=%s MQ=20 Q=10"%(config().java,config().picard,config().reference_file,self.output_file,self.bam_file,self.target_file))
-                
-            else: ## Run wgs metrics across the genome
-                wgs_cmd = ("%s -jar %s CollectWgsMetrics R=%s O=%s I=%s MQ=20 Q=10"%(config().java,config().picard,config().reference_file,self.output_file,self.bam_file))
-
-                
-            #os.system(wgs_cmd)
-            os.system("touch %s"%(self.output_file))
-                             
-        else: ## Anything other than genome i.e. Exome or Custom Capture( maybe have an elif here to check further ?)
-            hsmetrics_cmd = ("%s -jar %s CalculateHsMetrics BI=%s TI=%s METRIC_ACCUMULATION_LEVEL=ALL_READS I=%s O=%s MQ=20 Q=10"%(config().java,config().picard,config().bait_file,self.target_file,self.bam_file,self.output_file))
             ## Run the command
-            os.system(hsmetrics_cmd)
+            os.system(cvg_cmd)
             #os.system("touch %s"%(self.output_file))
 
 
@@ -189,14 +224,18 @@ class CreateTargetFile(SGEJobTask):
     """ 
     A Luigi Task
     """
-      
+    
 
+    def __init__(self,*args,**kwargs):
+        super(CreateTargetFile,self).__init__(*args,**kwargs)
 
-    output_file = (config().scratch +
-                   utils.get_filename_from_fullpath(config().bed_file) +
-                   ".list")
+        temp = utils.get_filename_from_fullpath(config().bed_file) + ".list"
+        self.output_file = "{scratch}{temp_name}.genomecvg.bed".format(
+                            scratch=config().scratch, temp_name=temp)
 
-    #output_file = 'chutiye!!!'
+        self.bedtointerval_cmd = ("%s -jar %s BedToIntervalList I=%s SD=%s OUTPUT=%s"%(config().java,config().picard,config().bed_file,config().seqdict_file,self.output_file))    
+
+    
     n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/home/rp2801/git"
@@ -220,18 +259,16 @@ class CreateTargetFile(SGEJobTask):
         
         return luigi.LocalTarget(self.output_file)
 
-    def run(self):
+    def work(self):
         """
         Run Picard BedToIntervalList 
         """
-       
-        bedtointerval_cmd = ("%s -jar %s BedToIntervalList I=%s SD=%s OUTPUT=%s"%(config().java,config().picard,config().bed_file,config().seqdict_file,self.output_file))    
-        
-        os.system("touch %s"%self.output_file)
-        #os.system(bedtointerval_cmd)
+             
+        #os.system("touch %s"%self.output_file)
+        os.system(bedtointerval_cmd)
 
         
-class CreatePed(LocalSGEJobTask):
+class CreatePed(SGEJobTask):
     """ 
     A luigi Task for creating ped files
     """
@@ -243,28 +280,17 @@ class CreatePed(LocalSGEJobTask):
     sample = luigi.Parameter()
     family_id = luigi.Parameter(default="")
     seq_type = luigi.Parameter()
-    output_dir = luigi.Parameter(default="./")
     
-
-    def requires(self):
-        """
-        The dependencies for this task are the existence of the relevant files
-        """
-        
-        return [MyExtTask(self.bam_file),MyExtTask(self.vcf_file),MyExtTask(config().relatedness_refs)]
-
-    def output(self):
-        """
-        Output from this task is a ped file named with correct type
-        """
-        
     
-        return luigi.LocalTarget(config().scratch+self.sample+'.'+self.ped_type+'.ped')
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git"
 
-    def work(self):
-        """
-        To run this task, the sampletoped_fixed.py script is called
-        """
+
+    def __init__(self,*args,**kwargs):
+        super(CreateGenomeBed,self).__init__(*args,**kwargs)
+
+        self.output_file = config().scratch+self.sample+'.'+self.ped_type+'.ped'
 
         if self.ped_type == 'relatedness':
             sampletoped_cmd = ("%s %s --scratch %s --vcffile %s --bamfile %s" 
@@ -288,19 +314,56 @@ class CreatePed(LocalSGEJobTask):
                                config().relatedness_refs,self.sample,
                                self.seq_type,self.ped_type,config().scratch)
                                )
+
+
+    def requires(self):
+        """
+        The dependencies for this task are the existence of the relevant files
+        """
+        
+        return [MyExtTask(self.bam_file),MyExtTask(self.vcf_file),MyExtTask(config().relatedness_refs)]
+
+
+    def output(self):
+        """
+        Output from this task is a ped file named with correct type
+        """
+           
+        return luigi.LocalTarget(self.output_file)
+
+
+    def work(self):
+        """
+        To run this task, the sampletoped_fixed.py script is called
+        """
+
             
         os.system(sampletoped_cmd)
         #os.system("%s sampletoped_fixed.py --scratch %s")
 
         
-class CreateGenomeBed(LocalSGEJobTask):
+class CreateGenomeBed(SGEJobTask):
     """
     Use bedtools to create the input bed file for the coverage binning script
     """
 
     bam_file = luigi.Parameter()
     sample = luigi.Parameter()
-    genomecov_bed = luigi.Parameter()
+    
+    def __init__(self,*args,**kwargs):
+        super(CreateGenomeBed,self).__init__(*args,**kwargs)
+
+        self.genomecov_bed = "{scratch}{samp}.genomecvg.bed".format(
+                              scratch=config().scratch, samp=self.sample)
+        self.genomecov_cmd = "%s genomecov -bga -ibam %s > %s"%(
+                              config().bedtools_loc,self.bam_file,
+                              self.genomecov_bed)    
+   
+      
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git"
+
     
     def requires(self):
         """
@@ -321,34 +384,49 @@ class CreateGenomeBed(LocalSGEJobTask):
         Run the bedtools cmd
         """
 
-        genomecov_cmd = "%s genomcov -bga -ibam %s > %s"%(config().bedtools_loc,self.bam_file,
-                                                          self.genomecov_bed)
-
-        os.system(genomecov_cmd)
+        os.system(self.genomecov_cmd)
 
 
-class CoverageBinning(LocalSGEJobTask):
+class CoverageBinning(SGEJobTask):
     """
     Task to run the coverage binning script
     """
+
+
     bam_file = luigi.Parameter()
     sample = luigi.Parameter()
     block_size = luigi.Parameter()
-    
 
+    
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git"
+      
+    
     def __init__(self,*args,**kwargs):
-        self.genomecov_bed = config().scratch()+self.sample+'.genome.cvg'
+        super(CoverageBinning,self).__init__(*args,**kwargs)
+
+        self.genomecov_bed = "{scratch}{samp}.genomecvg.bed".format(
+            scratch=config().scratch, samp=self.sample)
+
+        self.human_chromosomes = []
         self.human_chromosomes.extend(range(1, 23))
-        self.human_chromosomes = [str(x) for x in human_chromosomes]
+        self.human_chromosomes = [str(x) for x in self.human_chromosomes]
         self.human_chromosomes.extend(['X', 'Y','MT'])
+
+        self.binning_cmd = "%s %s %s %s %s %s"%(config().pypy_loc,
+                                     config().coverage_binner_loc,
+                                     self.block_size,self.genomecov_bed,
+                                     self.sample,config().scratch)
         
+   
     def requires(self):
         """
         Dependency is the completion of the CreateGenomeBed Task
         """
        
-        return CreateGenomeBed(self.bam_file,self.sample,self.genomecov_bed)
-
+        return [CreateGenomeBed(self.bam_file,self.sample)]
+        
     
     def output(self):
         """
@@ -356,13 +434,32 @@ class CoverageBinning(LocalSGEJobTask):
         """
 
         for chrom in self.human_chromosomes:
-            yield [luigi.LocalTarget(self.sample+"_read_coverage_" +
+            yield [luigi.LocalTarget(config().scratch+self.sample+"_read_coverage_" +
                                      self.block_size + "_chr%s.txt"%chrom)]
 
     def work(self):
         """ Run the binning script
         """
 
-        binning_cmd = "%s %s %s %s"%(config().pypy_loc,
-                                     config().coverage_binner_loc,
-                                     self.block_size,self.genomecov_bed)
+        print self.binning_cmd
+        os.system(self.binning_cmd)
+
+
+def AlignmentMetrics(LocalSGEJobTask):
+    """
+    Parse Alignment Metrics from dragen logs
+    """
+
+    
+def DuplicateMetrics(LocalSGEJobTask):
+    """
+    Parse Duplicate Metrics from dragen logs
+    """
+
+    
+def EthnicityPipeline(LocalSGEJobTask):
+    """
+    Run the Ethnicity Pipeline
+    """
+
+
