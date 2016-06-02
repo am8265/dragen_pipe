@@ -70,7 +70,17 @@ def get_fastq_loc(curs, sample):
                                     sample['sample_name'],flowcell[1])
                 else:
                     raise Exception, "fastqloc does not within seqsata or fastq drive!"
-                locs.append(os.path.realpath(fastq_loc))
+                read = glob(os.path.realpath(fastq_loc))
+                if read != []:
+                    locs.append(os.path.realpath(fastq_loc))
+                else:
+                    # For samples in the database but stored on the quantum and 
+                    # have not had their location properly restored
+                    fastq_loc = glob('/nfs/fastq_temp2/{0}/{1}/*XX'.format(
+                        sample['sample_type'].upper(),sample['sample_name']))
+                    if fastq_loc:
+                        for flowcell in fastq_loc:
+                            locs.append(os.path.realpath(flowcell))
         else:
             fastq_loc = glob('/nfs/fastq_temp2/{0}/{1}/*XX'.format(
                 sample['sample_type'].upper(),sample['sample_name']))
@@ -152,7 +162,7 @@ class dragen_sample:
         if sample_type.lower() != 'genome':
             self.metadata['capture_kit'] = capture_kit
         else:
-            self.metadata['capture_kit'] = 'N/A'
+            self.metadata['capture_kit'] = ''
         if self.metadata['sample_type'] == 'genome':
             #Genome samples are set using the most current capture kit for any case which requires a target region.
             self.metadata['bed_file_loc'] = '/nfs/goldsteindata/refDB/captured_regions/Build37/65MB_build37/SeqCap_EZ_Exome_v3_capture.bed'
@@ -161,7 +171,6 @@ class dragen_sample:
 
         self.metadata['prepid'] = get_prepid(curs, self.metadata)
         self.metadata['fastq_loc'] = get_fastq_loc(curs, self.metadata)
-
         self.metadata['output_dir'] = get_output_dir(self.metadata)
         self.metadata['script_dir'] = self.metadata['output_dir']+'/scripts'
         self.metadata['conf_file'] = "{script_dir}/{sample_name}.dragen.conf".format(**self.metadata)
