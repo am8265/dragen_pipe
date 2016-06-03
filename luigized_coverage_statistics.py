@@ -215,9 +215,9 @@ class RunCvgMetrics(SGEJobTask):
         """
         Run Picard CalculateHsMetrics or WgsMetrics
         """
-            ## Run the command
-            os.system(cvg_cmd)
-            #os.system("touch %s"%(self.output_file))
+        ## Run the command
+        os.system(cvg_cmd)
+        #os.system("touch %s"%(self.output_file))
 
 
 class CreateTargetFile(SGEJobTask):
@@ -288,14 +288,14 @@ class CreatePed(SGEJobTask):
 
 
     def __init__(self,*args,**kwargs):
-        super(CreateGenomeBed,self).__init__(*args,**kwargs)
+        super(CreatePed,self).__init__(*args,**kwargs)
 
         self.output_file = config().scratch+self.sample+'.'+self.ped_type+'.ped'
 
         if self.ped_type == 'relatedness':
-            sampletoped_cmd = ("%s %s --scratch %s --vcffile %s --bamfile %s" 
+            self.sampletoped_cmd = ("%s %s --scratch %s --vcffile %s --bamfile %s" 
                                " --markers %s --refs %s --sample %s --fid %s"
-                               " --seq_type %s --ped_type %s --output %s"
+                               " --seq_type %s --ped_type %s --output %s --pythondir /home/rp2801/git/dragen_pipe/"
                                %(config().python_path,config().sampleped_loc,
                                  config().scratch,self.vcf_file,
                                  self.bam_file,config().relatedness_markers,
@@ -305,7 +305,7 @@ class CreatePed(SGEJobTask):
                                )
             
         elif self.ped_type == 'ethnicity':
-            sampletoped_cmd = ("%s %s --scratch %s --vcffile %s --bamfile %s"
+            self.sampletoped_cmd = ("%s %s --scratch %s --vcffile %s --bamfile %s"
                                " --markers %s --refs %s --sample %s"
                                " --seq_type %s --ped_type %s --output %s" 
                                %(config().python_path,config().sampleped_loc,
@@ -338,7 +338,7 @@ class CreatePed(SGEJobTask):
         """
 
             
-        os.system(sampletoped_cmd)
+        os.system(self.sampletoped_cmd)
         #os.system("%s sampletoped_fixed.py --scratch %s")
 
         
@@ -462,4 +462,97 @@ def EthnicityPipeline(LocalSGEJobTask):
     Run the Ethnicity Pipeline
     """
 
+class CheckAppend(luigi.Target):
+    """
+    This is a target class for checking whether the AppendMasterPed
+    Task was sucessful
+    """
 
+    def __init__(self,old_count,master_ped):
+        self.master_ped = master_ped
+        self.old_count = int(old_count)
+
+    def exists(self):
+        """
+        Checks whether the ped file was incremented
+        """
+        if not os.path.isfile(self.master_ped):
+            print "Error : The masterped file path is wrong or file is missing"
+            return False
+
+        with open(self.master_ped) as f:
+            for i,l in enumerate(f):
+                pass
+        linecount_master = i + 1
+
+        if (linecount_master - self.old_count) == 1:
+            return True
+    
+        else:
+            print "Error : The masterped file has been incorrectly appended!"
+            return False
+            
+#@inherits(CreatePed) ## Try this method out too 
+class AppendMasterPed(SGEJobTask):
+    """
+    Append the relatedness ped to the master ped,
+    The way this task is defined allows only a single instance
+    of it to be run at a time, thus make use of luigi for implenting
+    a locking feature on the masterped file 
+    """
+
+    ped_type = luigi.Parameter(significant=False) ## This has one of two values :
+                                 ## ethnicity or relatedness
+    bam_file = luigi.Parameter(significant=False)
+    vcf_file = luigi.Parameter(significant=False)
+    sample = luigi.Parameter(significant=False)
+    family_id = luigi.Parameter(default="",significant=False)
+    seq_type = luigi.Parameter(significant=False)
+    master_ped = luigi.Parameter()
+
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git"
+      
+    
+    def __init__(self,*args,**kwargs):
+        super(AppendMasterPed,self).__init__(*args,**kwargs)
+        #self.line_count = subprocess.check_output("wc -l %s"%self.master_ped,shell=True)
+
+        with open(self.master_ped) as f:
+            for i,l in enumerate(f):
+                pass
+        self.line_count = i + 1
+
+        self.output_file = config().scratch+self.sample+'.'+self.ped_type+'.ped'        
+        self.cmd = "cat %s >> %s"%(self.output_file,self.master_ped)
+
+    def requires(self):
+        """
+        The dependency for this task is the completion of the
+        CreatePed Task with the appropriate signatures
+        """
+        
+        return CreatePed(self.ped_type,self.bam_file,self.vcf_file,
+                         self.sample,self.family_id,self.seq_type)
+
+    
+    def output(self):
+        """
+        The Output from this task 
+        Define the target,such that
+        the line count has increased by 1
+        in the masterped file 
+        """
+        
+        return CheckAppend(self.line_count,self.master_ped)
+
+
+    def work(self):
+        """
+        Run this task, a simple append
+        should do it
+        """
+        
+        os.system(self.cmd)
