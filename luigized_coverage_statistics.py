@@ -7,6 +7,7 @@ import luigi
 from luigi.util import inherits 
 from luigi.contrib.sge import SGEJobTask,LocalSGEJobTask
 import logging
+import time
 
 ##################################################################################################
 ##        Run as :                                                                              ##  
@@ -387,6 +388,7 @@ class CreateGenomeBed(SGEJobTask):
         os.system(self.genomecov_cmd)
 
 
+
 class CoverageBinning(SGEJobTask):
     """
     Task to run the coverage binning script
@@ -445,22 +447,99 @@ class CoverageBinning(SGEJobTask):
         os.system(self.binning_cmd)
 
 
-def AlignmentMetrics(LocalSGEJobTask):
+class AlignmentMetrics(LocalSGEJobTask):
     """
     Parse Alignment Metrics from dragen logs
     """
-
     
-def DuplicateMetrics(LocalSGEJobTask):
+
+    bam_file = luigi.Parameter()
+    sample = luigi.Parameter()
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git"
+
+    def __init__(self):
+        super(AlignmentMetrics,self).__init__(*args,**kwargs)
+        self.output_file = '{scratch}{samp}.alignment.metrics.txt'.format(scratch=config().scratch,samp=self.sample)
+        self.cmd = "%s %s CollectAlignmentSummaryMetrics TMP_DIR=%s VALIDATION_STRINGENCY=SILENT REFERENCE_SEQUENCE=%s INPUT=%s OUTPUT=%s"%(config().java,config().picard,config().scratch,config().reference_file,self.bam_file,self.output_file)               
+    
+    
+    def exists(self):
+        """
+        Check whether the output file is present
+        """
+
+        return luigi.LocalTarget(self.output_file)
+
+    def requires(self):
+        """
+        The dependencies for this task is simply the existence of the bam file
+        from dragen with duplicates removed
+        """
+        
+        
+        return MyExtTask(self.bam_file) 
+
+    def work(self):
+        """
+        Execute the command for this task 
+        """
+
+        os.system(self.cmd)
+
+
+class DuplicateMetrics(SGEJobTask):
     """
     Parse Duplicate Metrics from dragen logs
     """
+    
+    dragen_log = luigi.Parameter()
+    sample = luigi.Parameter()
+    
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git"
 
     
+    def __init__(self):
+        super(AlignmentMetrics,self).__init__(*args,**kwargs)
+        #self.output_file = '{scratch}{samp}.alignment.metrics.txt'.format(scratch=config().scratch,samp=self.sample)
+        self.cmd = "grep 'duplicates marked' %s"%self.dragen_log
+        
+    def requires(self):
+        """ 
+        Dependencies for this task is the existence of the log file 
+        """
+
+        return MyExtTask(self.bam_file)
+
+
+    def output(self):
+        """
+        """
+
+        return luigi.LocalTarget('dump.txt')
+
+    def work(self):
+        """
+        Execute this task
+        """
+        ## The regular expression to catch the percentage duplicates in the grep string
+        catch_dup = re.compile('.*\((.*)%\).*')
+
+        dragen_output = subprocess.check_output(self.cmd,shell=True)
+        match = re.match(catch_dup,dragen_output)
+        perc_duplicates = match.group(1)
+        
+
 def EthnicityPipeline(LocalSGEJobTask):
     """
     Run the Ethnicity Pipeline
     """
+
 
 class CheckAppend(luigi.Target):
     """
@@ -480,10 +559,20 @@ class CheckAppend(luigi.Target):
             print "Error : The masterped file path is wrong or file is missing"
             return False
 
-        with open(self.master_ped) as f:
-            for i,l in enumerate(f):
-                pass
-        linecount_master = i + 1
+        #f = open(self.master_ped,'w+') 
+        #fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)
+
+        #with open(self.master_ped) as f:
+            #for i,l in enumerate(f):
+                #pass
+
+        #for i,l in enumerate(f):
+            #pass
+
+        linecount_master =  int(subprocess.check_output("grep -c $ %s"%self.master_ped,shell=True))
+
+        #fcntl.flock(f,fcntl.LOCK_UN)
+        #f.close()
 
         if (linecount_master - self.old_count) == 1:
             return True
@@ -492,6 +581,7 @@ class CheckAppend(luigi.Target):
             print "Error : The masterped file has been incorrectly appended!"
             return False
             
+
 #@inherits(CreatePed) ## Try this method out too 
 class AppendMasterPed(SGEJobTask):
     """
@@ -501,13 +591,13 @@ class AppendMasterPed(SGEJobTask):
     a locking feature on the masterped file 
     """
 
-    ped_type = luigi.Parameter(significant=False) ## This has one of two values :
+    ped_type = luigi.Parameter(significant=True) ## This has one of two values :
                                  ## ethnicity or relatedness
-    bam_file = luigi.Parameter(significant=False)
-    vcf_file = luigi.Parameter(significant=False)
-    sample = luigi.Parameter(significant=False)
-    family_id = luigi.Parameter(default="",significant=False)
-    seq_type = luigi.Parameter(significant=False)
+    bam_file = luigi.Parameter(significant=True)
+    vcf_file = luigi.Parameter(significant=True)
+    sample = luigi.Parameter(significant=True)
+    family_id = luigi.Parameter(default="",significant=True)
+    seq_type = luigi.Parameter(significant=True)
     master_ped = luigi.Parameter()
 
 
@@ -518,15 +608,27 @@ class AppendMasterPed(SGEJobTask):
     
     def __init__(self,*args,**kwargs):
         super(AppendMasterPed,self).__init__(*args,**kwargs)
-        #self.line_count = subprocess.check_output("wc -l %s"%self.master_ped,shell=True)
+        self.line_count = subprocess.check_output("wc -l %s"%self.master_ped,shell=True)
+        #self.master_ped_handle = open(self.master_ped,'r')
 
-        with open(self.master_ped) as f:
-            for i,l in enumerate(f):
-                pass
-        self.line_count = i + 1
+        #f = open(self.master_ped,'w+') 
+        #fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        #with open(self.master_ped,'r') as f:
+            #for i,l in enumerate(f):
+                #pass
+        self.line_count = int(subprocess.check_output("grep -c $ %s"%self.master_ped,shell=True))
+        
+        
 
+        #for i,l in enumerate(f):
+            #pass
+        #self.line_count = i + 1
+        #fcntl.flock(f,fcntl.LOCK_UN)
+        #f.close()
+        
         self.output_file = config().scratch+self.sample+'.'+self.ped_type+'.ped'        
         self.cmd = "cat %s >> %s"%(self.output_file,self.master_ped)
+
 
     def requires(self):
         """
@@ -547,12 +649,17 @@ class AppendMasterPed(SGEJobTask):
         """
         
         return CheckAppend(self.line_count,self.master_ped)
-
+        #return luigi.LocalTarget('dump.txt')
 
     def work(self):
         """
         Run this task, a simple append
         should do it
         """
-        
+
+        #if not utils.lockfile(self.master_ped_handle):
+            #time.sleep(5)        
         os.system(self.cmd)
+        #fcntl.flock(self.master_ped_handle,fcntl.LOCK_UN)
+        #os.system('touch dump.txt')
+        
