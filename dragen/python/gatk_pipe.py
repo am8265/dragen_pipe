@@ -5,6 +5,7 @@ import shlex
 import sys
 import subprocess
 import luigi
+import MySQLdb
 from luigi.contrib.sge import SGEJobTask, LocalSGEJobTask
 from dragen_sample import dragen_sample
 
@@ -14,8 +15,8 @@ Dragen based alignment
 """
 
 #Pipeline programs
-gatk="/nfs/goldstein/software/GATK-3.5.0"
-java="/nfs/goldstein/goldsteinlab/software/java/jdk1.7.0_03/bin/java"
+gatk="/nfs/goldstein/software/GATK-3.6.0"
+java="/nfs/goldstein/software/jdk1.8.0_05/bin/java"
 bgzip="/nfs/goldstein/software/bin/bgzip"
 tabix="/nfs/goldstein/software/bin/tabix"
 picard="/nfs/goldstein/software/picard-tools-1.131/picard.jar"
@@ -31,22 +32,6 @@ Mills1000g="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/Mills_and_1
 dbSNP="/nfs/goldsteindata/refDB/dbSNP/dbsnp_147.b37.vcf"
 interval="/nfs/goldstein/software/dragen_pipe/dragen/conf/hs37d5.intervals"
 
-class RootTask(SGEJobTask):
-    base_directory = luigi.Parameter()
-    sample_name = luigi.Parameter()
-    sample_type = luigi.Parameter()
-    scratch = luigi.Parameter()
-    capture_kit_bed = luigi.Parameter()
-    interval = luigi.Parameter()
-
-    def requires(self):
-        if self.sample_type == 'genome':
-            return self.clone(IndelRealigner)
-    def work(self):
-        os.system('touch /home/jb3816/{0}.complete'.format(self.sample_name))
-    def output(self):
-        return luigi.LocalTarget('/home/jb3816/{0}.complete'.format(self.sample_name))
-
 class RealignerTargetCreator(SGEJobTask):
     """class for creating targets for indel realignment BAMs from Dragen"""
 
@@ -55,7 +40,7 @@ class RealignerTargetCreator(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-    interval = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -80,8 +65,8 @@ class RealignerTargetCreator(SGEJobTask):
             base_directory=self.base_directory, sample_name=self.sample_name)
         self.interval_list = "{scratch}/{sample_name}/{sample_name}.interval_list".format(
             scratch=self.scratch, sample_name=self.sample_name)
-        self.script = "{scratch}/{sample_name}/scripts/RealignerTargetCreator.sh".format(
-            scratch=self.scratch, sample_name=self.sample_name)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
 
     def work(self):
         os.system("mkdir -p {0}/scripts".format(self.scratch + self.sample_name))
@@ -104,7 +89,6 @@ class RealignerTargetCreator(SGEJobTask):
                 bam=self.bam,
                 interval_list=self.interval_list,
                 Mills1000g=Mills1000g,
-                interval=interval,
                 dbSNP=dbSNP)
         if not os.path.isdir(os.path.dirname(self.script)):
             os.makedirs(os.path.dirname(self.script))
@@ -122,7 +106,7 @@ class IndelRealigner(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-    interval = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -149,8 +133,8 @@ class IndelRealigner(SGEJobTask):
             scratch=self.scratch, sample_name=self.sample_name)
         self.realn_bam = "{scratch}/{sample_name}/{sample_name}.realn.bam".format(
             scratch=self.scratch, sample_name=self.sample_name)
-        self.script = "{scratch}/{sample_name}/scripts/IndelRealigner.sh".format(
-            scratch=self.scratch, sample_name=self.sample_name)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
 
     def work(self):
         cmd = ("{java} -Xmx{max_mem}g "
@@ -172,7 +156,6 @@ class IndelRealigner(SGEJobTask):
                 bam=self.bam,
                 realn_bam=self.realn_bam,
                 interval_list=self.interval_list,
-                interval=interval,
                 Mills1000g=Mills1000g,
                 dbSNP=dbSNP)
         with open(self.script,'w') as o:
@@ -192,7 +175,7 @@ class BaseRecalibrator(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-    interval = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -217,8 +200,6 @@ class BaseRecalibrator(SGEJobTask):
         self.realn_bam = "{scratch}/{sample_name}/{sample_name}.realn.bam".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.recal_table = "{scratch}/{sample_name}/{sample_name}.recal_table".format(
-            scratch=self.scratch, sample_name=self.sample_name)
-        self.script = "{scratch}/{sample_name}/scripts/script.sh".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
             scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
@@ -249,12 +230,6 @@ class BaseRecalibrator(SGEJobTask):
             o.write(cmd + "\n")
             subprocess.check_call(shlex.split(cmd))
 
-        #os.system("echo {0}".format(cmd))
-        #os.system("touch {0}".format(self.recal_table))
-
-        rm_cmd = ['rm',self.bam]
-        #print rm_cmd
-        #subprocess.call(rm_cmd)
 
     def requires(self):
         return self.clone(IndelRealigner)
@@ -263,12 +238,13 @@ class BaseRecalibrator(SGEJobTask):
         return luigi.LocalTarget(self.recal_table)
 
 class PrintReads(SGEJobTask):
+    """class to create BAM with realigned and recalculated BAMs"""
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-    interval = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -323,12 +299,13 @@ class PrintReads(SGEJobTask):
         return luigi.LocalTarget(self.recal_bam)
 
 class HaplotypeCaller(SGEJobTask):
+    """class to create gVCFs"""
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-    interval = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -393,12 +370,13 @@ class HaplotypeCaller(SGEJobTask):
         return luigi.LocalTarget(self.gvcf)
 
 class GenotypeGVCFs(SGEJobTask):
+    """class to perfrom variant calling from gVCFs"""
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-    interval = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -465,7 +443,7 @@ class SelectVariantsSNP(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-    interval = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -524,7 +502,7 @@ class SelectVariantsINDEL(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-    interval = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -584,7 +562,7 @@ class VariantRecalibratorSNP(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-    interval = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -676,7 +654,7 @@ class VariantRecalibratorINDEL(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-    interval = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -755,7 +733,7 @@ class ApplyRecalibrationSNP(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-    interval = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -824,7 +802,7 @@ class ApplyRecalibrationINDEL(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-    interval = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -888,7 +866,7 @@ class VariantFiltrationSNP(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-    interval = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -947,7 +925,7 @@ class VariantFiltrationINDEL(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-    interval = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -1008,7 +986,7 @@ class CombineVariants(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-    interval = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
 
     java = luigi.Parameter(default=java,
         description = 'java version used')
@@ -1063,6 +1041,7 @@ class CombineVariants(SGEJobTask):
                                 vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.90to100.00,Description="Truth sensitivity tranche level for INDEL model\n')
                             else:
                                 vcf_out.write('##FILTER=<ID=INDEL_filter,Description="QD < 2.0 || FS > 200.0 || ReadPosRankSum < -20.0">\n')
+
                         #AnnoDBID annotation will be added during the annotation pipeline
                         if line[0:13] == "##INFO=<ID=AN":
                                 vcf_out.write('##INFO=<ID=AnnoDBID,Number=1,Type=String,Description="AnnoDBID">\n')
@@ -1096,7 +1075,7 @@ class CombineVariants(SGEJobTask):
                 final_vcf=self.final_vcf)
 
         bgzip_cmd = ("{bgzip} {final_vcf}").format(bgzip=bgzip,final_vcf=self.final_vcf)
-        tabix_cmd = ("{tabix} {final_vcf}.gz").format(tabix=tabix,final_vcf=self.final_vcf)
+        tabix_cmd = ("{tabix} {final_vcf_gz}").format(tabix=tabix,final_vcf_gz=self.final_vcf_gz)
 
         #rm_cmd = ('').format()
         with open(self.script,'w') as o:
@@ -1121,3 +1100,63 @@ class CombineVariants(SGEJobTask):
             raise Exception, "Sample type: %s not supported in this module" % self.sample_type
     def output(self):
         return luigi.LocalTarget(self.final_vcf_gz)
+
+class ArchiveSample:
+    """Archive samples on Amplidata"""
+
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
+    dragen_id = luigi.Parameter()
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    """
+    db = MySQLdb.connect(db="sequenceDB", read_default_group="clientsequencedb",
+            read_default_file="/nfs/goldstein/software/dragen/.my.cnf")
+    curs = db.cursor()
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(ApplyRecalibrationSNP, self).__init__(*args, **kwargs)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+        self.recal_bam = "{scratch}/{sample_name}/{sample_name}.realn.recal.bam".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.bam = "{base_directory}/{sample_name}/{sample_name}.bam".format(
+            base_directory=self.base_directory, sample_name=self.sample_name)
+        self.final_vcf_gz = "{scratch}/{sample_name}/{sample_name}.analysisReady.vcf.gz".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+
+    def work(self):
+        cmd = ("rsync -a --partial --timeout=20000 -r "
+              "{script_dir} {recal_bam} {final_vcf_gz}"
+              ).format(recal_bam=recal_bam,
+                      script_dir=script_dir,
+                      final_vcf_gz=final_vcf_gz)
+
+        with open(self.script,'w') as o:
+            o.write(cmd + "\n")
+            subprocess.check_call(shlex.split(cmd))
+
+        # Original dragen BAM could be technically deleted earlier after the
+        # realigned BAM has been created on scratch space but it is safer to 
+        # delete after the final realigned, recalculated BAM has been archived
+        # since our scratch space has failed in the past.
+        rm_cmd = ['rm',self.bam,self.scratch_dir]
+        rm_folder_cmd = ['rm','-rf',self.scratch_dir]
+        #print rm_cmd
+        #subprocess.call(rm_cmd)
+
+    def requires(self):
+        return self.clone(CombineVariants)
+
+    def output(self):
+        return luigi.LocalTarget(self.copy_complete)
+
+
