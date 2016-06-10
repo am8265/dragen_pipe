@@ -43,6 +43,8 @@ def get_bed_file_loc(curs,capture_kit):
 
 def get_fastq_loc(curs, sample):
     locs = []
+    #correcting the downstream consequences of "custom capture" as the sample_type
+    corrected_sample_type = sample['sample_type'].upper().replace(" ","_")
 
     for prepid in sample["prepid"]:
         query = ("SELECT seqsataloc,FCIllumID FROM Flowcell f "
@@ -54,7 +56,6 @@ def get_fastq_loc(curs, sample):
             ).format(prepid)
         curs.execute(query)
         seqsatalocs = curs.fetchall()
-
         """For cases where there is not flowell information the sequeuncing
         will have to found be manually.  There will be two types of samples
         that under this catergory: Old Casava 1.8 sample (pre-seqDB) and
@@ -66,7 +67,7 @@ def get_fastq_loc(curs, sample):
                             ).format(flowcell[0],sample['sample_name'],flowcell[1])
                 elif 'fastq' in flowcell[0]:
                     fastq_loc = ('/nfs/{0}/{1}/{2}/{3}'
-                            ).format(flowcell[0],sample['sample_type'].upper(),
+                            ).format(flowcell[0],corrected_sample_type,
                                     sample['sample_name'],flowcell[1])
                 else:
                     raise Exception, "fastqloc does not within seqsata or fastq drive!"
@@ -76,41 +77,60 @@ def get_fastq_loc(curs, sample):
                 else:
                     # For samples in the database but stored on the quantum and 
                     # have not had their location properly restored
-                    fastq_loc = glob('/nfs/fastq_temp2/{0}/{1}/*XX'.format(
-                        sample['sample_type'].upper(),sample['sample_name']))
+
+                    fastq_loc = glob('/nfs/fastq_temp*/{0}/{1}/*XX'.format(
+                        corrected_sample_type,sample['sample_name']))
+                    print fastq_loc,'/nfs/fastq_temp*/{0}/{1}/*XX'.format(
+                        corrected_sample_type,sample['sample_name'])
                     if fastq_loc:
                         for flowcell in fastq_loc:
                             locs.append(os.path.realpath(flowcell))
         else:
-            fastq_loc = glob('/nfs/fastq_temp2/{0}/{1}/*XX'.format(
-                sample['sample_type'].upper(),sample['sample_name']))
+            fastq_loc = glob('/nfs/fastq_temp*/{0}/{1}/*XX'.format(
+                corrected_sample_type,sample['sample_name']))
             if fastq_loc:
                 for flowcell in fastq_loc:
                     locs.append(os.path.realpath(flowcell))
             else:
                 fastq_loc = glob('/stornext/seqfinal/casava1.8/whole_{0}/{1}/*XX'.format(
-                    sample['sample_type'].lower(),sample['sample_name']))
+                    corrected_sample_type.lower(),sample['sample_name']))
                 if fastq_loc:
                     for flowcell in fastq_loc:
                         locs.append(os.path.realpath(flowcell))
                 else:
                     print '/stornext/seqfinal/casava1.8/whole_{0}/{1}/*XX'.format(
-                    sample['sample_type'].lower(),sample['sample_name'])
+                    corrected_sample_type.lower(),sample['sample_name'])
                     raise Exception, "Sample {0} Fastq files not found!".format(sample['sample_name'])
+
+    """For samples in the database we can exclude any samples that only have
+    R1 data however for sampels that predate the database we have to manually
+    check for R2 existance"""
+
+    locs = check_fastq_locs(list(set(locs)))
     return locs
+
+def check_fastq_locs(locs):
+    """Determine if loc has read 2 fastq files"""
+
+    valid_locs = []
+    for loc in locs:
+        read2 = glob("{loc}/*R2*fastq*".format(loc=loc))
+        if read2 != []:
+            valid_locs.append(loc)
+    return valid_locs
 
 def get_output_dir(sample):
     """Generate ouput directory for Dragen results.  Dependent on seqtype"""
 
-    """Custom capture samples need to be partitioned by capture_kit since they are often
-       sequenced with multiple capture kits.  Example: EpiMIR and SchizoEpi
-    """
+    # Custom capture samples need to be partitioned by capture_kit since they 
+    # are often sequenced with multiple capture kits.  Example: EpiMIR and 
+    # SchizoEpi
     if sample['sample_type'] == 'custom_capture':
-        output_dir = ('/nfs/fastq_temp2/ALIGNMENT/BUILD37/DRAGEN/{0}/{1}/{2}'
+        output_dir = ('/nfs/fastq16/ALIGNMENT/BUILD37/DRAGEN/{0}/{1}/{2}/'
             ).format(sample['sample_type'].upper(),
                     sample['capture_kit'],sample['sample_name'])
     else:
-        output_dir = ('/nfs/fastq_temp2/ALIGNMENT/BUILD37/DRAGEN/{0}/{1}'
+        output_dir = ('/nfs/fastq16/ALIGNMENT/BUILD37/DRAGEN/{0}/{1}/'
             ).format(sample['sample_type'].upper(),sample['sample_name'])
 
     return output_dir
@@ -154,6 +174,7 @@ def get_lanes(curs,sample):
 
 class dragen_sample:
     # store all relevant information about a sample in a dictionary
+
     def __init__(self, sample_name, sample_type, pseudo_prepid, capture_kit, curs):
         self.metadata = {}
         self.metadata['sample_name'] = sample_name
