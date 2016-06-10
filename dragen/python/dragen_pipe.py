@@ -63,47 +63,55 @@ def main(samples, debug, dontexecute, gvcf, database):
             run_sample(curs,sample,0,dontexecute,debug)
 
 def run_sample(curs,sample,dragen_id,dontexecute,debug):
-    cmd = ['dragen', '-f', '-v', '-c', sample.metadata['conf_file']]
-    if debug:
-        print ' '.join(cmd)
-
-    dragen_stderr = open(sample.metadata['dragen_stderr'],'a')
-    if dontexecute == False:
-        if dragen_id != 0: # All manually run samples will have a dragen_id of 0
-            update_queue(curs,dragen_id,debug)
-
-        with open(sample.metadata['dragen_stdout'],'a') as dragen_stdout:
-
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE,stderr=dragen_stderr)
-            for line in iter(process.stdout.readline, ''):
-                if debug:
-                    sys.stdout.write(line)
-                dragen_stdout.write(line)
-
-            process.communicate()
-            error_code = process.wait()
-
+    output_dir = sample.metadata['output_dir']
+    sample_bam = "{output_dir}/{sample_name}.bam".format(
+            output_dir=output_dir,
+            sample_name=sample.metadata['sample_name'])
+    if os.path.isfile(sample_bam) == False:
+        cmd = ['dragen', '-f', '-v', '-c', sample.metadata['conf_file']]
         if debug:
-           print "Dragen error code: {0}".format(error_code)
-        if error_code == 0:
-            insert_query = ("INSERT INTO gatk_queue "
-            "SELECT * FROM tmp_dragen WHERE dragen_id={0}"
-            ).format(dragen_id)
-            rm_query = "DELETE FROM {0} WHERE dragen_id={1}".format("tmp_dragen",dragen_id)
+            print ' '.join(cmd)
+
+        dragen_stderr = open(sample.metadata['dragen_stderr'],'a')
+        if dontexecute == False:
+            if dragen_id != 0: # All manually run samples will have a dragen_id of 0
+                update_queue(curs,dragen_id,debug)
+
+            with open(sample.metadata['dragen_stdout'],'a') as dragen_stdout:
+
+                process = subprocess.Popen(cmd, stdout=subprocess.PIPE,stderr=dragen_stderr)
+                for line in iter(process.stdout.readline, ''):
+                    if debug:
+                        sys.stdout.write(line)
+                    dragen_stdout.write(line)
+
+                process.communicate()
+                error_code = process.wait()
+
             if debug:
-                print insert_query
-                print rm_query
+               print "Dragen error code: {0}".format(error_code)
+            if error_code == 0:
+                insert_query = ("INSERT INTO gatk_queue "
+                "SELECT * FROM tmp_dragen WHERE dragen_id={0}"
+                ).format(dragen_id)
+                rm_query = "DELETE FROM {0} WHERE dragen_id={1}".format("tmp_dragen",dragen_id)
+                if debug:
+                    print insert_query
+                    print rm_query
 
-            curs.execute(insert_query)
-            curs.execute(rm_query)
+                curs.execute(insert_query)
+                curs.execute(rm_query)
 
+            else:
+                print "Sample was not deleted from tmp_dragen due to error code: {0}".format(error_code)
+
+            dragen_stdout.close()
+            dragen_stderr.close()
         else:
-            print "Sample was not deleted from tmp_dragen due to error code: {0}".format(error_code)
-
-        dragen_stdout.close()
-        dragen_stderr.close()
+            print "Sample {sample_name} config complete.".format(**sample.metadata)
     else:
-        print "Sample {sample_name} config complete.".format(**sample.metadata)
+        print "Sample {sample_name} bam file already exists!".format(sample_name=sample.metadata['sample_name'])
+        update_queue(curs,dragen_id,debug)
 
 def update_queue(curs,dragen_id,debug):
     insert_query = ("INSERT INTO tmp_dragen "
@@ -154,6 +162,7 @@ def setup_dir(curs,sample,debug):
     dev_null = open(os.devnull, 'w')
     files = glob(str(sample.metadata['fastq_dir']) + '/*fastq.gz')
     for file in files:
+        #remove any symlinked fastq.gz files
         os.remove(file)
 
     first_read1 = get_first_read(sample,1,debug)
@@ -184,8 +193,8 @@ def get_first_read(sample,read_number,debug):
     #Using first fastq as template for all fastq.gz
     first_fastq_loc = sample.metadata['fastq_loc'][0]
     if debug:
-        print '{0}/*L00{1}_R{2}_001.fastq.gz'.format(first_fastq_loc,sample.metadata['lane'][0][0][0],read_number)
-    read = glob('{0}/*L00{1}_R{2}_001.fastq.gz'.format(first_fastq_loc,sample.metadata['lane'][0][0][0],read_number))
+        print '{0}/*L00*_R{1}_001.fastq.gz'.format(first_fastq_loc,read_number)
+    read = glob('{0}/*L00*_R{1}_001.fastq.gz'.format(first_fastq_loc,read_number))
     #The fastqs might still be on the quantum tapes
     if read == []:
         stornext_loc =('/stornext/seqfinal/casava1.8/whole_{sample_type}/{sample_name}/{FCIllumID}/*L00{sample_lane}_R{read_number}_001.fastq.gz'
@@ -206,9 +215,11 @@ def get_first_read(sample,read_number,debug):
                 quantum location"""
             sample.set('fastq_loc',glob(('/stornext/seqfinal/casava1.8/whole_exome/{0}/*XX'
                 ).format(sample.metadata['sample_name'])))
-    return read[0]
+    return sorted(read)[0]
 
 def get_next_sample(curs,debug):
+
+    #remove any symlinked fastq.gz files 
     query = ("SELECT sample_name,sample_type,pseudo_prepid,capture_kit,dragen_id "
         "FROM dragen_queue "
         "WHERE PRIORITY < 99 "
