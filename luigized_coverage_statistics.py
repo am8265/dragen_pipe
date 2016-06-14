@@ -543,52 +543,41 @@ def EthnicityPipeline(LocalSGEJobTask):
 
 class CheckAppend(luigi.Target):
     """
-    This is a target class for checking whether the AppendMasterPed
-    Task was sucessful
+    This is a target class for checking whether the database
+    entry was correctly flagged
     """
 
-    def __init__(self,old_count,master_ped):
-        self.master_ped = master_ped
-        self.old_count = int(old_count)
+
+    sample = luigi.Parameter()
+    seq_type = luigi.Parameter()
+
+
+    def __init__(self):
+        super(AppendMasterPed,self).__init__(*args,**kwargs)
+        self.cmd = '''seqdb -e "use sequenceDB; SELECT to_append FROM table_name WHERE sample_name='%s',seq_type='%s' '''%(self.sample,self.seq_type)
 
     def exists(self):
         """
-        Checks whether the ped file was incremented
+        Checks whether the database was updated
         """
-        if not os.path.isfile(self.master_ped):
-            print "Error : The masterped file path is wrong or file is missing"
+
+        db_entry = subprocess.check_output(self.cmd)
+        
+        if db_entry != 'False':
             return False
+        
+        return True 
 
-        #f = open(self.master_ped,'w+') 
-        #fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)
 
-        #with open(self.master_ped) as f:
-            #for i,l in enumerate(f):
-                #pass
-
-        #for i,l in enumerate(f):
-            #pass
-
-        linecount_master =  int(subprocess.check_output("grep -c $ %s"%self.master_ped,shell=True))
-
-        #fcntl.flock(f,fcntl.LOCK_UN)
-        #f.close()
-
-        if (linecount_master - self.old_count) == 1:
-            return True
-    
-        else:
-            print "Error : The masterped file has been incorrectly appended!"
-            return False
-            
-
+           
 #@inherits(CreatePed) ## Try this method out too 
 class AppendMasterPed(SGEJobTask):
     """
     Append the relatedness ped to the master ped,
-    The way this task is defined allows only a single instance
-    of it to be run at a time, thus make use of luigi for implenting
-    a locking feature on the masterped file 
+    A DB entry is created stating that the sample needs
+    to have the ped file appended 
+    The actual append is performed as part of the relatedness
+    pipeline 
     """
 
     ped_type = luigi.Parameter(significant=True) ## This has one of two values :
@@ -607,27 +596,9 @@ class AppendMasterPed(SGEJobTask):
       
     
     def __init__(self,*args,**kwargs):
-        super(AppendMasterPed,self).__init__(*args,**kwargs)
-        self.line_count = subprocess.check_output("wc -l %s"%self.master_ped,shell=True)
-        #self.master_ped_handle = open(self.master_ped,'r')
-
-        #f = open(self.master_ped,'w+') 
-        #fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        #with open(self.master_ped,'r') as f:
-            #for i,l in enumerate(f):
-                #pass
-        self.line_count = int(subprocess.check_output("grep -c $ %s"%self.master_ped,shell=True))
-        
-        
-
-        #for i,l in enumerate(f):
-            #pass
-        #self.line_count = i + 1
-        #fcntl.flock(f,fcntl.LOCK_UN)
-        #f.close()
-        
+        super(AppendMasterPed,self).__init__(*args,**kwargs)       
         self.output_file = config().scratch+self.sample+'.'+self.ped_type+'.ped'        
-        self.cmd = "cat %s >> %s"%(self.output_file,self.master_ped)
+        self.cmd = '''seqdb -e "use sequenceDB; UPDATE table_name SET to_append=TRUE WHERE sample_name=%s, seq_type=%s" '''%(self.sample,self.seq_type)
 
 
     def requires(self):
@@ -648,8 +619,8 @@ class AppendMasterPed(SGEJobTask):
         in the masterped file 
         """
         
-        return CheckAppend(self.line_count,self.master_ped)
-        #return luigi.LocalTarget('dump.txt')
+        return CheckAppend(self.sample,self.seq_type)
+        
 
     def work(self):
         """
@@ -657,9 +628,106 @@ class AppendMasterPed(SGEJobTask):
         should do it
         """
 
-        #if not utils.lockfile(self.master_ped_handle):
-            #time.sleep(5)        
         os.system(self.cmd)
-        #fcntl.flock(self.master_ped_handle,fcntl.LOCK_UN)
-        #os.system('touch dump.txt')
+
+        
+
+class VariantCallingMetrics(SGEJobTask):
+    """
+    Run the picard tool for qc evaluation of the variant calls 
+    """
+
+    vcf_file = luigi.Parameter()
+    sample = luigi.Parameter()
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git"
+      
+    
+    def __init__(self,*args,**kwargs):
+        super(AppendMasterPed,self).__init__(*args,**kwargs)
+        self.output_file = self.sample + '.variant.metrics.txt'
+        self.cmd = "java -jar %s CollectVariantCallingMetrics INPUT=%s OUTPUT=%s DBSNP=%s"%(config().picard,self.vcf_file,config().dbsnp)
+
+    
+    def requires(self):
+        """
+        The requirement for this task is the presence of the analysis ready 
+        vcf file from the GATK pipeline
+        """
+    
+        return MyExtTask(self.vcf_file)
+
+    def output(self):
+        """
+        The result from this task is the creation of the metrics file
+        """
+        
+        return luigi.LocalTarget(self.output_file)
+
+    def work(self):
+        """
+        Run this task
+        """
+    
+        os.system(self.cmd)
+    
+
+class UpdateDatabase(SGEJobTask):
+    """
+    Populate database with output files
+    """
+
+    self.output_file = luigi.Parameter()
+
+    def __init__(self,*args,**kwargs):
+        super(UpdateDatabase,self).__init__(*args,**kwargs)
+
+
+    def requires(self):
+        """
+        The requirement for this task
+        the outputfile from different tasks should
+        be present
+        """
+        
+        return [MyExtTask(),MyExtTask(),MyExtTask()]
+
+    def output(self):
+        """
+        The output from this task
+        """
+
+    def work(self):
+        """
+        Run this task
+        """
+
+        
+
+class GenderCheck(SGEJobTask):
+    """
+    Check gender using X,Y chromosome coverage
+    """
+
+    def __init__(self,*args,**kwargs):
+        super(GenderCheck,self).__init__(*args,**kwargs)
+        
+
+    def requires(self):
+        """
+        The requirement for this task 
+        """
+
+    def output(self):
+        """
+        The output from this task
+        """
+
+    def work(self):
+        """
+        Run this task
+        """
+
         
