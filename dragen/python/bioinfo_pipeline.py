@@ -1840,7 +1840,7 @@ class AppendMasterPed(SGEJobTask):
     
     def __init__(self,*args,**kwargs):
         super(AppendMasterPed,self).__init__(*args,**kwargs)
-
+        
         
     def requires(self):
         """
@@ -1848,6 +1848,7 @@ class AppendMasterPed(SGEJobTask):
         """
 
         return [MyExtTask(self.masterped),MyExtTask(self.threshold_file)]
+
     
 class RunRelatednessCheck(SGEJobTask):
     """
@@ -1855,9 +1856,82 @@ class RunRelatednessCheck(SGEJobTask):
     """
 
     masterped = luigi.Parameter()
+    threshold_file = luigi.Parameter()
+    relatedness_map = luigi.Parameter()
+    database = luigi.Parameter()
+    cyrptic_threshold = luigi.Parameter()
+    cnf = luigi.Parameter() ## MySQL config file 
+    database_table = luigi.Parameter()
+    test_mode = luigi.Parameter()
     #last_run = luigi.DateParameter()
+    
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git"
+
+    
+    def __init__(self,*args,**kwargs):
+        super(RunRelatednessCheck,self).__init__(*args,**kwargs)
+        self.append_cmd = "cat {0} >> {1}"
+        self.relatedness_cmd = "{0} new_relatedness_check.py {1} {2} {3} {4} {5}".format(config().python_path,config().scratch,self.threshold_file,self.cryptic_threshold,self.test_mode)
+        ## Check the database for the number of samples to be appended
+        db = MySQLdb.connect(db=self.database,read_default_group="clientseqdb",read_default_file=self.cnf)
+        ## Get the samples to append to master ped 
+        db_cursor = db.cursor()        
+        temp_query = "USE %s SELECT CHGVID,ped_location FROM %s WHERE is_append = False"%(database,database_table)
+        db_cursor.execute(temp_query)
+        self.result = db_cursor.fetchall()
+                
+
+        
+    def requires(self):
+        """
+        The dependencies for this task
+        """
+
+        return [MyExtTask(masterped),MyExtTask(threshold_file),MyExtTask(relatedness_map)]
+
+
+    def work(self):
+        """
+        Run the python relatedness script 
+        """
+        
+        ## Iterate over the results and append the individual peds to the masterped
+        for element in self.result:
+            ped_location = element[1]
+            os.system(self.append_cmd.format(ped_location,self.masterped))
+
+        ## Run the relatedness pipeline
+        os.system(self.relatedness_cmd)
+            
+    def output(self):
+        """
+        The output from this task
+        The line count should be appended by 1 
+        """
+
+        return 
+
+
+class CheckAppend(luigi.Target):
+    """
+    A Target class for checking if the append was sucessful
+    """
+    
+    masterped = luigi.Parameter()
+    num_samples = luigi.Parameter()
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git"
+
+    def __init__(self,*args,**kwargs):
+        super(CheckAppend,self).__init__(*args,**kwargs)
         
 
+
+        
 class VariantCallingMetrics(SGEJobTask):
     """
     Run the picard tool for qc evaluation of the variant calls 
@@ -1865,7 +1939,6 @@ class VariantCallingMetrics(SGEJobTask):
 
     sample_name = luigi.Parameter()
     vcf = luigi.Parameter()
-    
 
     n_cpu = 1
     parallel_env = "threaded"
