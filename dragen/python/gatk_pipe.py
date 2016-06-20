@@ -327,7 +327,7 @@ class HaplotypeCaller(SGEJobTask):
             scratch=self.scratch, sample_name=self.sample_name)
         self.recal_bam = "{scratch}/{sample_name}/{sample_name}.realn.recal.bam".format(
             scratch=self.scratch, sample_name=self.sample_name)
-        self.gvcf = "{scratch}/{sample_name}/{sample_name}.g.vcf".format(
+        self.gvcf = "{scratch}/{sample_name}/{sample_name}.g.vcf.gz".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
             scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
@@ -399,7 +399,7 @@ class GenotypeGVCFs(SGEJobTask):
             scratch=self.scratch, sample_name=self.sample_name)
         self.recal_bam = "{scratch}/{sample_name}/{sample_name}.realn.recal.bam".format(
             scratch=self.scratch, sample_name=self.sample_name)
-        self.gvcf = "{scratch}/{sample_name}/{sample_name}.g.vcf".format(
+        self.gvcf = "{scratch}/{sample_name}/{sample_name}.g.vcf.gz".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.vcf = "{scratch}/{sample_name}/{sample_name}.raw.vcf".format(
             scratch=self.scratch, sample_name=self.sample_name)
