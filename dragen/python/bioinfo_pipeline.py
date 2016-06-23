@@ -1279,14 +1279,16 @@ class MyExtTask(luigi.ExternalTask):
 
 class ParsePicardOutputs(SGEJobTask):
     """
-    Simple Parser for Picard output
+    All Picard outputs seem to follow a standard format
+    A simple shell command is used for creating a standard processed
+    output file to extract values and load into a database
+    Information is represented as a two column output,first is the
+    field name and the second the value of that field
     """
 
 
-    sample_name = luigi.Parameter()
-    bam = luigi.Parameter()
-    seq_type = luigi.Parameter()
-
+    picard_output = luigi.Parameter()
+    
     n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/home/rp2801/git"
@@ -1297,40 +1299,34 @@ class ParsePicardOutputs(SGEJobTask):
         """
 
         super(ParsePicardOutputs,self).__init__(*args,**kwargs)
+        self.output_file = "{0}.processed".format(self.picard_output)
         
-        ## The input and output file to this task
-        self.cvg_file = "{0}/{1}.cvg.metrics.txt".format(self.scratch,
-                                                         self.sample)
-
-        self.output_file = "{0}{1}.cvg.metrics.txt.transposed".format
-        (config().scratch,self.sample)
 
         ## Define the command to be run 
-        self.cmd = """cat %s | grep -v '^#'| head -3 | awk -f /home/rp2801/git/dragen_pipe/transpose.awk > %s """%(self.output_file,self.output_file)
+        self.cmd = """cat %s | grep -v '^#'| awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > %s """%(self.picard_output,self.output_file)
 
     def requires(self):
         """ 
-        Dependency is just the presence of the awk script
-        and the completion of the RunCvgMetrics Task
+        Dependency is the presence of the picard outputfile 
         """
         
-        return RunCvgMetrics(self.bam,self.sample_name,self.seq_type)
+        return MyExtTask(self.picard_output)
 
     def output(self):
         """
         Output from this task
         """
 
-        return luigi.LocalTarget(self.output_file+'.transposed')
+        return luigi.LocalTarget(self.output_file)
 
     def work(self):
         """
         Just a simple shell command is enough!
         """
         
-        #os.system(cmd)
-        os.system("""touch %s.transposed"""%(self.output_file))
-
+        os.system(self.cmd)
+        #os.system("""touch %s.transposed"""%(self.output_file))
+        
 
 
 class RunCvgMetrics(SGEJobTask):
@@ -1342,9 +1338,9 @@ class RunCvgMetrics(SGEJobTask):
     bam = luigi.Parameter()
     sample_name = luigi.Parameter()
     seq_type = luigi.Parameter()
+    wgsinterval = luigi.BooleanParameter(default=False)
     
-    
-    n_cpu = 1
+    n_cpu = 12
     parallel_env = "threaded"
     shared_tmp_dir = "/home/rp2801/git"
 
@@ -1375,14 +1371,14 @@ class RunCvgMetrics(SGEJobTask):
 
         if self.seq_type.upper() == 'GENOME': ## If it is a genome sample
             if self.wgsinterval == True: ## Restrict wgs metrics to an interval
-                cvg_cmd = ("%s -jar %s CollectWgsMetrics R=%s O=%s I=%s INTERVALS=%s MQ=20 Q=10"%(config().java,config().picard,config().reference_file,self.output_file,self.bam,self.target_file))
+                self.cvg_cmd = "{0} -jar {1} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={2} O={3} I={4} INTERVALS={5} MQ=20 Q=10".format(config().java,config().picard,config().ref,self.output_file,self.bam,self.target_file)
                 
             else: ## Run wgs metrics across the genome
-                cvg_cmd = ("%s -jar %s CollectWgsMetrics R=%s O=%s I=%s MQ=20 Q=10"%(config().java,config().picard,config().reference_file,self.output_file,self.bam))
+                self.cvg_cmd = "{0} -XX:ParallelGCThreads=12 -jar {1} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={2} O={3} I={4} MQ=20 Q=10".format(config().java,config().picard,config().ref,self.output_file,self.bam)
               
                              
         else: ## Anything other than genome i.e. Exome or Custom Capture( maybe have an elif here to check further ?)
-            cvg_cmd = ("%s -jar %s CalculateHsMetrics BI=%s TI=%s METRIC_ACCUMULATION_LEVEL=ALL_READS I=%s O=%s MQ=20 Q=10"%(config().java,config().picard,config().bait_file,self.target_file,self.bam,self.output_file))
+            self.cvg_cmd = ("%s -jar %s CalculateHsMetrics BI=%s TI=%s VALIDATION_STRINGENCY=LENIENT METRIC_ACCUMULATION_LEVEL=ALL_READS I=%s O=%s MQ=20 Q=10"%(config().java,config().picard,config().bait_file,self.target_file,self.bam,self.output_file))
 
         
     def output(self):
@@ -1639,7 +1635,7 @@ class CoverageBinning(SGEJobTask):
         os.system(self.binning_cmd)
 
 
-class AlignmentMetrics(LocalSGEJobTask):
+class AlignmentMetrics(SGEJobTask):
     """
     Parse Alignment Metrics from dragen logs
     """
@@ -1648,14 +1644,14 @@ class AlignmentMetrics(LocalSGEJobTask):
     bam = luigi.Parameter()
     sample_name = luigi.Parameter()
 
-    n_cpu = 1
+    n_cpu = 12
     parallel_env = "threaded"
     shared_tmp_dir = "/home/rp2801/git"
 
-    def __init__(self):
+    def __init__(self,*args,**kwargs):
         super(AlignmentMetrics,self).__init__(*args,**kwargs)
-        self.output_file = '{scratch}{samp}.alignment.metrics.txt'.format(scratch=config().scratch,samp=self.sample)
-        self.cmd = "%s %s CollectAlignmentSummaryMetrics TMP_DIR=%s VALIDATION_STRINGENCY=SILENT REFERENCE_SEQUENCE=%s INPUT=%s OUTPUT=%s"%(config().java,config().picard,config().scratch,config().ref,self.bam,self.output_file)               
+        self.output_file = '{scratch}{samp}.alignment.metrics.txt'.format(scratch=config().scratch,samp=self.sample_name)
+        self.cmd = "{0} -XX:ParallelGCThreads=12 -jar {1} CollectAlignmentSummaryMetrics TMP_DIR={2} VALIDATION_STRINGENCY=SILENT REFERENCE_SEQUENCE={3} INPUT={4} OUTPUT={5}".format(config().java,config().picard,config().scratch,config().ref,self.bam,self.output_file)               
     
     
     def exists(self):
@@ -1828,10 +1824,8 @@ class AppendMasterPed(SGEJobTask):
     """
 
     masterped = luigi.Parameter()
-    threshold_file = luigi.Parameter()
-    cryptic_threshold = luigi.Parameter()
-    dbhost = luigi.Parameter()
-    testmode = luigi.Parameter(default="2")
+    ped_loc = luigi.Parameter()
+
     
     n_cpu = 1
     parallel_env = "threaded"
@@ -1840,15 +1834,21 @@ class AppendMasterPed(SGEJobTask):
     
     def __init__(self,*args,**kwargs):
         super(AppendMasterPed,self).__init__(*args,**kwargs)
-        
+        self.cmd = "cat {0} >> {1}"
         
     def requires(self):
         """
         Make sure relevant files are present
         """
 
-        return [MyExtTask(self.masterped),MyExtTask(self.threshold_file)]
+        return [MyExtTask(self.masterped),MyExtTask(self.ped_loc)]
 
+    def work(self):
+        """
+        Run the task
+        """
+        os.system(self.cmd.format(self.ped_loc,self.masterped))
+        
     
 class RunRelatednessCheck(SGEJobTask):
     """
@@ -1889,7 +1889,12 @@ class RunRelatednessCheck(SGEJobTask):
         The dependencies for this task
         """
 
-        return [MyExtTask(masterped),MyExtTask(threshold_file),MyExtTask(relatedness_map)]
+        for chgvid,ped_loc in self.result:
+            yield AppendMasterPed(masterped,ped_loc)
+            
+        yield MyExtTask(threshold_file)
+        yield MyExtTask(relatedness_map)
+        
 
 
     def work(self):
@@ -1948,11 +1953,11 @@ class VariantCallingMetrics(SGEJobTask):
     def __init__(self,*args,**kwargs):
         super(VariantCallingMetrics,self).__init__(*args,**kwargs)
         #sample_name = luigi.Parameter()
-        self.output_file = "{0}/{1}.variant.metrics.txt".format(config().scratch,self.sample_name)
-        self.cmd = "{java} -jar {picard} CollectVariantCallingMetrics INPUT={vcf} OUTPUT={out} DBSNP={db}".format(java=config().java,picard=config().picard,vcf=self.vcf,out=self.output_file,db=config().dbsnp)
+        self.output_file = "{0}.variant_calling_summary_metrics".format(self.sample_name)
+        self.cmd = "{java} -jar {picard} CollectVariantCallingMetrics INPUT={vcf} OUTPUT={sample} DBSNP={db}".format(java=config().java,picard=config().picard,vcf=self.vcf,sample=self.sample_name,db=config().dbsnp)
+        self.parse_picard = """cat {0} | grep -v '^#'| awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {0}.processed """.format(self.output_file)
+
         
-       
-    
     def requires(self):
         """
         The requirement for this task is the presence of the analysis ready 
@@ -1966,16 +1971,15 @@ class VariantCallingMetrics(SGEJobTask):
         The result from this task is the creation of the metrics file
         """
         
-        return luigi.LocalTarget(self.output_file)
+        return luigi.LocalTarget("{0}.processed".format(self.output_file))
 
     def work(self):
         """
         Run this task
         """
     
-        
         os.system(self.cmd)
-        #os.system("touch %s"%self.output_file) 
+        os.system(self.parse_picard) 
 
 
 class UpdateDatabase(SGEJobTask):
@@ -1984,7 +1988,13 @@ class UpdateDatabase(SGEJobTask):
     """
 
     output_file = luigi.Parameter()
+    ## A list parameter containing the field names in the output file,update
+    ## the table in seqdb with the values corresponding to these fields 
+    fields_file = luigi.ListParameter() 
 
+    ## The corresponding database field names
+    fields_database  = luigi.ListParameter()
+    
     def __init__(self,*args,**kwargs):
         super(UpdateDatabase,self).__init__(*args,**kwargs)
 
@@ -2008,7 +2018,14 @@ class UpdateDatabase(SGEJobTask):
         Run this task
         """
 
-        
+        with open(self.output_file,'w') as OUT:
+            for line in OUT:
+                contents = line.split(' ')
+                out_hash[contents[0]] = contents[1]
+
+        for field in fields_file:
+            update_table(out_hash[field])
+            
 
 class GenderCheck(SGEJobTask):
     """
