@@ -1,6 +1,7 @@
 #!/usr/bin/env python2.7
 import os,sys,string,subprocess,pdb,re
 import globals
+import MySQLdb
 
 #150127 slg added DBhost command line arg.
 

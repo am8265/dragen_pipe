@@ -39,6 +39,7 @@ def run_samples(curs,number_of_jobs,debug):
         run_sample(curs,dragen_sample,debug)
 
         exit()
+
 def add_to_tmp_gatk(curs,dragen_sample,debug):
     dragen_id = dragen_sample[4]
 
@@ -91,6 +92,8 @@ def run_sample(curs,dragen_sample,debug):
     FNULL = open(os.devnull, 'w')
     subprocess.call(shlex.split(cmd),close_fds=True,stdout=FNULL)
 
+
+    
 def get_capture_kit_info(curs,dragen_sample,debug):
     capture_kit = dragen_sample[3]
     query = ("SELECT DISTINCT region_file_lsrc,name "
