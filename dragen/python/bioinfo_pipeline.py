@@ -1988,9 +1988,10 @@ class UpdateDatabase(SGEJobTask):
     """
 
     output_file = luigi.Parameter()
+    cnf_file = luigi.Parameter()
     ## A list parameter containing the field names in the output file,update
     ## the table in seqdb with the values corresponding to these fields 
-    fields_file = luigi.ListParameter() 
+    output_headers = luigi.ListParameter() 
 
     ## The corresponding database field names
     fields_database  = luigi.ListParameter()
@@ -2006,7 +2007,7 @@ class UpdateDatabase(SGEJobTask):
         be present
         """
         
-        return [MyExtTask(),MyExtTask(),MyExtTask()]
+        return [MyExtTask(self.output_file)]
 
     def output(self):
         """
@@ -2029,25 +2030,54 @@ class UpdateDatabase(SGEJobTask):
 
 class GenderCheck(SGEJobTask):
     """
-    Check gender using X,Y chromosome coverage
+    Check gender using X,Y chromosome coverage and update seqgender field
     """
 
+    ## Parameters for this task
+    sample = luigi.Parameter()
+    seqtype = luigi.Parameter()
+    prepkit = luigi.Parameter()
+    ## Contains defaults for dragen pipeline
+    
+    
     def __init__(self,*args,**kwargs):
         super(GenderCheck,self).__init__(*args,**kwargs)
+        ## Possible set of update entries for the seqgender column
+        self.valid_updates = ['M','F','Ambiguous','N/A']
         
+        ## Read the cnf_file and get a connection to the database
+        
+        self.db = MySQLdb.connect(db=database,read_default_group="clientsequencedb",
+                             read_default_file=config().cnf_file)
 
+        ## Define the SQL queries that need to be executed in this task
+        ## Query which returns seqgender,used for checking successful update
+        self.check_query = """ SELECT seqgender FROM seqdb_dragen WHERE CHGVID = {1} AND SeqType = {2} AND PrepKit = {3}""".format(CHGVID,seqType,prepKit) 
+        self.update_query = """ UPDATE TABLE seqdb_dragen SET seqgender = {0} WHERE CHGVID = {1} AND SeqType = {2} AND PrepKit = {3}"""
+
+        
+        
     def requires(self):
         """
         The requirement for this task 
         """
-
+        ## Define a better dependency
+        luigi.ExternalTask(self.cnf_file)
         
-
     def output(self):
         """
         The output from this task
         """
 
+        ## The sucess of the task depends on the sample seqgender being
+        ## updated to one of the valid set of update entries (possible
+        ## potential for a bug here where a wrong update could be made and
+        ## go unoticed in this check)
+
+        ## Get a cursor to the database
+        temp_cursor = self.db.cursor()
+        
+        
     def work(self):
         """
         Run this task
