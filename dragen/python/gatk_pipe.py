@@ -24,7 +24,8 @@ bedtools="/nfs/goldstein/software/bedtools-2.25.0/bin/bedtools"
 
 #GATK parameters
 max_mem="15"
-ref="/nfs/goldsteindata/refDB/HS_Build37/BWA_INDEX_hs37d5_BWAmem/hs37d5.fa"
+#ref="/nfs/goldsteindata/refDB/HS_Build37/BWA_INDEX_hs37d5_BWAmem/hs37d5.fa"
+ref="/scratch/HS_Build37/BWA_INDEX_hs37d5/hs37d5.fa"
 hapmap="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/hapmap_3.3.b37.vcf"
 omni="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/1000G_omni2.5.b37.vcf"
 g1000="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/1000G_phase1.indels.b37.vcf"
@@ -307,22 +308,19 @@ class HaplotypeCaller(SGEJobTask):
     sample_type = luigi.Parameter()
     interval = luigi.Parameter(default=interval)
 
-    java = luigi.Parameter(default=java,
-        description = 'java version used')
-    gatk = luigi.Parameter(default=gatk,
-        description = 'gatk version used')
-    max_mem = luigi.Parameter(default=max_mem,
-        description = 'heap size for java in Gb')
-    ref = luigi.Parameter(default=ref,
-        description = 'reference genome location')
-    dbSNP = luigi.Parameter(default=dbSNP,
-        description = 'dbSNP location')
+    java = luigi.Parameter(default=java,description = 'java version used')
+    gatk = luigi.Parameter(default=gatk,description = 'gatk version used')
+    max_mem = luigi.Parameter(default=max_mem,description = 'heap size for java in Gb')
+    ref = luigi.Parameter(default=ref,description = 'reference genome location')
+    dbSNP = luigi.Parameter(default=dbSNP,description = 'dbSNP location')
     n_cpu = 4
     parallel_env = "threaded"
     shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(HaplotypeCaller, self).__init__(*args, **kwargs)
+        self.realn_bam = "{scratch}/{sample_name}/{sample_name}.realn.bam".format(
+            scratch=self.scratch, sample_name=self.sample_name)
         self.recal_table = "{scratch}/{sample_name}/{sample_name}.recal_table".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.recal_bam = "{scratch}/{sample_name}/{sample_name}.realn.recal.bam".format(
@@ -343,6 +341,7 @@ class HaplotypeCaller(SGEJobTask):
             "-stand_call_conf 20 "
             "-stand_emit_conf 20 "
             "--emitRefConfidence GVCF "
+            "-GQB 5 -GQB 15 -GQB 20 -GQB 60 "
             "--variant_index_type LINEAR "
             "--variant_index_parameter 128000 "
             "--dbsnp {dbSNP} "
@@ -359,9 +358,9 @@ class HaplotypeCaller(SGEJobTask):
             o.write(cmd + "\n")
             subprocess.check_call(shlex.split(cmd))
 
-       #rm_cmd = ['rm',self.recal_bam]
-       #print rm_cmd
-       #subprocess.call(rm_cmd)
+        rm_cmd = ['rm',self.realn_bam]
+        #print rm_cmd
+        subprocess.call(rm_cmd)
 
     def requires(self):
         return self.clone(PrintReads)
@@ -426,10 +425,6 @@ class GenotypeGVCFs(SGEJobTask):
         with open(self.script,'w') as o:
             o.write(cmd + "\n")
             subprocess.check_call(shlex.split(cmd))
-
-       #rm_cmd = ['rm',self.recal_bam]
-       #print rm_cmd
-       #subprocess.call(rm_cmd)
 
     def requires(self):
         return self.clone(HaplotypeCaller)
@@ -536,12 +531,12 @@ class SelectVariantsINDEL(SGEJobTask):
             "-L {interval} "
             "-V {vcf} "
             "-selectType INDEL "
-            "-o {snp_vcf}").format(java=java,
+            "-o {indel_vcf}").format(java=java,
                 gatk=gatk,
                 max_mem=max_mem,
                 ref=ref,
                 interval=interval,
-                snp_vcf=self.indel_vcf,
+                indel_vcf=self.indel_vcf,
                 vcf=self.vcf)
 
         with open(self.script,'w') as o:
@@ -550,7 +545,14 @@ class SelectVariantsINDEL(SGEJobTask):
 
 
     def requires(self):
-        return self.clone(SelectVariantsSNP)
+        if self.sample_type == 'exome':
+            return self.clone(ApplyRecalibrationSNP)
+        if self.sample_type == 'genome':
+            return self.clone(ApplyRecalibrationSNP)
+        elif self.sample_type == 'custom_capture':
+            return self.clone(VariantFiltrationSNP)
+        else:
+            raise Exception, "Sample type: %s not supported in this module" % self.sample_type
 
     def output(self):
         return luigi.LocalTarget(self.indel_vcf)
@@ -634,12 +636,7 @@ class VariantRecalibratorSNP(SGEJobTask):
             subprocess.check_call(shlex.split(cmd))
 
     def requires(self):
-        if self.sample_type == 'genome':
-            return self.clone(SelectVariantsSNP)
-        elif self.sample_type == 'exome':
-            return self.clone(SelectVariantsSNP)
-        else:
-            raise Exception, "Sample type: %s not supported in this module" % self.sample_type
+        return self.clone(SelectVariantsSNP)
 
 
     def output(self):
@@ -679,6 +676,8 @@ class VariantRecalibratorINDEL(SGEJobTask):
             scratch=self.scratch, sample_name=self.sample_name)
         self.indel_recal = "{scratch}/{sample_name}/{sample_name}.indel.recal".format(
             scratch=self.scratch, sample_name=self.sample_name)
+        self.indel_rscript = "{scratch}/{sample_name}/{sample_name}.indel.rscript".format(
+            scratch=self.scratch, sample_name=self.sample_name)
         self.indel_tranches = "{scratch}/{sample_name}/{sample_name}.indel.tranches".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
@@ -690,14 +689,13 @@ class VariantRecalibratorINDEL(SGEJobTask):
             "-R {ref} "
             "-T VariantRecalibrator "
             "-L {interval} "
-            "-I {indel_vcf} "
+            "--input {indel_vcf} "
             "-an QD "
             "-an DP "
             "-an FS "
             "-an SOR "
             "-an MQRankSum "
             "-an ReadPosRankSum "
-            "-an InbreedingCoeff "
             "-mode INDEL "
             "--maxGaussians 4 "
             "-tranche 100.0 -tranche 99.9 -tranche 99.0 -tranche 90.0 "
@@ -719,10 +717,7 @@ class VariantRecalibratorINDEL(SGEJobTask):
             subprocess.check_call(shlex.split(cmd))
 
     def requires(self):
-        if self.sample_type == 'genome':
-            return self.clone(VariantRecalibratorSNP)
-        else:
-            raise Exception, "Sample type: %s not supported in this module" % self.sample_type
+        return self.clone(SelectVariantsINDEL)
 
     def output(self):
         return luigi.LocalTarget(self.indel_recal)
@@ -786,12 +781,7 @@ class ApplyRecalibrationSNP(SGEJobTask):
             subprocess.check_call(shlex.split(cmd))
 
     def requires(self):
-        if self.sample_type == 'genome':
-            return self.clone(VariantRecalibratorINDEL)
-        elif self.sample_type == 'exome':
-            return self.clone(VariantRecalibratorSNP)
-        else:
-            raise Exception, "Sample type: %s not supported in this module" % self.sample_type
+        return self.clone(VariantRecalibratorSNP)
 
     def output(self):
         return luigi.LocalTarget(self.snp_filtered)
@@ -816,13 +806,13 @@ class ApplyRecalibrationINDEL(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(ApplyRecalibrationINDEL, self).__init__(*args, **kwargs)
-        self.snp_filtered = "{scratch}/{sample_name}/{sample_name}.snp.filtered.vcf".format(
+        self.indel_vcf = "{scratch}/{sample_name}/{sample_name}.indel.vcf".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.indel_recal = "{scratch}/{sample_name}/{sample_name}.indel.recal".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.indel_tranches = "{scratch}/{sample_name}/{sample_name}.indel.tranches".format(
             scratch=self.scratch, sample_name=self.sample_name)
-        self.indel_filtered = "{scratch}/{sample_name}/{sample_name}.snp.indel.filtered.vcf".format(
+        self.indel_filtered = "{scratch}/{sample_name}/{sample_name}.indel.filtered.vcf".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
             scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
@@ -833,7 +823,7 @@ class ApplyRecalibrationINDEL(SGEJobTask):
             "-R {ref} "
             "-T ApplyRecalibration "
             "-L {interval} "
-            "-input {snp_filtered} "
+            "-input {indel_vcf} "
             "-tranchesFile {indel_tranches} "
             "-recalFile {indel_recal} "
             "-o {indel_filtered} "
@@ -843,7 +833,7 @@ class ApplyRecalibrationINDEL(SGEJobTask):
                 max_mem=max_mem,
                 ref=ref,
                 interval=interval,
-                snp_filtered=self.snp_filtered,
+                indel_vcf=self.indel_vcf,
                 indel_recal=self.indel_recal,
                 indel_tranches=self.indel_tranches,
                 indel_filtered=self.indel_filtered)
@@ -852,10 +842,7 @@ class ApplyRecalibrationINDEL(SGEJobTask):
            subprocess.check_call(shlex.split(cmd))
 
     def requires(self):
-        if self.sample_type == 'genome':
-            return self.clone(ApplyRecalibrationSNP)
-        else:
-            raise Exception, "Sample type: %s not supported in this module" % self.sample_type
+        return self.clone(VariantRecalibratorINDEL)
 
     def output(self):
         return luigi.LocalTarget(self.indel_filtered)
@@ -911,10 +898,7 @@ class VariantFiltrationSNP(SGEJobTask):
            subprocess.check_call(shlex.split(cmd))
 
     def requires(self):
-        if self.sample_type == 'custom_capture':
-            return self.clone(SelectVariantsSNP)
-        else:
-            raise Exception, "Sample type: %s not supported in this module" % self.sample_type
+        return self.clone(SelectVariantsSNP)
 
     def output(self):
         return luigi.LocalTarget(self.snp_filtered)
@@ -970,12 +954,8 @@ class VariantFiltrationINDEL(SGEJobTask):
            subprocess.check_call(shlex.split(cmd))
 
     def requires(self):
-        if self.sample_type == 'exome':
-            return self.clone(ApplyRecalibrationSNP),self.clone(SelectVariantsINDEL)
-        elif self.sample_type == 'custom_capture':
-            return self.clone(VariantFiltrationINDEL)
-        else:
-            raise Exception, "Sample type: %s not supported in this module" % self.sample_type
+        return self.clone(SelectVariantsINDEL)
+
     def output(self):
         return luigi.LocalTarget(self.indel_filtered)
 
@@ -1101,7 +1081,7 @@ class CombineVariants(SGEJobTask):
     def output(self):
         return luigi.LocalTarget(self.final_vcf_gz)
 
-class ArchiveSample:
+class ArchiveSample(SGEJobTask):
     """Archive samples on Amplidata"""
 
     base_directory = luigi.Parameter()
