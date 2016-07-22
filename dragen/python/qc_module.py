@@ -31,11 +31,6 @@ class config(luigi.Config):
     bait_file = luigi.Parameter()
     bait_file_X = luigi.Parameter()
     bait_file_Y = luigi.Parameter()
-    scratch = luigi.Parameter(default='./')
-    output_dir = luigi.Parameter()
-    sample_name = luigi.Parameter()
-    bam = luigi.Parameter()
-    seq_type = luigi.Parameter()
     python_path = luigi.Parameter()
     relatedness_refs = luigi.Parameter()
     sampleped_loc = luigi.Parameter()
@@ -593,6 +588,7 @@ class DuplicateMetrics(SGEJobTask):
                 
         #else: IMPLEMENT LOGGING 
 
+        
 class VariantCallingMetrics(SGEJobTask):
     """
     Run the picard tool for qc evaluation of the variant calls 
