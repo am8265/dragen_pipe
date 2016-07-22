@@ -1,0 +1,10 @@
+[ref]
+genome=/nfs/goldsteindata/refDB/HS_Build37/BWA_INDEX_hs37d5/hs37d5.fa
+
+[annotate]
+java=/nfs/goldstein/software/jdk1.8.0_05/bin/java
+snpeff=/nfs/goldstein/software/snpEff/4.1/snpEff.jar
+genome_version=GRCh37.74
+snpeff_cfg=/nfs/goldstein/software/snpEff/4.1/snpEff.config
+snpeff_options=-v -noMotif -noNextProt -noLog -nodownload -noStats
+intervals=/nfs/goldstein/goldsteinlab/software/snpEff_3_3/data/GRCh37.73/intron_exon_boundaries.unique.custom_interval.bed
