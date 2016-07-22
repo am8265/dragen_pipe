@@ -1,6 +1,12 @@
 """
 Constant variables shared across modules for the DRAGEN pipeline
 """
+import os
+import gzip
+from ConfigParser import ConfigParser
+
+cfg = ConfigParser()
+cfg.open(os.path.join(os.path.dirname(os.path.realpath(__file__)), "anno.cnf"))
 
 CNF = "/nfs/goldstein/software/dragen/dragen.cnf" # defaults file for pipeline
 VCF_COLUMNS = ["CHROM", "POS", "rs_number", "REF", "ALT", "QUAL", "FILTER",
@@ -42,3 +48,22 @@ AMINO_ACIDS = dict(
 HGVS_P_PATTERN = (r"p\.[A-Z][a-z]{2}(?P<codon_position>\d+)"
                   "(?P<amino_acid_change>[A-Z][a-z]{2})")
 POLYPHEN_PROB_BITMASK = 2 ** 10 - 1
+
+def get_fh(fn, mode="r"):
+    """return a file handle to the file, gzipped optional
+    """
+    try:
+        with open(fn) as fh:
+            magic_number = fh.read(2)
+    except:
+        if os.path.splitext(fn)[-1] == ".gz":
+            magic_number = "\x1f\x8b"
+        else:
+            magic_number = None
+    if magic_number == "\x1f\x8b":
+        return gzip.open(fn, mode)
+    else:
+        return open(fn, mode)
+
+def get_cfg():
+    return cfg
