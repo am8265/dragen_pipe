@@ -158,7 +158,7 @@ class SplitVCFByChromosome(SGEJobTask):
         super(SplitVCFByChromosome, self).__init__(*args, **kwargs)
         if self.output_base:
             if re.search(r"\.g?vcf", self.output_base):
-                base_output = os.path.splitext(os.path.relapath(
+                base_output = os.path.splitext(os.path.realpath(
                     self.output_base))[0]
             else:
                 base_output = self.output_base
@@ -209,11 +209,15 @@ class ParsedVCFTarget(luigi.Target):
     """Target describing the output of parsing a VCF/gVCF pair,
         and verification of the entries in the database
     """
-    def __init__(self, vcf, chromosome, sample_id):
+    def __init__(self, vcf, chromosome, sample_id, output_base):
         self.vcf = vcf
         self.chromosome = chromosome
         self.sample_id = sample_id
-        self.called_variants = self.vcf + ".calls.txt"
+        self.output_base = output_base
+        self.novel_variants = output_base + ".novel_variants.txt"
+        self.called_variants = output_base + ".calls.txt"
+        self.variant_id_vcf = output_base + ".variant_id.vcf"
+        self.matched_indels = output_base + ".matched_indels.txt"
 
     def exists(self):
         if not os.path.isfile(self.called_variants):
@@ -225,10 +229,17 @@ class ParsedVCFTarget(luigi.Target):
                 self.called_variants, header=False)
             if vcf_line_count != calls_line_count:
                 return False
+            variant_id_vcf_line_count = get_num_lines_from_vcf(
+                self.variant_id_vcf, header=False)
+            if vcf_line_count != variant_id_vcf_line_count:
+                return False
+            if not os.path.isfile(self.novel_variants):
+                return False
+            if not os.path.isfile(self.matched_indels):
+                return False
             cur = db.cursor()
-            cur.execute("SELECT COUNT(variant_id) FROM called_variant_chr{CHROM} "
-                        "WHERE sample_id = {sample_id}".format(
-                            CHROM=self.chromosome, sample_id=self.sample_id))
+            cur.execute(GET_NUM_CALLS_FOR_SAMPLE.format(
+                CHROM=self.chromsome, sample_id=self.sample_id))
             db_count = cur.fetchone()[0]
             if db_count != vcf_line_count:
                 return False
@@ -250,12 +261,22 @@ class ParseVCF(SGEJobTask):
         description="the chromosome that's being processed")
     sample_id = luigi.NumericalParameter(
         left_op=operator.le, description="the sample_id for this sample")
+    output_base = luigi.Parameter(
+        default=None, description="specify a custom output file name")
 
     def __init__(self, *args, **kwargs):
         super(SGEJobTask, self).__init__(*args, **kwargs)
         if self.chromosome not in CHROMs:
             raise ValueError("invalid chromosome specified: {chromosome}".format(
                 chromosome=self.chromosome))
+        if self.output_base:
+            if re.search(r"\.g?vcf", self.output_base):
+                self.output_base = os.path.splitext(os.path.realpath(
+                    self.output_base))[0]
+            if not os.path.isdir(os.path.dirname(self.output_base)):
+                os.makedirs(os.path.dirname(base_output))
+        else:
+            self.output_base = os.path.splitext(self.vcf)[0]
 
     def requires(self):
         return self.clone(SplitVCFByChromosome)
@@ -263,11 +284,12 @@ class ParseVCF(SGEJobTask):
     def work(self):
         parse_vcf_and_load(
             vcf=self.vcf, gvcf=self.gvcf, chromosome=self.chromosome,
-            sample_id=self.sample_id)
+            sample_id=self.sample_id, output_base=self.output_base)
 
     def output(self):
         return ParsedVCFTarget(
-            vcf=self.vcf, chromosome=self.chromsome, sample_id=self.sample_id)
+            vcf=self.vcf, chromosome=self.chromsome, sample_id=self.sample_id,
+            output_base=self.output_base)
 
 if __name__ == "__main__":
     luigi.run()
