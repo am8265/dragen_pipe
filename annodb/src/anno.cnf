@@ -12,4 +12,5 @@ intervals=/nfs/goldstein/goldsteinlab/software/snpEff_3_3/data/GRCh37.73/intron_
 
 [db]
 cnf=/nfs/goldstein/software/dragen/db.cnf
-group=dragen
+dragen_group=dragen
+seqdb_group=seqdb
