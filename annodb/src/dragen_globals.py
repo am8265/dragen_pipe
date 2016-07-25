@@ -3,10 +3,11 @@ Constant variables shared across modules for the DRAGEN pipeline
 """
 import os
 import gzip
+import MySQLdb
 from ConfigParser import ConfigParser
 
 cfg = ConfigParser()
-cfg.open(os.path.join(os.path.dirname(os.path.realpath(__file__)), "anno.cnf"))
+cfg.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "anno.cnf"))
 
 CNF = "/nfs/goldstein/software/dragen/dragen.cnf" # defaults file for pipeline
 VCF_COLUMNS = ["CHROM", "POS", "rs_number", "REF", "ALT", "QUAL", "FILTER",
@@ -67,3 +68,29 @@ def get_fh(fn, mode="r"):
 
 def get_cfg():
     return cfg
+
+def get_connection(db):
+    """return a connection to the database specified
+    """
+    defaults_file = cfg.get("db", "cnf")
+    if db == "dragen":
+        return MySQLdb.connect(
+            read_default_file=defaults_file,
+            read_default_group="client" + cfg.get("db", "dragen_group"))
+    elif db == "seqdb":
+        return MySQLdb.connect(
+            read_default_file=defaults_file,
+            read_default_group="client" + cfg.get("db", "seqdb_group"))
+    else:
+        raise ValueError("specified database group is invalid")
+
+def get_last_insert_id(cur):
+    """return the last autoincrement id for the cursor
+    """
+    cur.execute("SELECT LAST_INSERT_ID()")
+    return cur.fetchone()[0]
+
+def create_INFO_dict(INFO, call):
+    """return a dict of attributes in the INFO field matched with the call
+    """
+    return dict(zip(INFO.split(":"), call.split(":")))
