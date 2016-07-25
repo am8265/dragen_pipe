@@ -14,11 +14,12 @@ import os
 import sys
 import subprocess
 import shlex
-import gzip
-import MySQLdb
-from ConfigParser import ConfigParser
+import operator
+import re
 from collections import OrderedDict, Counter
+from parse_vcf_and_load import parse_vcf_and_load
 from dragen_globals import *
+from db_statements import *
 
 cfg = get_cfg()
 CHROMs = OrderedDict([CHROM, x] for x, CHROM in enumerate(
@@ -85,7 +86,7 @@ class AnnotateVCF(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(AnnotateVCF, self).__init__(*args, **kwargs)
-        self.vcf_lines = get_num_variant_lines_from_vcf(self.vcf)
+        self.vcf_lines = get_num_lines_from_vcf(self.vcf)
         if self.output_vcf:
             if not os.path.isdir(os.path.dirname(self.output_vcf)):
                 try:
@@ -147,16 +148,28 @@ class SplitVCFByChromosome(SGEJobTask):
     vcf = luigi.InputFileParameter(description="the VCF to parse")
     gvcf = luigi.BoolParameter(
         default=False, description="whether the VCF is a gVCF or not")
+    output_base = luigi.Parameter(
+        default=None, description="specify a custom output file name")
     poll_time = luigi.IntParameter(
         default=5, description="the time to wait to run qstat",
         significant=False)
 
     def __init__(self, *args, **kwargs):
         super(SplitVCFByChromosome, self).__init__(*args, **kwargs)
-        base_output_name = os.path.splitext(self.vcf)[0]
+        if self.output_base:
+            if re.search(r"\.g?vcf", self.output_base):
+                base_output = os.path.splitext(os.path.relapath(
+                    self.output_base))[0]
+            else:
+                base_output = self.output_base
+            if not os.path.isdir(os.path.dirname(base_output)):
+                os.makedirs(os.path.dirname(base_output))
+        else:
+            base_output = os.path.splitext(self.vcf)[0]
+
         suffix = ".gvcf" if self.gvcf else ".vcf"
         self.split_vcfs = OrderedDict([
-            CHROM, base_output_name + "." + CHROM + suffix]
+            CHROM, base_output + "." + CHROM + suffix]
             for CHROM in CHROMs.iterkeys())
 
     def work(self):
@@ -200,14 +213,16 @@ class ParsedVCFTarget(luigi.Target):
         self.vcf = vcf
         self.chromosome = chromosome
         self.sample_id = sample_id
+        self.called_variants = self.vcf + ".calls.txt"
 
     def exists(self):
-        db = MySQLdb.connect(read_default_file=cfg.get("db", "cnf"),
-                             read_default_group=cfg.get("db", "group"))
+        if not os.path.isfile(self.called_variants):
+            return False
+        db = get_connection("dragen")
         try:
             vcf_line_count = get_num_lines_from_vcf(self.vcf, header=False)
             calls_line_count = get_num_lines_from_vcf(
-                self.vcf + ".calls.txt", header=False)
+                self.called_variants, header=False)
             if vcf_line_count != calls_line_count:
                 return False
             cur = db.cursor()
@@ -222,6 +237,9 @@ class ParsedVCFTarget(luigi.Target):
             if db.open:
                 db.close()
 
+    def open(self, mode="r"):
+        return get_fh(self.called_variants, mode)
+
 class ParseVCF(SGEJobTask):
     """parse the specified VCF and gVCF, output text files for the data, and
     import to the database
@@ -230,6 +248,8 @@ class ParseVCF(SGEJobTask):
     gvcf = luigi.InputFileParameter(description="the gVCF to parse")
     chromosome = luigi.Parameter(
         description="the chromosome that's being processed")
+    sample_id = luigi.NumericalParameter(
+        left_op=operator.le, description="the sample_id for this sample")
 
     def __init__(self, *args, **kwargs):
         super(SGEJobTask, self).__init__(*args, **kwargs)
@@ -237,8 +257,17 @@ class ParseVCF(SGEJobTask):
             raise ValueError("invalid chromosome specified: {chromosome}".format(
                 chromosome=self.chromosome))
 
+    def requires(self):
+        return self.clone(SplitVCFByChromosome)
+
+    def work(self):
+        parse_vcf_and_load(
+            vcf=self.vcf, gvcf=self.gvcf, chromosome=self.chromosome,
+            sample_id=self.sample_id)
+
     def output(self):
-        return ParsedVCFTarget(vcf=self.vcf)
+        return ParsedVCFTarget(
+            vcf=self.vcf, chromosome=self.chromsome, sample_id=self.sample_id)
 
 if __name__ == "__main__":
     luigi.run()
