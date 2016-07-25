@@ -56,3 +56,19 @@ SELECT sample_name
 FROM sample
 WHERE sample_id = {sample_id}
 """
+GET_SAMPLE_ID = """
+SELECT sample_id
+FROM sample
+WHERE sample_name = "{sample_name}" AND sample_type = "{sample_type}"
+    AND capture_kit = "{capture_kit}" AND prep_id = {prep_id}
+"""
+INSERT_SAMPLE = """
+INSERT INTO sample (sample_name, sample_type, capture_kit, prep_id)
+VALUE ("{sample_name}", "{sample_type}", "{capture_kit}", {prep_id})
+"""
+CHECK_SAMPLE_IN_SEQDB = """
+SELECT 1
+FROM seqdbClone
+WHERE CHGVID = "{sample_name}" AND SeqType = "{sample_type}" AND
+    ExomeSamPrepKit = "{capture_kit}" AND prepId = {prep_id}
+"""
