@@ -113,51 +113,61 @@ class AnnotateVCF(SGEJobTask):
     def output(self):
         return VCFTarget(vcf=self.output_vcf, vcf_lines=self.vcf_lines)
 
-class SplitVCFTarget(luigi.Target):
-    """Target for testing existence and number of lines in each chromosome's VCF
+class SplitFileTarget(luigi.Target):
+    """Target for testing existence and number of lines in each chromosome's
+    file
     """
-    def __init__(self, base_vcf, split_vcfs):
-        self.base_vcf = base_vcf
-        self.split_vcfs = split_vcfs
+    def __init__(self, base_fn, split_files, header=True):
+        self.base_fn = base_fn
+        self.split_files = split_files
+        self.header = header
 
     def exists(self):
+        for fn in self.split_files.itervalues():
+            if not os.path.isfile(fn):
+                return False
         chromosome_lines = Counter()
-        with get_fh(self.base_vcf) as vcf_fh:
-            for line in vcf_fh:
-                if line.startswith("#CHROM"):
-                    break
-            for line in vcf_fh:
+        with get_fh(self.base_fn) as fh:
+            if self.header:
+                for line in fh:
+                    if line.startswith("#CHROM"):
+                        break
+            for line in fh:
                 CHROM = line.split("\t")[0]
                 if CHROM in CHROMs:
                     chromosome_lines[CHROM] += 1
+        print(chromosome_lines)
         for CHROM, line_count in chromosome_lines.iteritems():
-            if os.path.isfile(self.split_vcfs[CHROM]):
+            print(self.split_files[CHROM])
+            if os.path.isfile(self.split_files[CHROM]):
                 if (get_num_lines_from_vcf(
-                    self.split_vcfs[CHROM], header=False) != line_count):
+                    self.split_files[CHROM], header=False) != line_count):
                     return False
             else:
                 return False
         return True
 
     def open(self, CHROM, mode="r"):
-        return get_fh(self.split_vcfs[CHROM], mode)
+        return get_fh(self.split_files[CHROM], mode)
 
-class SplitVCFByChromosome(SGEJobTask):
-    """Split a VCF by chromosome
+class SplitFileByChromosome(SGEJobTask):
+    """Split a file by chromosome
     """
-    vcf = luigi.InputFileParameter(description="the VCF to parse")
-    gvcf = luigi.BoolParameter(
-        default=False, description="whether the VCF is a gVCF or not")
+    fn = luigi.InputFileParameter(description="the file to parse")
+    file_type = luigi.ChoiceParameter(
+        choices=["vcf", "gvcf", "pileup"], description="the type of file")
     output_base = luigi.Parameter(
         default=None, description="specify a custom output file name")
+    no_header = luigi.BoolParameter(
+        default=False, description="specify if there is no header in the file")
     poll_time = luigi.IntParameter(
         default=5, description="the time to wait to run qstat",
         significant=False)
 
     def __init__(self, *args, **kwargs):
-        super(SplitVCFByChromosome, self).__init__(*args, **kwargs)
+        super(SplitFileByChromosome, self).__init__(*args, **kwargs)
         if self.output_base:
-            if re.search(r"\.g?vcf", self.output_base):
+            if re.search(r"\.g?vcf|\.pileup|\.bed", self.output_base):
                 base_output = os.path.splitext(os.path.realpath(
                     self.output_base))[0]
             else:
@@ -165,22 +175,23 @@ class SplitVCFByChromosome(SGEJobTask):
             if not os.path.isdir(os.path.dirname(base_output)):
                 os.makedirs(os.path.dirname(base_output))
         else:
-            base_output = os.path.splitext(self.vcf)[0]
+            base_output = os.path.splitext(self.fn)[0]
 
-        suffix = ".gvcf" if self.gvcf else ".vcf"
-        self.split_vcfs = OrderedDict([
+        suffix = "." + self.file_type
+        self.split_files = OrderedDict([
             CHROM, base_output + "." + CHROM + suffix]
             for CHROM in CHROMs.iterkeys())
 
     def work(self):
-        with open(self.vcf) as vcf_fh:
+        with get_fh(self.fn) as fh:
             last_CHROM = "-1"
             CHROM_idx = -1
             max_idx = len(CHROMs) - 1
-            for line in vcf_fh:
-                if line.startswith("#CHROM"):
-                    break
-            for line in vcf_fh:
+            if not self.no_header:
+                for line in fh:
+                    if line.startswith("#CHROM"):
+                        break
+            for line in fh:
                 CHROM = line.split("\t")[0]
                 if CHROM != last_CHROM:
                     if last_CHROM != "-1":
@@ -191,8 +202,8 @@ class SplitVCFByChromosome(SGEJobTask):
                         new_CHROM_idx = CHROMs[CHROM]
                         if new_CHROM_idx < CHROM_idx:
                             raise ValueError(
-                                "VCF is unsorted - chromosome {old} before {new}".
-                                format(old=last_CHROM, new=CHROM))
+                                "file is unsorted - chromosome {old} before "
+                                "{new}".format(old=last_CHROM, new=CHROM))
                         else:
                             last_CHROM = CHROM
                             CHROM_idx = new_CHROM_idx
@@ -203,7 +214,9 @@ class SplitVCFByChromosome(SGEJobTask):
             out_fh.close()
 
     def output(self):
-        return SplitVCFTarget(base_vcf=self.vcf, split_vcfs=self.split_vcfs)
+        return SplitFileTarget(
+            base_fn=self.fn, split_files=self.split_files,
+            header=not self.no_header)
 
 class ParsedVCFTarget(luigi.Target):
     """Target describing the output of parsing a VCF/gVCF pair,
@@ -279,7 +292,7 @@ class ParseVCF(SGEJobTask):
             self.output_base = os.path.splitext(self.vcf)[0]
 
     def requires(self):
-        return self.clone(SplitVCFByChromosome)
+        return self.clone(SplitFileByChromosome)
 
     def work(self):
         parse_vcf_and_load(
