@@ -10,12 +10,9 @@ import match_indels_chromosome
 import re
 from dragen_globals import *
 from db_statements import *
-from bx.intervals.intersection import IntervalTree
 from collections import defaultdict
 from functools import partial
-import sys
-from pprint import pprint
-import time
+from time import time
 import tabix
 
 cfg = get_cfg()
@@ -27,36 +24,6 @@ NOVEL_VARIANT_OUTPUT_FORMAT = (
         ["variant_id", "POS", "REF", "ALT", "rs_number", "transcript_stable_id",
          "effect_id", "HGVS_c", "HGVS_p", "polyphen_humdiv",
          "polyphen_humvar", "gene", "indel"]) + "}")
-
-def get_gvcf_intervals(gvcf, CHROM):
-    """return an IntervalTree for each interval in the gVCF, labeled with its GQ
-    """
-    tree = IntervalTree()
-    with get_fh(gvcf) as gvcf_fh:
-        for line in gvcf_fh:
-            fields = VCF_fields_dict(line.strip().split("\t"))
-            if fields["CHROM"] != CHROM:
-                raise ValueError(
-                    "invalid chromosome found: {chromosome}; expected {CHROM}".
-                    format(chromosome=fields["CHROM"], CHROM=CHROM))
-            begin = int(fields["POS"])
-            if fields["INFO"].startswith("END="):
-                end = int(fields["INFO"].split("=")[1]) + 1
-            else:
-                end = begin + len(fields["REF"])
-            gq = int(create_call_dict(fields["FORMAT"], fields["call"])["GQ"])
-            tree.insert(begin, end, gq)
-    return tree
-
-def get_pileup_intervals(pileup, CHROM):
-    """return an IntervalTree for each interval in the pileup,
-    labeled with its DP
-    """
-    tree = IntervalTree()
-    pileup_tabix = tabix.open(pileup)
-    for _, start, end, dp in pileup_tabix.querys(CHROM):
-        tree.insert(int(start) + 1, int(end) + 1, int(dp))
-    return tree
 
 def format_NULL_value(value):
     """convert the specified value to \N for NULL where appropriate for
@@ -277,9 +244,32 @@ def output_novel_variant_entry(
         gene=format_NULL_value(gene), indel=indel) + "\n")
 
 def parse_vcf_and_load(vcf, gvcf, pileup, CHROM, sample_id, output_base):
-    start_time = time.time()
-    gq_tree = get_gvcf_intervals(gvcf, CHROM)
-    dp_tree = get_pileup_intervals(pileup, CHROM)
+    start_time = time()
+    gvcf_tabix = tabix.open(gvcf)
+    gvcf_iter = gvcf_tabix.querys(CHROM)
+    overlaps = []
+    try:
+        gvcf_line = VCF_fields_dict(gvcf_iter.next())
+        gvcf_start = int(gvcf_line["POS"])
+        if gvcf_line["FORMAT"].startswith("END="):
+            gvcf_end = int(gvcf_line["FORMAT"].split(";", 1)[0].split("=")[1])
+        else:
+            gvcf_end = gvcf_start + len(gvcf_line["REF"]) - 1
+        gvcf_gq = int(create_call_dict(
+            gvcf_line["FORMAT"], gvcf_line["call"])["GQ"])
+        gvcf_done = False
+    except StopIteration:
+        gvcf_done = True
+    pileup_tabix = tabix.open(pileup)
+    pileup_iter = pileup_tabix.querys(CHROM)
+    try:
+        pileup_line = pileup_iter.next()
+        pileup_start = int(pileup_line[1]) + 1
+        pileup_end = int(pileup_line[2])
+        pileup_dp = int(pileup_line[3])
+        pileup_done = False
+    except StopIteration:
+        pileup_done = True
     cfg = get_cfg()
     db = get_connection("dragen")
     try:
@@ -296,13 +286,12 @@ def parse_vcf_and_load(vcf, gvcf, pileup, CHROM, sample_id, output_base):
         calls = output_base + ".calls.txt"
         variant_id_vcf = output_base + ".variant_id.vcf"
         matched_indels = output_base + ".matched_indels.txt"
-        with get_fh(vcf) as vcf_fh, \
-                open(novel_variants, "w") as novel_fh, \
+        vcf_tabix = tabix.open(vcf)
+        with open(novel_variants, "w") as novel_fh, \
                 open(calls, "w") as calls_fh, \
                 open(variant_id_vcf, "w") as vcf_out, \
                 open(matched_indels, "w") as matched_indels_fh:
-            for line in vcf_fh:
-                line_fields = line.strip().split("\t")
+            for line_fields in vcf_tabix.querys(CHROM):
                 fields = VCF_fields_dict(line_fields)
                 if fields["CHROM"] != CHROM:
                     raise ValueError(
@@ -330,20 +319,46 @@ def parse_vcf_and_load(vcf, gvcf, pileup, CHROM, sample_id, output_base):
                 call_stats = create_call_dict(fields["FORMAT"], fields["call"])
                 call = {"sample_id":sample_id, "GQ":call_stats["GQ"],
                         "QUAL":fields["QUAL"]}
-                GQ_gVCF = gq_tree.find(int(fields["POS"]), int(fields["POS"]) + 1)
-                #if len(GQ_gVCF) != 1:
-                #    print(fields["POS"])
-                #    print(GQ_gVCF)
-                if GQ_gVCF:
-                    gq_gvcf = min(GQ_gVCF)
+                noverlaps = len(overlaps)
+                pos = int(fields["POS"])
+                for x in xrange(noverlaps - 1, -1, -1):
+                    interval_start, interval_end, interval_gq = overlaps[x]
+                    if not (interval_start <= pos <= interval_end):
+                        del overlaps[x]
+                if gvcf_start <= pos <= gvcf_end:
+                    overlaps.append((gvcf_start, gvcf_end, gvcf_gq))
+                while not gvcf_done and pos >= gvcf_start:
+                    try:
+                        gvcf_line = VCF_fields_dict(gvcf_iter.next())
+                        gvcf_start = int(gvcf_line["POS"])
+                        if gvcf_line["FORMAT"].startswith("END="):
+                            gvcf_end = int(gvcf_line["FORMAT"].split(";", 1)[0].
+                                           split("=")[1])
+                        else:
+                            gvcf_end = gvcf_start + len(gvcf_line["REF"]) - 1
+                        gvcf_gq = int(create_call_dict(
+                            gvcf_line["FORMAT"], gvcf_line["call"])["GQ"])
+                        if gvcf_start <= pos <= gvcf_end:
+                            overlaps.append((gvcf_start, gvcf_end, gvcf_gq))
+                    except StopIteration:
+                        gvcf_done = True
+                if overlaps:
+                    gq_gvcf = min([interval[2] for interval in overlaps])
                 else:
                     gq_gvcf = 0
-                DP_pileup = dp_tree.find(int(fields["POS"]), int(fields["POS"]) + 1)
-                if DP_pileup is not None:
-                    dp_pileup = min(int(dp) for dp in DP_pileup)
+                while not pileup_done and pos > pileup_end:
+                    try:
+                        pileup_line = pileup_iter.next()
+                        pileup_start = int(pileup_line[1]) + 1
+                        pileup_end = int(pileup_line[2])
+                        pileup_dp = int(pileup_line[3])
+                        pileup_done = False
+                    except StopIteration:
+                        pileup_done = True
+                if pileup_start <= pos <= pileup_end:
+                    dp_pileup = pileup_dp
                 else:
-                    raise ValueError("error getting DP @ {POS}".format(
-                        POS=fields["POS"]))
+                    dp_pileup = 0
                 call["GQ_gVCF"] = gq_gvcf
                 call["DP_pileup"] = dp_pileup
                 if nalleles == 1:
@@ -370,13 +385,11 @@ def parse_vcf_and_load(vcf, gvcf, pileup, CHROM, sample_id, output_base):
                         gg = VARIANT_CALL_FORMAT.format(
                             **merge_dicts(call, INFO)) + "\n"
                     except KeyError:
+                        from pprint import pprint
                         pprint(call)
                         pprint(INFO)
                         raise
-                        sys.exit(1)
                     calls_fh.write(gg)
-
-        
                 else:
                     if call_stats["GT"] == "1/2":
                         call["GT"] = 1
@@ -407,7 +420,7 @@ def parse_vcf_and_load(vcf, gvcf, pileup, CHROM, sample_id, output_base):
                 table_name=table_name, table_file=table_file))
         db.commit()
     finally:
-        print("elapsed time: {} seconds".format(time.time() - start_time))
+        print("elapsed time: {} seconds".format(time() - start_time))
         if db.open:
             db.close()
 
