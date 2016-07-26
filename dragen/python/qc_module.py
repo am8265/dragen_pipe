@@ -8,7 +8,6 @@ import luigi
 import MySQLdb
 from luigi.contrib.sge import SGEJobTask, LocalSGEJobTask
 from luigi.util import inherits
-#from dragen_sample import dragen_sample
 import logging
 import time
 import utils 
@@ -54,9 +53,7 @@ class RootTask(luigi.WrapperTask):
     
     def requires(self):
         self.output_file = "{0}/{1}.cvg.metrics.txt".format(self.scratch,self.sample_name)
-        #self.output_file = config().scratch+config().sample_name+'.cvg.metrics.txt'
         return [ParsePicardOutputs(self.output_file,self.bam)]
-
 
 
 class MyExtTask(luigi.ExternalTask):
@@ -67,7 +64,6 @@ class MyExtTask(luigi.ExternalTask):
     file_loc = luigi.Parameter()
     def output(self):
         return luigi.LocalTarget(self.file_loc)
-
 
 
 class ParsePicardOutputs(SGEJobTask):
@@ -118,7 +114,6 @@ class ParsePicardOutputs(SGEJobTask):
         """
         
         os.system(self.cmd)
-        #os.system("""touch %s.transposed"""%(self.output_file))
         
 
 
@@ -159,12 +154,9 @@ class RunCvgMetrics(SGEJobTask):
 
 
         ## Define on the fly parameters 
-        #self.output_file = "{0}/{1}.cvg.metrics.txt".format(self.scratch,self.sample_name)
         self.output_file = os.path.join(self.scratch,self.sample_name + ".cvg.metrics.txt")
-        #self.raw_output_file = "{0}/{1}.cvg.metrics.raw.txt".format(self.scratch,self.sample_name)
         self.raw_output_file = os.path.join(self.scratch,self.sample_name + ".cvg.metrics.raw.txt")
         if self.x_y:
-
             self.output_file_X = os.path.join(self.scratch,self.sample_name+ ".cvg.metrics.X.txt")
             self.raw_output_file_X = os.path.join(self.scratch,self.sample_name + ".cvg.metrics.X.raw.txt")
             self.output_file_Y = os.path.join(self.scratch,self.sample_name+ ".cvg.metrics.Y.txt")
@@ -202,9 +194,7 @@ class RunCvgMetrics(SGEJobTask):
         self.parser_cmd2 = """cat {0} | grep -v "^#"|awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1}""".format(self.raw_output_file_X,self.output_file_X)
         self.parser_cmd3 = """cat {0} | grep -v "^#"|awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1}""".format(self.raw_output_file_Y,self.output_file_Y)
         self.parser_cmd = """cat {0} | grep -v "^#" | awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1}"""
-        #self.parser_cmd1 = self.parser_cmd%('temp',self.output_file)
-        #self.parser_cmd2 = self.parser_cmd%('temp',self.output_file_X)
-        #self.parser_cmd3 = self.parser_cmd%('temp',self.output_file_Y)
+        
 
             
     def output(self):
@@ -240,7 +230,6 @@ class RunCvgMetrics(SGEJobTask):
             subprocess.check_output(self.parser_cmd2,shell=True)
             os.system(self.cvg_cmd3)
             subprocess.check_output(self.parser_cmd3,shell=True)
-        #os.system("touch %s"%(self.output_file))
 
 
 class CreateTargetFile(SGEJobTask):
@@ -248,8 +237,12 @@ class CreateTargetFile(SGEJobTask):
     Task for creating a new target file(the format used by Picard)
     from a bed file 
     """
-    
-   
+
+    ## System Parameters 
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git/"
+
     def __init__(self,*args,**kwargs):
         super(CreateTargetFile,self).__init__(*args,**kwargs)
         
@@ -265,9 +258,6 @@ class CreateTargetFile(SGEJobTask):
         self.bedtointerval_cmd = ("{0} -jar {1} BedToIntervalList I={2} SD={3} OUTPUT={4}".format(config().java,config().picard,self.bed_file,config().seqdict_file,self.output_file))    
 
     
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/home/rp2801/git/"
     
 
     def requires(self):
@@ -312,7 +302,8 @@ class CreatePed(SGEJobTask):
     family_id = luigi.Parameter(default="")
     seq_type = luigi.Parameter()
     scratch = luigi.Parameter()
-    
+
+    ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/home/rp2801/git"
@@ -343,13 +334,14 @@ class CreatePed(SGEJobTask):
         elif self.ped_type == 'ethnicity':
             self.sampletoped_cmd = (
                                     "{0} {1} --scratch {2} --vcffile {3} --bamfile {4}"
-                                    " --markers {5} --refs {6} --sample {7}"
-                                    " --seq_type {8} --ped_type {9} --output {10}" 
-                                    %(config().python_path,config().sampleped_loc,
-                                    self.scratch,self.vcf_file,self.bam,
-                                    config().relatedness_markers,
-                                    config().relatedness_refs,self.sample_name,
-                                    self.seq_type,self.ped_type,self.scratch)
+                                    " --markers {5} --refs {6} --sample {7} --fid {8}"
+                                    " --seq_type {9} --ped_type {10} --output {11}" 
+                                    .format(config().python_path,config().sampleped_loc,
+                                    self.scratch,self.vcf,self.bam,
+                                    config().ethnicity_markers,
+                                    config().ethnicity_refs,self.sample_name,
+                                    self.family_id,self.seq_type,self.ped_type,
+                                    self.scratch)
                                   )
 
 
@@ -358,7 +350,7 @@ class CreatePed(SGEJobTask):
         The dependencies for this task are the existence of the relevant files
         """
         
-        return [MyExtTask(self.bam),MyExtTask(self.vcf),MyExtTask(config().relatedness_refs)]
+        return [MyExtTask(self.bam),MyExtTask(self.vcf)]
 
 
     def output(self):
@@ -376,19 +368,26 @@ class CreatePed(SGEJobTask):
         os.system(self.sampletoped_cmd)
 
 
+       
         
 class CreateGenomeBed(SGEJobTask):
     """
     Use bedtools to create the input bed file for the coverage binning script
     """
 
+    ## System Parameters
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch11/rp2801/genome_cvg_temp/"
+
+    bam = luigi.Parameter()
+    sample = luigi.Parameter()
+    scratch = luigi.Parameter()
+    poll_time = luigi.Parameter(default=5,description="The time to wait to run qstat")
     
     def __init__(self,*args,**kwargs):
         super(CreateGenomeBed,self).__init__(*args,**kwargs)
 
-        bam = args[0]
-        sample_name = args[1]
-        scratch = args[2]
         
         if not os.path.isdir(self.scratch): ## Recursively create the directory if it doesnt exist
             os.makedirs(self.scratch)
@@ -396,16 +395,17 @@ class CreateGenomeBed(SGEJobTask):
         
         self.genomecov_bed = os.path.join(self.scratch,self.sample+'.genomecvg.bed')
 
-        self.genomecov_cmd = "{0} genomecov -bga -ibam {1} > {2}"%(
+        self.genomecov_cmd = "{0} genomecov -bga -ibam {1} > {2}".format(
                               config().bedtools_loc,self.bam,
-                              self.genomecov_bed)    
-   
-      
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/home/rp2801/git"
+                              self.genomecov_bed)
 
-    
+        
+
+        self.gzip_cmd = "/nfs/goldstein/software/bin/bgzip {0}".format(self.genomecov_bed)
+        self.gzipped_genomecov_bed = self.genomecov_bed+'.gz'
+        self.tabix_cmd = "/nfs/goldstein/software/bin/tabix -p {0}".format(self.gzipped_genomecov_bed)
+        self.tbi_file = self.gzipped_genomecov_bed+'.tbi'
+          
     def requires(self):
         """
         The dependency is the presence of the bam file
@@ -418,7 +418,7 @@ class CreateGenomeBed(SGEJobTask):
         Output is the genomecov bed file
         """
 
-        return luigi.LocalTarget(self.genomecov_bed)
+        return [luigi.LocalTarget(self.genomecov_bed),luigi.LocalTarget(self.gzipped_genomecov_bed),luigi.LocalTarget(self.tbi_file)]
 
     def work(self):
         """
@@ -426,11 +426,12 @@ class CreateGenomeBed(SGEJobTask):
         """
 
         os.system(self.genomecov_cmd)
-
-
+        os.system(self.gzip_cmd)
+        os.system(self.tabix_cmd)
 
 class CoverageBinning(SGEJobTask):
     """
+    Move to annodb pipeline 
     Task to run the coverage binning script
     """
 
@@ -439,7 +440,8 @@ class CoverageBinning(SGEJobTask):
     sample = luigi.Parameter()
     block_size = luigi.Parameter()
     scratch = luigi.Parameter()
-    
+
+    ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/home/rp2801/git"
@@ -477,11 +479,13 @@ class CoverageBinning(SGEJobTask):
         Output from this task are 23 files for each chromosome
         """
 
+        
         for chrom in self.human_chromosomes:
             file_loc = os.path.join(self.config,self.sample+'_read_coverage_'+self.block_size
                                     +'_chr%s.txt'%chrom)
             yield file_loc
-            
+        
+        #return os.path.join(self.scratch,self.sample+'.genomecvg.bed')
 
     def work(self):
         """ Run the binning script
@@ -499,6 +503,7 @@ class AlignmentMetrics(SGEJobTask):
     bam = luigi.Parameter()
     sample_name = luigi.Parameter()
 
+    ## System Parameters 
     n_cpu = 12
     parallel_env = "threaded"
     shared_tmp_dir = "/home/rp2801/git"
@@ -509,10 +514,12 @@ class AlignmentMetrics(SGEJobTask):
         if not os.path.isdir(self.scratch): ## Recursively create the directory if it doesnt exist
             os.makedirs(self.scratch)
 
-        self.output_file = os.path.join(scratch,sample+'.alignment.metrics.txt')
+        self.output_file_raw = os.path.join(self.scratch,self.sample+'.alignment.metrics.raw.txt')
+        self.output_file = os.path.join(self.scratch,self.sample+'.alignment.metrics.txt')
         self.cmd = "{0} -XX:ParallelGCThreads=12 -jar {1} CollectAlignmentSummaryMetrics TMP_DIR={2} VALIDATION_STRINGENCY=SILENT REFERENCE_SEQUENCE={3} INPUT={4} OUTPUT={5}".format(config().java,config().picard,config().scratch,config().ref,self.bam,self.output_file)               
-    
-    
+        self.parser_cmd = """cat {0} | grep -v "^#" | awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1}"""
+        
+        
     def exists(self):
         """
         Check whether the output file is present
@@ -534,7 +541,8 @@ class AlignmentMetrics(SGEJobTask):
         """
 
         os.system(self.cmd)
-
+        os.system(self.parser_cmd.format(self.output_file_raw,self.output_file))
+        
 
 class DuplicateMetrics(SGEJobTask):
     """
@@ -545,6 +553,7 @@ class DuplicateMetrics(SGEJobTask):
     sample_name = luigi.Parameter()
     
 
+    ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/home/rp2801/git"
@@ -586,7 +595,8 @@ class DuplicateMetrics(SGEJobTask):
             with open(self.output_file,'w') as OUT_HANDLE:
                 print >> OUT_HANDLE,perc_duplicates
                 
-        #else: IMPLEMENT LOGGING 
+        else: ## Implement logging
+            print "Could not find duplicate metrics in dragen log!"
 
         
 class VariantCallingMetrics(SGEJobTask):
@@ -597,7 +607,8 @@ class VariantCallingMetrics(SGEJobTask):
     sample_name = luigi.Parameter()
     vcf = luigi.Parameter()
     scratch = luigi.Parameter()
-    
+
+    ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/home/rp2801/git"
@@ -608,10 +619,10 @@ class VariantCallingMetrics(SGEJobTask):
         #sample_name = luigi.Parameter()
         if not os.path.isdir(self.scratch): ## Recursively create the directory if it doesnt exist
             os.makedirs(self.scratch)
-          
-        self.output_file = "{0}.variant_calling_summary_metrics".format(self.sample_name)
+        
+        self.output_file = os.path.join(self.scratch,"{0}.variant_calling_summary_metrics".format(self.sample_name))
         self.cmd = "{java} -jar {picard} CollectVariantCallingMetrics INPUT={vcf} OUTPUT={sample} DBSNP={db}".format(java=config().java,picard=config().picard,vcf=self.vcf,sample=self.sample_name,db=config().dbsnp)
-        self.parse_picard = """cat {0} | grep -v '^#'| awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {0}.processed """.format(self.output_file)
+        self.parser_cmd = """cat {0} | grep -v '^#'| awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1}.processed """
 
         
     def requires(self):
@@ -635,7 +646,7 @@ class VariantCallingMetrics(SGEJobTask):
         """
     
         os.system(self.cmd)
-        os.system(self.parse_picard) 
+        os.system(self.parser_cmd) 
 
 
 class CheckUpdates(luigi.Target):
@@ -644,19 +655,24 @@ class CheckUpdates(luigi.Target):
     correctly
     """
 
-    cnf_file = luigi.Parameter()
-    value = luigi.Parameter()
-    db_field = luigi.Parameter()
-    seq_type = luigi.Parameter()
-    prep_id = luigi.Parameter()
-    chgvid = luigi.Parameter()
     
     def __init__(self,*args,**kwargs):
         super(CheckUpdates,self).__init__(*args,**kwargs)
-        testdb = MySQLdb.connect(read_default_group='clienttestdb',db='sequenceDB',read_default_file=self.cnf_file)
-        testdb_cursor = testdb.cursor()
+        cnf_file = kwargs['cnf_file']
+        value = kwargs['value']
+        db_field = kwargs['db_field']
+        seq_type = kwargs['seq_type']
+        prep_id = kwargs['prep_id']
+        chgvid = kwargs['chgvid']
+        testmode = kwargs['testmode']
+        
+        
+        if self.testmode:
+            db = MySQLdb.connect(read_default_group='clienttestdb',db='sequenceDB',read_default_file=self.cnf_file)
+            db_cursor = db.cursor()
+            
         query_statement = """ SELECT {0} FROM seqdbClone WHERE CHGVID = '{1}' AND seq_type = '{2}' AND prepid = {3} """.format(self.db_field,self.chgvid,self.seq_type,self.prep_id)
-        testdb_cursor.execute(query_statement)
+        db_cursor.execute(query_statement)
         self.db_val = testdb_cursor.fetchall()
         
     
@@ -675,20 +691,32 @@ class UpdateDatabase(SGEJobTask):
     """
 
     output_file = luigi.Parameter()
-    cnf_file = luigi.Parameter()
     ## A list parameter containing the field names to be used for update
+    ## from the output file and the corresponding field in the database 
     fields = luigi.DictParameter() 
-
-    ## The corresponding database field names
-    #fields_database  = luigi.ListParameter()
+    cnf_file = luigi.Parameter()
+    testmode = luigi.BoolParameter()
+    seq_type = luigi.Parameter()
+    prepid = luigi.Parameter() 
+    #chgvid = kwargs['chgvid']
+    #seq_type = kwargs['seq_type']
+    
+        
     
     def __init__(self,*args,**kwargs):
         super(UpdateDatabase,self).__init__(*args,**kwargs)
-        testdb = MySQLdb.connect(read_default_group='clienttestdb',db='sequenceDB',read_default_file=self.cnf_file)
-        testdb_cursor = testdb.cursor()
+        if self.testmode:
+            db = MySQLdb.connect(read_default_group='clienttestdb',db='sequenceDB',read_default_file=self.cnf_file)
+            db_cursor = db.cursor()
 
-        query_statement = """ UPDATE TABLE seqdbClone SET {0} = {1} WHERE CHGVID = {2} AND seqType = {3} AND prepid = {4}"""
+        self.query_statement = """ UPDATE TABLE seqdbClone SET {0} = {1} WHERE CHGVID = {2} AND seqType = {3} AND prepid = {4}"""
         
+        self.out_hash = {}
+        with open(self.output_file,'w') as OUT:
+            for line in OUT:
+                contents = line.split(' ')
+                self.out_hash[contents[0]] = contents[1]
+
 
     def requires(self):
         """
@@ -705,23 +733,24 @@ class UpdateDatabase(SGEJobTask):
         The output from this task
         """
 
+        check_args = {'cnf_file':self.cnf_file,'seq_type':self.seq_type,
+                      'prep_id':self.prep_id,'chgvid':self.chgvid,
+                      'testmode':self.testmode}
         for key in self.fields.keys():
-            yield 
-
+            check_args['db_field'] = key
+            check_args['value'] = db_field
+            return CheckUpdates(check_args)
+ 
     def work(self):
         """
         Run this task
         """
 
-        with open(self.output_file,'w') as OUT:
-            for line in OUT:
-                contents = line.split(' ')
-                out_hash[contents[0]] = contents[1]
 
-        for key in fields.keys():
-            value = out_hash[field]
-            db_field = fields[key]
-            self.testdb_cursor.execute(self.query_statement.format(db_field,value))
+        for key in self.fields.keys():
+            value = self.out_hash[field]
+            db_field = self.fields[key]
+            self.db_cursor.execute(self.query_statement.format(db_field,value))
             self.db.commit()
             
         self.db.close()
@@ -737,6 +766,7 @@ class GenderCheck(SGEJobTask):
     sample = luigi.Parameter()
     seqtype = luigi.Parameter()
     prepkit = luigi.Parameter()
+    testmode = luigi.BoolParameter()
     ## Contains defaults for dragen pipeline
     
     
@@ -746,16 +776,19 @@ class GenderCheck(SGEJobTask):
         self.valid_updates = ['M','F','Ambiguous','N/A']
         
         ## Read the cnf_file and get a connection to the database
-        
-        self.db = MySQLdb.connect(db=database,read_default_group="clientsequencedb",
-                             read_default_file=config().cnf_file)
-
+        if self.testmode:
+            self.db = MySQLdb.connect(read_default_group='clienttestdb',db='sequenceDB',read_default_file=self.cnf_file)
+            self.db_cursor = db.cursor()
+            
         ## Define the SQL queries that need to be executed in this task
-        ## Query which returns seqgender,used for checking successful update
-        self.check_query = """ SELECT seqgender FROM seqdb_dragen WHERE CHGVID = {1} AND SeqType = {2} AND PrepKit = {3}""".format(CHGVID,seqType,prepKit) 
-        self.update_query = """ UPDATE TABLE seqdb_dragen SET seqgender = {0} WHERE CHGVID = {1} AND SeqType = {2} AND PrepKit = {3}"""
-
         
+        ## Get X,Y Coverages
+        temp_query = ("""SELECT XCvg, YCvg FROM seqdbClone WHERE CHGVID = {0}
+                      AND seqType = {1} AND prepID = {2}"""
+                     )
+        
+        self.db_cursor.execute(temp_query)
+        x_cvg = query_result[0][1]
         
     def requires(self):
         """
@@ -879,6 +912,7 @@ class CreateRelatednessPed(SGEJobTask):
 
         os.system(self.cmd)
 
+        
 class AppendMasterPed(SGEJobTask):
     """
     Append the samples to the masterped
