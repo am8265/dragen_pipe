@@ -78,3 +78,7 @@ FROM called_variant_chr{CHROM} c
 INNER JOIN variant_chr{CHROM} v ON c.variant_id = v.variant_id
 WHERE c.sample_id = {sample_id}
 """
+GET_EFFECT_RANKINGS = """
+SELECT *
+FROM effect_ranking
+"""
