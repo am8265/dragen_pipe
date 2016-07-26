@@ -20,7 +20,7 @@ BLOCK_SIZE = 10000 # the bases in a block of variant calls (for indexing)
 VALID_GTS = set(["0", "1"]) # valid values in GT field, i.e. REF/ALT
 # the table format to output for calls
 VARIANT_CALL_FORMAT = ("{" + "}\t{".join(
-    ["sample_id", "variant_id", "block_id", "GT", "DP_pileup", "DP", "AD_REF",
+    ["sample_id", "variant_id", "block_id", "GT", "DP", "DP_pileup", "AD_REF",
      "AD_ALT", "GQ", "GQ_gVCF", "FS", "MQ", "QD", "QUAL", "ReadPosRankSum",
      "MQRankSum", "PASS"]) + "}")
 POLYPHEN_ATTRIB_ID = {"humvar":268, "humdiv":269}
