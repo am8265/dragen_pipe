@@ -4,6 +4,9 @@ Constant variables shared across modules for the DRAGEN pipeline
 import os
 import gzip
 import MySQLdb
+import argparse
+import sys
+from operator import lt, le
 from ConfigParser import ConfigParser
 
 cfg = ConfigParser()
@@ -18,8 +21,8 @@ VALID_GTS = set(["0", "1"]) # valid values in GT field, i.e. REF/ALT
 # the table format to output for calls
 VARIANT_CALL_FORMAT = ("{" + "}\t{".join(
     ["sample_id", "variant_id", "block_id", "GT", "DP_pileup", "DP", "AD_REF",
-     "AD_ALT", "GQ", "FS", "MQ", "QD", "QUAL", "ReadPosRankSum", "MQRankSum",
-     "PASS"]) + "}")
+     "AD_ALT", "GQ", "GQ_gVCF", "FS", "MQ", "QD", "QUAL", "ReadPosRankSum",
+     "MQRankSum", "PASS"]) + "}")
 POLYPHEN_ATTRIB_ID = {"humvar":268, "humdiv":269}
 # PolyPhen scores are packed by sorted one-letter codes
 AMINO_ACIDS = dict(
@@ -90,7 +93,100 @@ def get_last_insert_id(cur):
     cur.execute("SELECT LAST_INSERT_ID()")
     return cur.fetchone()[0]
 
-def create_INFO_dict(INFO, call):
-    """return a dict of attributes in the INFO field matched with the call
+def create_INFO_dict(INFO):
+    """return a dict of key, value pairs in the INFO field
     """
-    return dict(zip(INFO.split(":"), call.split(":")))
+    return dict(entry.split("=", 1) for entry in INFO.split(";") if "=" in entry)
+
+def create_call_dict(FORMAT, call):
+    """return a dict of attributes in the FORMAT field matched with the call
+    """
+    return dict(zip(FORMAT.split(":"), call.split(":")))
+
+def VCF_fields_dict(line_fields, vcf_columns=VCF_COLUMNS):
+    """return a dict of VCF columns for the line
+    """
+    return dict(zip(vcf_columns, line_fields))
+
+def simplify_REF_ALT_alleles(REF, ALT):
+    """take a potentially complex representation of a pair of alleles introduced
+    into multiallelic sites and simplify to the canonical form
+    http://www.cureffi.org/2014/04/24/converting-genetic-variants-to-their-minimal-representation/
+    """
+    # strip shared suffix
+    strip = 0
+    for x in xrange(1, min(len(REF), len(ALT))):
+        if REF[-x] == ALT[-x]:
+            strip -= 1
+        else:
+            break
+    if strip:
+        REF = REF[:strip]
+        ALT = ALT[:strip]
+    # strip shared prefix
+    strip = 0
+    for x in xrange(0, min(len(REF), len(ALT)) - 1):
+        if REF[x] == ALT[x]:
+            strip += 1
+        else:
+            break
+    # return simplified REF, ALT, and position offset
+    return REF[strip:], ALT[strip:], strip
+
+class CustomFormatter(argparse.ArgumentDefaultsHelpFormatter,
+                      argparse.RawDescriptionHelpFormatter):
+    """multiple inheritance of two argparse formatters
+    """
+    pass
+
+def file_exists(arg):
+    """check if the given file exists
+    """
+    if os.path.isfile(arg):
+        return os.path.realpath(arg)
+    else:
+        raise argparse.ArgumentTypeError(arg + " does not exist")
+
+def valid_numerical_argument(
+    arg, arg_name, arg_type=int, min_value=0, max_value=sys.maxint,
+    left_op=lt, right_op=le):
+    """Confirm that the specified value is valid in the range
+    (minimum_value, maximum_value] (by default)
+    :param arg: the value to be tested
+    :param arg_name: the name of the parameter
+    :param arg_type: the type of the parameter, e.g. int or float
+    :param min_value: the minimum value for the parameter, exclusive
+    :param max_value: the maximum value for the parameter, inclusive
+    :param left_op: the operator for testing left_op(min_value, value)
+    :param right_op: the operator testing right_op(value, max_value)
+    :return: arg_type(arg) if arg is valid
+    """
+    try:
+        value = arg_type(arg)
+        if left_op(min_value, value) and right_op(value, max_value):
+            return value
+        else:
+            raise argparse.ArgumentTypeError(
+                "{arg_name} ({arg}) is not in the range "
+                "{left_endpoint}{min_value}, {max_value}{right_endpoint}".format(
+                    arg_name=arg_name, arg=arg, min_value=min_value,
+                    max_value=max_value,
+                    left_endpoint="(" if left_op == lt else "[",
+                    right_endpoint="]" if right_op == le else ")"))
+    except TypeError:
+        raise argparse.ArgumentTypeError(
+            "{arg_name} ({arg}) is not a valid {arg_type}".format(
+                arg_name=arg_name, arg=arg, arg_type=arg_type.__name__))
+
+def merge_dicts(*dict_list):
+    """merge an arbitrary number of dictionaries into a single dictionary and
+    return it
+    """
+    ndicts = len(dict_list)
+    if ndicts == 0:
+        raise ValueError("no dicts passed in!")
+    else:
+        new_dict = dict_list[0].copy()
+        for d in dict_list[1:]:
+            new_dict.update(d)
+        return new_dict
