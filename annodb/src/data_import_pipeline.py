@@ -11,14 +11,11 @@ Run pipeline to:
 import luigi
 from luigi.contrib.sge import SGEJobTask
 import os
-import sys
 import subprocess
-import shlex
 import operator
-import re
 import tabix
 from shutil import copy
-from collections import OrderedDict, Counter
+from collections import OrderedDict
 from parse_vcf_and_load import parse_vcf_and_load
 from dragen_globals import *
 from db_statements import *
@@ -45,24 +42,6 @@ def get_num_lines_from_vcf(vcf, region=None, header=True):
     if not region:
         vcf_iter.close()
     return count
-
-class VCFTarget(luigi.Target):
-    """Target that represents a VCF - checks for file existence and counts the
-    number of lines
-    """
-    def __init__(self, vcf, vcf_lines):
-        self.vcf = vcf
-        self.vcf_lines = vcf_lines
-
-    def exists(self):
-        if not os.path.isfile(self.vcf):
-            return False
-        if self.vcf_lines != get_num_lines_from_vcf(self.vcf):
-            return False
-        return True
-
-    def open(self, mode="r"):
-        return get_fh(self.vcf, mode)
 
 class CopyDataTarget(luigi.Target):
     """Target describing the results of copying to scratch space
@@ -128,168 +107,6 @@ class CopyDataToScratch(luigi.Task):
 
     def output(self):
         return CopyDataTarget(targets=self.targets, originals=self.originals)
-
-class AnnotateVCF(SGEJobTask):
-    """Annotate the specified VCF with SnpEff
-    """
-    vcf = luigi.InputFileParameter(description="the VCF to annotate")
-    java = luigi.InputFileParameter(
-        default=cfg.get("annotate", "java"),
-        description="the path to the java executable for SnpEff")
-    snpeff = luigi.InputFileParameter(
-        default=cfg.get("annotate", "snpeff"),
-        description="the path to the SnpEff jar file")
-    genome_version = luigi.Parameter(
-        default=cfg.get("annotate", "genome_version"),
-        description="the Ensembl genome build to pass to SnpEff")
-    snpeff_cfg = luigi.InputFileParameter(
-        default=cfg.get("annotate", "snpeff_cfg"),
-        description="the SnpEff config file to use")
-    snpeff_options = luigi.Parameter(
-        default=cfg.get("annotate", "snpeff_options"),
-        description="additional parameters to pass to SnpEff")
-    intervals = luigi.InputFileParameter(
-        default=cfg.get("annotate", "intervals"),
-        description="the intron/exon boundaries to annotate with")
-    output_vcf = luigi.Parameter(
-        default=None, description="the output VCF file path")
-    poll_time = luigi.IntParameter(
-        default=5, description="the time to wait to run qstat",
-        significant=False)
-
-    def __init__(self, *args, **kwargs):
-        super(AnnotateVCF, self).__init__(*args, **kwargs)
-        self.vcf_lines = get_num_lines_from_vcf(self.vcf)
-        if self.output_vcf:
-            if not os.path.isdir(os.path.dirname(self.output_vcf)):
-                try:
-                    os.makedirs(os.path.dirname(self.output_vcf))
-                except:
-                    raise OSError("couldn't create directory for output VCF")
-        else:
-            self.output_vcf = os.path.splitext(self.vcf)[0] + ".ann.vcf"
-
-    def work(self):
-        """perform the actual annotation of the VCF with SnpEff
-        """
-        cmd = ("{java} -Xmx5G -jar {snpeff} eff {genome_version} -c "
-               "{snpeff_cfg} -interval {intervals} {snpeff_options} "
-               "-o vcf {vcf}".format(**self.__dict__))
-        with self.output().open("w") as vcf_out, \
-                open(self.output_vcf + ".log", "w") as log_fh:
-            p = subprocess.Popen(
-                shlex.split(cmd), stdout=vcf_out, stderr=log_fh)
-            p.wait()
-        if p.returncode:
-            raise subprocess.CalledProcessError(p.returncode, cmd)
-
-    def output(self):
-        return VCFTarget(vcf=self.output_vcf, vcf_lines=self.vcf_lines)
-
-class SplitFileTarget(luigi.Target):
-    """Target for testing existence and number of lines in each chromosome's
-    file
-    """
-    def __init__(self, base_fn, split_files, header=True):
-        self.base_fn = base_fn
-        self.split_files = split_files
-        self.header = header
-
-    def exists(self):
-        for fn in self.split_files.itervalues():
-            if not os.path.isfile(fn):
-                return False
-        chromosome_lines = Counter()
-        with get_fh(self.base_fn) as fh:
-            if self.header:
-                for line in fh:
-                    if line.startswith("#CHROM"):
-                        break
-            for line in fh:
-                CHROM = line.split("\t")[0]
-                if CHROM in CHROMs:
-                    chromosome_lines[CHROM] += 1
-        print(chromosome_lines)
-        for CHROM, line_count in chromosome_lines.iteritems():
-            print(self.split_files[CHROM])
-            if os.path.isfile(self.split_files[CHROM]):
-                if (get_num_lines_from_vcf(
-                    self.split_files[CHROM], header=False) != line_count):
-                    return False
-            else:
-                return False
-        return True
-
-    def open(self, CHROM, mode="r"):
-        return get_fh(self.split_files[CHROM], mode)
-
-class SplitFileByChromosome(SGEJobTask):
-    """Split a file by chromosome
-    """
-    fn = luigi.InputFileParameter(description="the file to parse")
-    file_type = luigi.ChoiceParameter(
-        choices=["vcf", "gvcf", "pileup"], description="the type of file")
-    output_base = luigi.Parameter(
-        default=None, description="specify a custom output file name")
-    no_header = luigi.BoolParameter(
-        default=False, description="specify if there is no header in the file")
-    poll_time = luigi.IntParameter(
-        default=5, description="the time to wait to run qstat",
-        significant=False)
-
-    def __init__(self, *args, **kwargs):
-        super(SplitFileByChromosome, self).__init__(*args, **kwargs)
-        if self.output_base:
-            if re.search(r"\.g?vcf|\.pileup|\.bed", self.output_base):
-                base_output = os.path.splitext(os.path.realpath(
-                    self.output_base))[0]
-            else:
-                base_output = self.output_base
-            if not os.path.isdir(os.path.dirname(base_output)):
-                os.makedirs(os.path.dirname(base_output))
-        else:
-            base_output = os.path.splitext(self.fn)[0]
-
-        suffix = "." + self.file_type
-        self.split_files = OrderedDict([
-            CHROM, base_output + "." + CHROM + suffix]
-            for CHROM in CHROMs.iterkeys())
-
-    def work(self):
-        with get_fh(self.fn) as fh:
-            last_CHROM = "-1"
-            CHROM_idx = -1
-            max_idx = len(CHROMs) - 1
-            if not self.no_header:
-                for line in fh:
-                    if line.startswith("#CHROM"):
-                        break
-            for line in fh:
-                CHROM = line.split("\t")[0]
-                if CHROM != last_CHROM:
-                    if last_CHROM != "-1":
-                        out_fh.close()
-                    if CHROM_idx == max_idx:
-                        break
-                    if CHROM in CHROMs:
-                        new_CHROM_idx = CHROMs[CHROM]
-                        if new_CHROM_idx < CHROM_idx:
-                            raise ValueError(
-                                "file is unsorted - chromosome {old} before "
-                                "{new}".format(old=last_CHROM, new=CHROM))
-                        else:
-                            last_CHROM = CHROM
-                            CHROM_idx = new_CHROM_idx
-                            out_fh = self.output().open(CHROM, "w")
-                if CHROM in CHROMs:
-                    out_fh.write(line)
-        if not out_fh.closed:
-            out_fh.close()
-
-    def output(self):
-        return SplitFileTarget(
-            base_fn=self.fn, split_files=self.split_files,
-            header=not self.no_header)
 
 class ParsedVCFTarget(luigi.Target):
     """Target describing the output of parsing a VCF/gVCF pair,
