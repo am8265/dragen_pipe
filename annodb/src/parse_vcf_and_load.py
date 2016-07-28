@@ -199,12 +199,6 @@ def output_novel_variant(
                             "transcript_stable_id":feature_id,
                             "effect_id":effect_id, "HGVS_c":HGVS_c,
                             "HGVS_p":HGVS_p, "gene":gene}
-                    else:
-                        raise ValueError(
-                            "error: duplicated ({transcript_stable_id}, {effect})"
-                            " for {VariantID}".format(
-                                transcript_stable_id=feature_id, effect=effect,
-                                VariantID=VariantID))
                 else:
                     annotations[annotations_key] = {
                         "transcript_stable_id":feature_id,
@@ -243,7 +237,12 @@ def output_novel_variant_entry(
         polyphen_humvar=format_NULL_value(polyphen_humvar),
         gene=format_NULL_value(gene), indel=indel) + "\n")
 
-def parse_vcf_and_load(vcf, gvcf, pileup, CHROM, sample_id, output_base):
+def parse_vcf_and_load(
+    vcf, gvcf, pileup, CHROM, sample_id, output_base, debug=False):
+    if debug:
+        import sys
+        sys.stderr.write("starting CHROM {}\n".format(CHROM))
+    line_count = 0
     start_time = time()
     gvcf_tabix = tabix.open(gvcf)
     gvcf_iter = gvcf_tabix.querys(CHROM)
@@ -291,7 +290,11 @@ def parse_vcf_and_load(vcf, gvcf, pileup, CHROM, sample_id, output_base):
                 open(calls, "w") as calls_fh, \
                 open(variant_id_vcf, "w") as vcf_out, \
                 open(matched_indels, "w") as matched_indels_fh:
-            for line_fields in vcf_tabix.querys(CHROM):
+            for x, line_fields in enumerate(vcf_tabix.querys(CHROM)):
+                if not x % 100:
+                    if debug:
+                        sys.stderr.write(("line #{} after {} seconds\n".format(
+                            x, time() - start_time)))
                 fields = VCF_fields_dict(line_fields)
                 if fields["CHROM"] != CHROM:
                     raise ValueError(
@@ -420,7 +423,9 @@ def parse_vcf_and_load(vcf, gvcf, pileup, CHROM, sample_id, output_base):
                 table_name=table_name, table_file=table_file))
         db.commit()
     finally:
-        print("elapsed time: {} seconds".format(time() - start_time))
+        if debug:
+            sys.stderr.write("elapsed time: {} seconds\n".format(
+                time() - start_time))
         if db.open:
             db.close()
 
@@ -440,9 +445,11 @@ if __name__ == "__main__":
                         type=partial(valid_numerical_argument, arg_name="sample_id"),
                         help="the id of the sample")
     parser.add_argument("OUTPUT_BASE", help="the base output file name structure")
+    parser.add_argument("-d", "--debug", default=False, action="store_true",
+                        help="output timing statements to stderr")
     args = parser.parse_args()
     output_base_rp = os.path.realpath(args.OUTPUT_BASE)
     if not os.path.isdir(os.path.dirname(output_base_rp)):
         os.makedirs(os.path.dirname(output_base_rp))
     parse_vcf_and_load(args.VCF, args.GVCF, args.PILEUP, args.CHROMOSOME,
-                       args.SAMPLE_ID, output_base_rp)
+                       args.SAMPLE_ID, output_base_rp, args.debug)
