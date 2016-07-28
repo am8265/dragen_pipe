@@ -10,7 +10,7 @@ from luigi.contrib.sge import SGEJobTask, LocalSGEJobTask
 from dragen_sample import dragen_sample
 
 """
-Run samples through a luigized GATK pipeline after they have finished the
+Run samples through a luigized GATK pipeline after finishing the
 Dragen based alignment
 """
 
@@ -21,6 +21,7 @@ bgzip="/nfs/goldstein/software/bin/bgzip"
 tabix="/nfs/goldstein/software/bin/tabix"
 picard="/nfs/goldstein/software/picard-tools-1.131/picard.jar"
 bedtools="/nfs/goldstein/software/bedtools-2.25.0/bin/bedtools"
+snpEff="/nfs/goldstein/software/snpEff/4.1/snpEff.jar"
 
 #GATK parameters
 max_mem="15"
@@ -32,6 +33,49 @@ g1000="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/1000G_phase1.ind
 Mills1000g="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/Mills_and_1000G_gold_standard.indels.b37.vcf"
 dbSNP="/nfs/goldsteindata/refDB/dbSNP/dbsnp_147.b37.vcf"
 interval="/nfs/goldstein/software/dragen_pipe/dragen/conf/hs37d5.intervals"
+
+
+class CopyBam(SGEJobTask):
+    """class for copying dragen aligned bam to a scratch location"""
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    #job_name = self.sample_name + '.' + self.__class__.__name__ 
+
+    def __init__(self, *args, **kwargs):
+        super(CopyBam, self).__init__(*args, **kwargs)
+        self.bam = "{base_directory}/{sample_name}/{sample_name}.bam".format(
+            base_directory=self.base_directory,sample_name=self.sample_name)
+        self.bam_index = "{base_directory}/{sample_name}/{sample_name}.bam.bai".format(
+            base_directory=self.base_directory,sample_name=self.sample_name)
+        self.scratch_bam = "{scratch}/{sample_name}/{sample_name}.bam".format(
+            scratch=self.scratch,sample_name=self.sample_name)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+
+    def work(self):
+        os.system("mkdir -p {0}/scripts".format(self.scratch + self.sample_name))
+        os.system("mkdir -p {0}/logs".format(self.scratch + self.sample_name))
+        cmd = ("rsync -a --partial --timeout=20000 -r {bam} {bam_index} {scratch}/{sample_name}/"
+              ).format(bam=self.bam,
+                       scratch_bam=self.scratch_bam,
+                       bam_index=self.bam_index,
+                       scratch=self.scratch,
+                       sample_name=self.sample_name)
+        with open(self.script,'w') as o:
+            o.write(cmd + "\n")
+        subprocess.check_call(shlex.split(cmd))
+
+    def output(self):
+        yield luigi.LocalTarget("{scratch}/{sample_name}/{sample_name}.bam.bai".format(
+            scratch=self.scratch,sample_name=self.sample_name))
 
 class RealignerTargetCreator(SGEJobTask):
     """class for creating targets for indel realignment BAMs from Dragen"""
@@ -62,23 +106,21 @@ class RealignerTargetCreator(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(RealignerTargetCreator, self).__init__(*args, **kwargs)
-        self.bam = "{base_directory}/{sample_name}/{sample_name}.bam".format(
-            base_directory=self.base_directory, sample_name=self.sample_name)
         self.interval_list = "{scratch}/{sample_name}/{sample_name}.interval_list".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
             scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+        self.scratch_bam = "{scratch}/{sample_name}/{sample_name}.bam".format(
+            scratch=self.scratch,sample_name=self.sample_name)
 
     def work(self):
-        os.system("mkdir -p {0}/scripts".format(self.scratch + self.sample_name))
-        os.system("mkdir -p {0}/logs".format(self.scratch + self.sample_name))
 
         cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
             "-T RealignerTargetCreator "
             "-L {interval} "
-            "-I {bam} "
+            "-I {scratch_bam} "
             "-o {interval_list} "
             "-known {Mills1000g} "
             "-known {dbSNP} "
@@ -87,7 +129,7 @@ class RealignerTargetCreator(SGEJobTask):
                 max_mem=max_mem,
                 ref=ref,
                 interval=interval,
-                bam=self.bam,
+                scratch_bam=self.scratch_bam,
                 interval_list=self.interval_list,
                 Mills1000g=Mills1000g,
                 dbSNP=dbSNP)
@@ -99,6 +141,10 @@ class RealignerTargetCreator(SGEJobTask):
 
     def output(self):
         yield luigi.LocalTarget(self.interval_list)
+
+    def requires(self):
+        return self.clone(CopyBam)
+
 
 class IndelRealigner(SGEJobTask):
     """class to create BAM with realigned BAMs"""
@@ -128,14 +174,14 @@ class IndelRealigner(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(IndelRealigner, self).__init__(*args, **kwargs)
-        self.bam = "{base_directory}/{sample_name}/{sample_name}.bam".format(
-            base_directory=self.base_directory, sample_name=self.sample_name)
         self.interval_list = "{scratch}/{sample_name}/{sample_name}.interval_list".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.realn_bam = "{scratch}/{sample_name}/{sample_name}.realn.bam".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
             scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+        self.scratch_bam = "{scratch}/{sample_name}/{sample_name}.bam".format(
+            scratch=self.scratch,sample_name=self.sample_name)
 
     def work(self):
         cmd = ("{java} -Xmx{max_mem}g "
@@ -143,7 +189,7 @@ class IndelRealigner(SGEJobTask):
             "-R {ref} "
             "-T IndelRealigner "
             "-L {interval} "
-            "-I {bam} "
+            "-I {scratch_bam} "
             "-o {realn_bam} "
             "-targetIntervals {interval_list} "
             "-maxReads 10000000 "
@@ -154,7 +200,7 @@ class IndelRealigner(SGEJobTask):
                 max_mem=max_mem,
                 ref=ref,
                 interval=interval,
-                bam=self.bam,
+                scratch_bam=self.scratch_bam,
                 realn_bam=self.realn_bam,
                 interval_list=self.interval_list,
                 Mills1000g=Mills1000g,
@@ -272,12 +318,14 @@ class PrintReads(SGEJobTask):
             scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
 
     def work(self):
+        # --disable_indel_quals are necessary to remove BI and BD tags in the bam file
         cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk}/GenomeAnalysisTK.jar "
             "-R {ref} "
             "-T PrintReads "
             "-L {interval} "
             "-I {realn_bam} "
+            "--disable_indel_quals "
             "-BQSR {recal_table} "
             "-o {recal_bam} "
             "-nct 4").format(java=java,
@@ -323,6 +371,8 @@ class HaplotypeCaller(SGEJobTask):
             scratch=self.scratch, sample_name=self.sample_name)
         self.recal_table = "{scratch}/{sample_name}/{sample_name}.recal_table".format(
             scratch=self.scratch, sample_name=self.sample_name)
+        self.scratch_bam = "{scratch}/{sample_name}/{sample_name}.bam".format(
+            scratch=self.scratch,sample_name=self.sample_name)
         self.recal_bam = "{scratch}/{sample_name}/{sample_name}.realn.recal.bam".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.gvcf = "{scratch}/{sample_name}/{sample_name}.g.vcf.gz".format(
@@ -358,7 +408,7 @@ class HaplotypeCaller(SGEJobTask):
             o.write(cmd + "\n")
             subprocess.check_call(shlex.split(cmd))
 
-        rm_cmd = ['rm',self.realn_bam]
+        rm_cmd = ['rm',self.realn_bam,self.scratch_bam]
         #print rm_cmd
         subprocess.call(rm_cmd)
 
@@ -395,8 +445,6 @@ class GenotypeGVCFs(SGEJobTask):
     def __init__(self, *args, **kwargs):
         super(GenotypeGVCFs, self).__init__(*args, **kwargs)
         self.recal_table = "{scratch}/{sample_name}/{sample_name}.recal_table".format(
-            scratch=self.scratch, sample_name=self.sample_name)
-        self.recal_bam = "{scratch}/{sample_name}/{sample_name}.realn.recal.bam".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.gvcf = "{scratch}/{sample_name}/{sample_name}.g.vcf.gz".format(
             scratch=self.scratch, sample_name=self.sample_name)
@@ -991,14 +1039,20 @@ class CombineVariants(SGEJobTask):
             scratch=self.scratch, sample_name=self.sample_name)
         self.final_vcf = "{scratch}/{sample_name}/{sample_name}.analysisReady.vcf".format(
             scratch=self.scratch, sample_name=self.sample_name)
-        self.final_vcf_gz = "{scratch}/{sample_name}/{sample_name}.analysisReady.vcf.gz".format(
-            scratch=self.scratch, sample_name=self.sample_name)
         self.tmp_vcf = "{scratch}/{sample_name}/{sample_name}.tmp.vcf".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
             scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
 
     def work(self):
+        """Merges SNP and INDEL vcfs.  Using the filtered SNP vcf header as a
+        base, variant type/sample type specific ##FILTERs are added to the header.
+        Additionally the AnnoDBID annotation is added.  After finishing reading
+        through the header the SNP vcf is read again with only variants
+        being outputted.  The same happens with the INDEL vcf.  The resulting
+        vcf is then sorted producing the analysisReady.vcf.
+        """
+        adding in ##FILTER information so the vcf will past validation
         filter_flag = 0
         with open(self.tmp_vcf,'w') as vcf_out:
             with open(self.snp_filtered) as header:
@@ -1006,7 +1060,7 @@ class CombineVariants(SGEJobTask):
                     if line[0] == '#':
                         if line[0:8] == '##FILTER' and filter_flag == 0 :
                             filter_flag = 1
-                            #SNP specific filters
+                            #SNP specific FILTER whether using VQSR or snp filtering
                             if self.sample_type == 'exome' or self.sample_type =='genome':
                                 vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.00to99.90,Description="Truth sensitivity tranche level for SNP model\n')
                                 vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.90to100.00+,Description="Truth sensitivity tranche level for SNP model\n')
@@ -1014,7 +1068,7 @@ class CombineVariants(SGEJobTask):
                             else:
                                 vcf_out.write('##FILTER=<ID=SNP_filter,Description="QD < 2.0 || FS > 60.0 || MQ < 40.0 || MQRankSum < -12.5 || ReadPosRankSum < -8.0">\n')
 
-                            #Indel specific filters
+                            #Indel specific filters whether using VQSR or indel filtering
                             if self.sample_type =='genome':
                                 vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.00to99.90,Description="Truth sensitivity tranche level for INDEL model\n')
                                 vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.90to100.00+,Description="Truth sensitivity tranche level for INDEL model\n')
@@ -1029,6 +1083,7 @@ class CombineVariants(SGEJobTask):
                     else:
                         break
             with open(self.snp_filtered) as snps:
+
                 for snp in snps.readlines():
                     if snp[0] != '#':
                         vcf_out.write(snp)
@@ -1036,15 +1091,6 @@ class CombineVariants(SGEJobTask):
                 for indel in indels.readlines():
                     if indel[0] != '#':
                         vcf_out.write(indel)
-
-        pre_cmd = ("/bin/bash -c cat <(head -1000 {vcf} | grep ^#) "
-            "<(grep -v ^# {snp_filtered}) "
-            "<(grep -v ^# {indel_filtered}) >> "
-            "{tmp_vcf} "
-            ).format(snp_filtered=self.snp_filtered,
-                indel_filtered=self.indel_filtered,
-                tmp_vcf=self.tmp_vcf,
-                vcf=self.vcf)
 
         sort_cmd = ("{java} -jar {picard} "
             "SortVcf "
@@ -1054,20 +1100,9 @@ class CombineVariants(SGEJobTask):
                 tmp_vcf=self.tmp_vcf,
                 final_vcf=self.final_vcf)
 
-        bgzip_cmd = ("{bgzip} {final_vcf}").format(bgzip=bgzip,final_vcf=self.final_vcf)
-        tabix_cmd = ("{tabix} {final_vcf_gz}").format(tabix=tabix,final_vcf_gz=self.final_vcf_gz)
-
-        #rm_cmd = ('').format()
         with open(self.script,'w') as o:
-            o.write(pre_cmd + "\n")
             o.write(sort_cmd + "\n")
-            o.write(bgzip_cmd + "\n")
-            o.write(tabix_cmd + "\n")
-            #o.write(rm_cmd + "\n")
-
         subprocess.check_call(shlex.split(sort_cmd))
-        subprocess.check_call(shlex.split(bgzip_cmd))
-        subprocess.check_call(shlex.split(tabix_cmd))
 
     def requires(self):
         if self.sample_type == 'exome':
@@ -1081,6 +1116,66 @@ class CombineVariants(SGEJobTask):
     def output(self):
         return luigi.LocalTarget(self.final_vcf_gz)
 
+class AnnotateVCF(SGEJobTask):
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
+    sample_type = luigi.Parameter()
+
+    java = luigi.Parameter(default=java,
+        description = 'java version used')
+    tabix = luigi.Parameter(default=tabix,
+        description = 'tabix version used')
+    bgzip = luigi.Parameter(default=bgzip,
+        description = 'bgzip version used')
+    snpEff = luigi.Parameter(default=snpEff,
+        description = 'snpEff version used')
+
+    #SnpEff parameters
+    snpeff_cfg="/nfs/goldstein/software/snpEff/4.1/snpEff.config"
+    snpeff_options=""
+    intervals="/nfs/goldstein/goldsteinlab/software/snpEff_3_3/data/GRCh37.73/intron_exon_boundaries.unique.custom_interval.bed"
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    def __init__(self, *args, **kwargs):
+        super(AnnotateVCF, self).__init__(*args, **kwargs)
+        self.snp_filtered = "{scratch}/{sample_name}/{sample_name}.snp.filtered.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.final_vcf = "{scratch}/{sample_name}/{sample_name}.analysisReady.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.annotated_vcf = "{scratch}/{sample_name}/{sample_name}.analysisReady.annotated.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.annotated_vcf_gz = "{scratch}/{sample_name}/{sample_name}.analysisReady.annotated.vcf.gz".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+
+    def work(self):
+        snpEff_cmd = ("{java} -Xmx5G -jar {snpEff} eff "
+                     "GRCh37.74 -c {snpeff_cfg} "
+                     "-interval {intervals} "
+                     "-v -noMotif -noNextProt -noLog -nodownload -noStats "
+                     "-o vcf {final_vcf}"
+                     ).format(java=java,
+                              snpEff=snpEff,
+                              intervals=intervals
+                              final_vcf=self.final_vcf)
+
+        bgzip_cmd = ("{bgzip} {annotated_vcf}").format(bgzip=bgzip,annotated_vcf=self.annotated_vcf)
+        tabix_cmd = ("{tabix} {annotated_vcf_gz}").format(tabix=tabix,annotated_vcf_gz=self.annotated_vcf_gz)
+
+        with open(self.script,'w') as o:
+            o.write(snpEff_cmd + "\n")
+            o.write(bgzip_cmd + "\n")
+            o.write(tabix_cmd + "\n")
+
+        subprocess.check_call(shlex.split(snpEff_cmd))
+        subprocess.check_call(shlex.split(bgzip_cmd))
+        subprocess.check_call(shlex.split(tabix_cmd))
+
 class ArchiveSample(SGEJobTask):
     """Archive samples on Amplidata"""
 
@@ -1090,7 +1185,7 @@ class ArchiveSample(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     interval = luigi.Parameter(default=interval)
-    dragen_id = luigi.Parameter()
+    #dragen_id = luigi.Parameter()
 
     n_cpu = 1
     parallel_env = "threaded"
@@ -1103,35 +1198,58 @@ class ArchiveSample(SGEJobTask):
     """
 
     def __init__(self, *args, **kwargs):
-        super(ApplyRecalibrationSNP, self).__init__(*args, **kwargs)
+        super(ArchiveSample, self).__init__(*args, **kwargs)
         self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
             scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
         self.recal_bam = "{scratch}/{sample_name}/{sample_name}.realn.recal.bam".format(
             scratch=self.scratch, sample_name=self.sample_name)
+        self.recal_bam_index = "{scratch}/{sample_name}/{sample_name}.realn.recal.bai".format(
+            scratch=self.scratch, sample_name=self.sample_name)
         self.bam = "{base_directory}/{sample_name}/{sample_name}.bam".format(
             base_directory=self.base_directory, sample_name=self.sample_name)
-        self.final_vcf_gz = "{scratch}/{sample_name}/{sample_name}.analysisReady.vcf.gz".format(
+        self.annotated_vcf_gz = "{scratch}/{sample_name}/{sample_name}.analysisReady.annotated.vcf.gz".format(
             scratch=self.scratch, sample_name=self.sample_name)
+        self.g_vcf_gz = "{scratch}/{sample_name}/{sample_name}.g.vcf.gz".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        """
+        self.g_vcf_gz_index = "{scratch}/{sample_name}/{sample_name}.g.vcf.gz.tbi".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        """
+        self.annotated_vcf_gz_index = "{scratch}/{sample_name}/{sample_name}.analysisReady.vcf.gz.tbi".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.copy_complete = "{base_directory}/{sample_name}/copy_complete".format(
+            base_directory=self.base_directory, sample_name=self.sample_name)
+        self.script_dir = "{scratch}/{sample_name}/scripts".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.scratch_dir = "{scratch}/{sample_name}".format(
+            scratch=self.scratch,sample_name=self.sample_name)
 
     def work(self):
-        cmd = ("rsync -a --partial --timeout=20000 -r "
-              "{script_dir} {recal_bam} {final_vcf_gz}"
-              ).format(recal_bam=recal_bam,
-                      script_dir=script_dir,
-                      final_vcf_gz=final_vcf_gz)
-
+        cmd = ("rsync -a --timeout=25000 -r "
+              "{script_dir} {recal_bam} {recal_bam_index} {final_vcf_gz} "
+              "{final_vcf_gz_index} {g_vcf_gz} {base_directory}/{sample_name}"
+              ).format(recal_bam=self.recal_bam,
+                      recal_bam_index=self.recal_bam_index,
+                      script_dir=self.script_dir,
+                      final_vcf_gz=self.final_vcf_gz,
+                      final_vcf_gz_index=self.final_vcf_gz_index,
+                      base_directory=self.base_directory,
+                      g_vcf_gz=self.g_vcf_gz,
+                      sample_name=self.sample_name)
         with open(self.script,'w') as o:
             o.write(cmd + "\n")
-            subprocess.check_call(shlex.split(cmd))
+        subprocess.check_call(shlex.split(cmd))
+        subprocess.call(['touch',self.copy_complete])
 
         # Original dragen BAM could be technically deleted earlier after the
         # realigned BAM has been created on scratch space but it is safer to 
         # delete after the final realigned, recalculated BAM has been archived
         # since our scratch space has failed in the past.
-        rm_cmd = ['rm',self.bam,self.scratch_dir]
+
+        rm_cmd = ['rm',self.bam]
         rm_folder_cmd = ['rm','-rf',self.scratch_dir]
-        #print rm_cmd
         #subprocess.call(rm_cmd)
+        subprocess.call(rm_folder_cmd)
 
     def requires(self):
         return self.clone(CombineVariants)
@@ -1139,4 +1257,24 @@ class ArchiveSample(SGEJobTask):
     def output(self):
         return luigi.LocalTarget(self.copy_complete)
 
+class CheckBam(luigi.Target):
+    pass
 
+class CheckTruncated(luigi.Target):
+    """ Class to check if target file is truncated or not """
+    def __init__(self,infile,sample_type):
+        self.infile = infile
+        self.sample_type = sample_type
+
+    def exists(self):
+        """checks if the file was truncated or not"""
+        f = subprocess.Popen(['tail','-1',infile],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        while True:
+            line = f.stdout.readline()
+        print line
+        chr = line.split('\t')[0]
+
+        if chr != 'MT' or chr != 'X' or chr != 'Y':
+            return False
+        else:
+            return True
