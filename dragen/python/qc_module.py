@@ -403,7 +403,7 @@ class CreateGenomeBed(SGEJobTask):
 
         self.gzip_cmd = "/nfs/goldstein/software/bin/bgzip {0}".format(self.genomecov_bed)
         self.gzipped_genomecov_bed = self.genomecov_bed+'.gz'
-        self.tabix_cmd = "/nfs/goldstein/software/bin/tabix -p {0}".format(self.gzipped_genomecov_bed)
+        self.tabix_cmd = "/nfs/goldstein/software/bin/tabix -p bed {0}".format(self.gzipped_genomecov_bed)
         self.tbi_file = self.gzipped_genomecov_bed+'.tbi'
           
     def requires(self):
