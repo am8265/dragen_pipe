@@ -14,3 +14,6 @@ intervals=/nfs/goldstein/goldsteinlab/software/snpEff_3_3/data/GRCh37.73/intron_
 cnf=/nfs/goldstein/software/dragen/db.cnf
 dragen_group=dragen
 seqdb_group=seqdb
+
+[pipeline]
+scratch_area=/nfs/seqscratch{seqscratch}/ANNOTATION/LOAD/DRAGEN/{sequencing_type}/{sample_name}/
