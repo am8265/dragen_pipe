@@ -1052,7 +1052,6 @@ class CombineVariants(SGEJobTask):
         being outputted.  The same happens with the INDEL vcf.  The resulting
         vcf is then sorted producing the analysisReady.vcf.
         """
-        adding in ##FILTER information so the vcf will past validation
         filter_flag = 0
         with open(self.tmp_vcf,'w') as vcf_out:
             with open(self.snp_filtered) as header:
@@ -1161,7 +1160,7 @@ class AnnotateVCF(SGEJobTask):
                      "-o vcf {final_vcf}"
                      ).format(java=java,
                               snpEff=snpEff,
-                              intervals=intervals
+                              intervals=intervals,
                               final_vcf=self.final_vcf)
 
         bgzip_cmd = ("{bgzip} {annotated_vcf}").format(bgzip=bgzip,annotated_vcf=self.annotated_vcf)
