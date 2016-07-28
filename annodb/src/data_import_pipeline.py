@@ -1,11 +1,9 @@
 #!/nfs/goldstein/software/python2.7.7/bin/python
 """
 Run pipeline to:
-    1a. Annotate VCF
-    1b. Split gVCF by chromosome
-    2. Split VCF by chromosome
-    3. Parse each chromosome's VCF & gVCF and import the data
-    4. Archive appropriate data for sample
+    1. Copy VCF, gVCF, and pileup to scratch space
+    2. Parse and import data for each chromosome
+    3. Archive appropriate data for sample
 """
 
 import luigi
