@@ -218,9 +218,15 @@ class ParseVCF(SGEJobTask):
 class ImportSample(luigi.WrapperTask):
     """import a sample by requiring() a ParseVCF Task for each chromosome
     """
-    vcf = luigi.InputFileParameter(description="the VCF to parse")
-    gvcf = luigi.InputFileParameter(description="the gVCF to parse")
-    pileup = luigi.InputFileParameter(description="the pileup to parse")
+    vcf = luigi.InputFileParameter(
+        default=None,
+        description="the VCF to parse (optional - only sample_id is required)")
+    gvcf = luigi.InputFileParameter(
+        default=None,
+        description="the gVCF to parse (optional - only sample_id is required)")
+    pileup = luigi.InputFileParameter(
+        default=None,
+        description="the pileup to parse (optional - only sample_id is required)")
     sample_id = luigi.NumericalParameter(
         left_op=operator.le, description="the sample_id for this sample")
     seqscratch = luigi.ChoiceParameter(
@@ -235,7 +241,8 @@ class ImportSample(luigi.WrapperTask):
             cur.execute(GET_SAMPLE_INFO.format(sample_id=self.sample_id))
             row = cur.fetchone()
             if row:
-                self.sample_name, self.sequencing_type, self.capture_kit = row
+                (self.sample_name, self.sequencing_type,
+                 self.capture_kit, self.prep_id) = row
             else:
                 raise ValueError("sample_id {sample_id} does not exist".format(
                     sample_id=self.sample_id))
@@ -245,10 +252,45 @@ class ImportSample(luigi.WrapperTask):
         self.output_directory = cfg.get("pipeline", "scratch_area").format(
             seqscratch=self.seqscratch, sample_name=self.sample_name,
             sequencing_type=self.sequencing_type.upper())
+        for fn in (self.vcf, self.gvcf, self.pileup):
+            if not fn:
+                db = get_connection("seqdb")
+                try:
+                    cur = db.cursor()
+                    cur.execute(GET_DATA_DIRECTORY_FOR_SAMPLE.format(
+                        sample_name=self.sample_name,
+                        sample_type=self.sequencing_type,
+                        capture_kit=self.capture_kit, prep_id=self.prep_id))
+                    row = cur.fetchone()
+                    if row:
+                        data_dir = row[0]
+                        self.vcf = os.path.join(
+                            data_dir, "{sample_name}.hard-filtered.ann.vcf.gz".
+                            format(sample_name=self.sample_name))
+                        self.gvcf = os.path.join(
+                            data_dir, "{sample_name}.hard-filtered.gvcf.gz".
+                            format(sample_name=self.sample_name))
+                        self.pileup = os.path.join(
+                            data_dir, "{sample_name}.genomecvg.bed.gz".format(
+                                sample_name=self.sample_name))
+                        for file_type in ("vcf", "gvcf", "pileup"):
+                            if not os.path.isfile(self.__dict__[file_type]):
+                                raise OSError(
+                                    "could not find {file_type}: {fn}".format(
+                                        file_type=file_type,
+                                        fn=self.__dict__[file_type]))
+                    else:
+                        raise ValueError(
+                            "could not find data directory for sample")
+                finally:
+                    if db.open:
+                        db.close()
 
     def requires(self):
-        return [self.clone(
-            ParseVCF, chromosome=CHROM, sample_name=self.sample_name,
+        return [ParseVCF(
+            vcf=self.vcf, gvcf=self.gvcf, pileup=self.pileup,
+            sample_id=self.sample_id,
+            chromosome=CHROM, sample_name=self.sample_name,
             sequencing_type=self.sequencing_type,
             output_base=self.output_directory + CHROM)
             for CHROM in CHROMs.iterkeys()]

@@ -66,8 +66,8 @@ INSERT_SAMPLE = """
 INSERT INTO sample (sample_name, sample_type, capture_kit, prep_id)
 VALUE ("{sample_name}", "{sample_type}", "{capture_kit}", {prep_id})
 """
-CHECK_SAMPLE_IN_SEQDB = """
-SELECT 1
+GET_DATA_DIRECTORY_FOR_SAMPLE = """
+SELECT DragenFileLoc
 FROM seqdbClone
 WHERE CHGVID = "{sample_name}" AND SeqType = "{sample_type}" AND
     ExomeSamPrepKit = "{capture_kit}" AND prepId = {prep_id}
@@ -83,7 +83,7 @@ SELECT *
 FROM effect_ranking
 """
 GET_SAMPLE_INFO = """
-SELECT sample_name, sample_type, capture_kit
+SELECT sample_name, sample_type, capture_kit, prep_id
 FROM sample
 WHERE sample_id = {sample_id}
 """
