@@ -365,6 +365,12 @@ class ParseVCF(SGEJobTask):
     sequencing_type = luigi.ChoiceParameter(
         choices=["exome", "genome", "custom_capture", "merged"],
         description="the type of sequencing performed on this sample")
+    task_name_format = luigi.Parameter(
+        significant=False, default="{task_family}_{sample_name}_{chromosome}",
+        description="how to format the job name submitted to the cluster")
+    debug = luigi.BoolParameter(
+        significant=False,
+        description="output debug timing messages to job.err")
 
     def __init__(self, *args, **kwargs):
         super(ParseVCF, self).__init__(*args, **kwargs)
@@ -387,7 +393,7 @@ class ParseVCF(SGEJobTask):
             gvcf=self.copied_files_dict["gvcf"],
             pileup=self.copied_files_dict["pileup"],
             CHROM=self.chromosome, sample_id=self.sample_id,
-            output_base=self.output_base)
+            output_base=self.output_base, debug=self.debug)
 
     def output(self):
         return ParsedVCFTarget(
