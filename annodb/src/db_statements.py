@@ -73,7 +73,7 @@ WHERE CHGVID = "{sample_name}" AND SeqType = "{sample_type}" AND
     ExomeSamPrepKit = "{capture_kit}" AND prepId = {prep_id}
 """
 GET_NUM_CALLS_FOR_SAMPLE = """
-SELECT COUNT(c.variant_id)
+SELECT COUNT(DISTINCT(c.variant_id))
 FROM called_variant_chr{CHROM} c
 INNER JOIN variant_chr{CHROM} v ON c.variant_id = v.variant_id
 WHERE c.sample_id = {sample_id}
@@ -81,4 +81,9 @@ WHERE c.sample_id = {sample_id}
 GET_EFFECT_RANKINGS = """
 SELECT *
 FROM effect_ranking
+"""
+GET_SAMPLE_INFO = """
+SELECT sample_name, sample_type, capture_kit
+FROM sample
+WHERE sample_id = {sample_id}
 """
