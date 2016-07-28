@@ -86,7 +86,7 @@ class CopyDataTarget(luigi.Target):
                     return False
         return True
 
-    def open(self):
+    def get_targets(self):
         # just return a dict containing the mapping between file type and new
         # file location
         return self.targets
@@ -358,6 +358,13 @@ class ParseVCF(SGEJobTask):
         left_op=operator.le, description="the sample_id for this sample")
     output_base = luigi.Parameter(
         default=None, description="specify a custom output file name")
+    seqscratch = luigi.ChoiceParameter(
+        choices=["09", "10", "11"], default="09",
+        description="the seqscratch to use for temporary file creation")
+    sample_name = luigi.Parameter(description="the name of the sample")
+    sequencing_type = luigi.ChoiceParameter(
+        choices=["exome", "genome", "custom_capture", "merged"],
+        description="the type of sequencing performed on this sample")
 
     def __init__(self, *args, **kwargs):
         super(ParseVCF, self).__init__(*args, **kwargs)
@@ -369,17 +376,23 @@ class ParseVCF(SGEJobTask):
                 os.makedirs(os.path.dirname(self.output_base))
         else:
             self.output_base = os.path.splitext(self.vcf)[0]
+        self.copied_files_dict = self.input().get_targets()
+
+    def requires(self):
+        return self.clone(CopyDataToScratch)
 
     def work(self):
         parse_vcf_and_load(
-            vcf=self.vcf, gvcf=self.gvcf, pileup=self.pileup,
+            vcf=self.copied_files_dict["vcf"],
+            gvcf=self.copied_files_dict["gvcf"],
+            pileup=self.copied_files_dict["pileup"],
             CHROM=self.chromosome, sample_id=self.sample_id,
             output_base=self.output_base)
 
     def output(self):
         return ParsedVCFTarget(
-            vcf=self.vcf, chromosome=self.chromosome, sample_id=self.sample_id,
-            output_base=self.output_base)
+            vcf=self.copied_files_dict["vcf"], chromosome=self.chromosome,
+            sample_id=self.sample_id, output_base=self.output_base)
 
 class ImportSample(luigi.WrapperTask):
     """import a sample by requiring() a ParseVCF Task for each chromosome
@@ -414,7 +427,9 @@ class ImportSample(luigi.WrapperTask):
 
     def requires(self):
         return [self.clone(
-            ParseVCF, chromosome=CHROM, output_base=self.output_directory + CHROM)
+            ParseVCF, chromosome=CHROM, sample_name=self.sample_name,
+            sequencing_type=self.sequencing_type,
+            output_base=self.output_directory + CHROM)
             for CHROM in CHROMs.iterkeys()]
 
 if __name__ == "__main__":
