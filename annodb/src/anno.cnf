@@ -17,3 +17,4 @@ seqdb_group=seqdb
 
 [pipeline]
 scratch_area=/nfs/seqscratch{seqscratch}/ANNOTATION/LOAD/DRAGEN/{sequencing_type}/{sample_name}/
+variant_id_header=##INFO<ID=VariantID,Number=A,Type=Integer,Description="The variant_id for each alternate allele">
