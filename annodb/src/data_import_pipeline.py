@@ -12,6 +12,7 @@ import os
 import subprocess
 import operator
 import tabix
+import shlex
 from shutil import copy
 from collections import OrderedDict
 from parse_vcf import parse_vcf
@@ -106,23 +107,20 @@ class CopyDataToScratch(luigi.Task):
     def output(self):
         return CopyDataTarget(targets=self.targets, originals=self.originals)
 
-class ParsedVCFTarget(luigi.Target):
+class SQLTarget(luigi.Target):
     """Target describing verification of the entries in the database
     """
-    def __init__(self, chromosome, sample_id):
-        self.chromosome = chromosome
+    def __init__(self, sample_id, pipeline_step_id):
         self.sample_id = sample_id
+        self.pipeline_step_id = pipeline_step_id
 
     def exists(self):
         db = get_connection("dragen")
         try:
             cur = db.cursor()
-            cur.execute(GET_PIPELINE_STEP_ID.format(
-                chromosome=self.chromosome))
-            pipeline_step_id = cur.fetchone()[0]
             cur.execute(GET_STEP_STATUS.format(
                 sample_id=self.sample_id,
-                pipeline_step_id=pipeline_step_id))
+                pipeline_step_id=self.pipeline_step_id))
             row = cur.fetchone()
             if row:
                 if row[0] == 1:
@@ -132,7 +130,7 @@ class ParsedVCFTarget(luigi.Target):
             else:
                 cur.execute(INSERT_PIPELINE_STEP.format(
                     sample_id=self.sample_id,
-                    pipeline_step_id=pipeline_step_id))
+                    pipeline_step_id=self.pipeline_step_id))
                 db.commit()
                 return False
         finally:
@@ -180,6 +178,15 @@ class ParseVCF(SGEJobTask):
         self.called_variants = self.output_base + ".calls.txt"
         self.variant_id_vcf = self.output_base + ".variant_id.vcf"
         self.matched_indels = self.output_base + ".matched_indels.txt"
+        db = get_connection("dragen")
+        try:
+            cur = db.cursor()
+            cur.execute(GET_PIPELINE_STEP_ID.format(
+                chromosome=self.chromosome))
+            self.pipeline_step_id = cur.fetchone()[0]
+        finally:
+            if db.open:
+                db.close()
 
     def requires(self):
         return self.clone(CopyDataToScratch)
@@ -188,10 +195,9 @@ class ParseVCF(SGEJobTask):
         db = get_connection("dragen")
         try:
             cur = db.cursor()
-            cur.execute(GET_PIPELINE_STEP_ID.format(chromosome=self.chromosome))
-            pipeline_step_id = cur.fetchone()[0]
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
-                sample_id=self.sample_id, pipeline_step_id=pipeline_step_id))
+                sample_id=self.sample_id,
+                pipeline_step_id=self.pipeline_step_id))
             db.commit()
         finally:
             if db.open:
@@ -240,17 +246,18 @@ class ParseVCF(SGEJobTask):
                 raise ValueError(
                     "incorrect number of calls in the called_variant table")
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
-                sample_id=self.sample_id, pipeline_step_id=pipeline_step_id))
+                sample_id=self.sample_id,
+                pipeline_step_id=self.pipeline_step_id))
             db.commit()
         finally:
             if db.open:
                 db.close()
 
     def output(self):
-        return ParsedVCFTarget(
-            chromosome=self.chromosome, sample_id=self.sample_id)
+        return SQLTarget(sample_id=self.sample_id,
+                         pipeline_step_id=self.pipeline_step_id)
 
-class ImportSample(luigi.WrapperTask):
+class ImportSample(luigi.Task):
     """import a sample by requiring() a ParseVCF Task for each chromosome
     """
     vcf = luigi.InputFileParameter(
@@ -287,39 +294,47 @@ class ImportSample(luigi.WrapperTask):
         self.output_directory = cfg.get("pipeline", "scratch_area").format(
             seqscratch=self.seqscratch, sample_name=self.sample_name,
             sequencing_type=self.sequencing_type.upper())
+        db = get_connection("seqdb")
+        try:
+            cur = db.cursor()
+            cur.execute(GET_DATA_DIRECTORY_FOR_SAMPLE.format(
+                sample_name=self.sample_name,
+                sample_type=self.sequencing_type,
+                capture_kit=self.capture_kit, prep_id=self.prep_id))
+            row = cur.fetchone()
+            if row:
+                self.data_directory = row[0]
+            else:
+                raise ValueError(
+                    "could not find data directory for sample")
+        finally:
+            if db.open:
+                db.close()
+        db = get_connection("dragen")
+        try:
+            cur = db.cursor()
+            cur.execute(GET_PIPELINE_FINISHED_ID)
+            self.pipeline_step_id = cur.fetchone()[0]
+        finally:
+            if db.open:
+                db.close()
         for fn in (self.vcf, self.gvcf, self.pileup):
             if not fn:
-                db = get_connection("seqdb")
-                try:
-                    cur = db.cursor()
-                    cur.execute(GET_DATA_DIRECTORY_FOR_SAMPLE.format(
-                        sample_name=self.sample_name,
-                        sample_type=self.sequencing_type,
-                        capture_kit=self.capture_kit, prep_id=self.prep_id))
-                    row = cur.fetchone()
-                    if row:
-                        data_dir = row[0]
-                        self.vcf = os.path.join(
-                            data_dir, "{sample_name}.hard-filtered.ann.vcf.gz".
-                            format(sample_name=self.sample_name))
-                        self.gvcf = os.path.join(
-                            data_dir, "{sample_name}.hard-filtered.gvcf.gz".
-                            format(sample_name=self.sample_name))
-                        self.pileup = os.path.join(
-                            data_dir, "{sample_name}.genomecvg.bed.gz".format(
-                                sample_name=self.sample_name))
-                        for file_type in ("vcf", "gvcf", "pileup"):
-                            if not os.path.isfile(self.__dict__[file_type]):
-                                raise OSError(
-                                    "could not find {file_type}: {fn}".format(
-                                        file_type=file_type,
-                                        fn=self.__dict__[file_type]))
-                    else:
-                        raise ValueError(
-                            "could not find data directory for sample")
-                finally:
-                    if db.open:
-                        db.close()
+                self.vcf = os.path.join(
+                    self.data_directory, "{sample_name}.hard-filtered.ann."
+                    "vcf.gz".format(sample_name=self.sample_name))
+                self.gvcf = os.path.join(
+                    self.data_directory, "{sample_name}.hard-filtered.gvcf."
+                    "gz".format(sample_name=self.sample_name))
+                self.pileup = os.path.join(
+                    self.data_directory, "{sample_name}.genomecvg.bed.gz".
+                    format(sample_name=self.sample_name))
+                for file_type in ("vcf", "gvcf", "pileup"):
+                    if not os.path.isfile(self.__dict__[file_type]):
+                        raise OSError(
+                            "could not find {file_type}: {fn}".format(
+                                file_type=file_type,
+                                fn=self.__dict__[file_type]))
 
     def requires(self):
         return [ParseVCF(
@@ -329,6 +344,73 @@ class ImportSample(luigi.WrapperTask):
             sequencing_type=self.sequencing_type,
             output_base=self.output_directory + CHROM)
             for CHROM in CHROMs.iterkeys()]
+    
+    def run(self):
+        variant_id_header = cfg.get("pipeline", "variant_id_header") + "\n"
+        header = []
+        info_encountered = False
+        info_output = False
+        with get_fh(self.vcf) as vcf_fh:
+            for line in vcf_fh:
+                if line.startswith("#CHROM"):
+                    break
+                if line.startswith("##INFO=<"):
+                    info_encountered = True
+                    header.append(line)
+                else:
+                    if info_encountered and not info_output:
+                        header.append(variant_id_header)
+                        info_output = True
+                    header.append(line)
+        if not info_output:
+            header.append(variant_id_header)
+        header.append(line)
+        vcf_out = os.path.join(self.output_directory, self.sample_name + ".vcf")
+        with open(vcf_out, "w") as vcf_out_fh:
+            for line in header:
+                vcf_out_fh.write(line)
+            for CHROM in CHROMs.iterkeys():
+                with open(os.path.join(
+                    self.output_directory, CHROM + ".variant_id.vcf")) as vcf_fh:
+                    for line in vcf_fh:
+                        vcf_out_fh.write(line)
+        with open(os.devnull, "w") as devnull:
+            cmd = "bgzip " + vcf_out
+            p = subprocess.Popen(
+                shlex.split(cmd), stdout=devnull, stderr=devnull)
+            p.communicate()
+            if p.returncode:
+                raise subprocess.CalledProcessError(p.returncode, cmd)
+            vcf_out += ".gz"
+            cmd = "tabix -p vcf " + vcf_out
+            p = subprocess.Popen(
+                shlex.split(cmd), stdout=devnull, stderr=devnull)
+            p.communicate()
+            if p.returncode:
+                raise subprocess.CalledProcessError(p.returncode, cmd)
+        copy(vcf_out, os.path.join(
+            self.data_directory, os.path.basename(vcf_out)))
+        copy(vcf_out + ".tbi", os.path.join(
+            self.data_directory, os.path.basename(vcf_out) + ".tbi"))
+        # copy other stuff/delete scratch directory, etc.
+        db = get_connection("dragen")
+        try:
+            cur = db.cursor()
+            cur.execute(UPDATE_PIPELINE_FINISH_SUBMIT_TIME.format(
+                sample_id=self.sample_id,
+                pipeline_step_id=self.pipeline_step_id))
+            cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
+                sample_id=self.sample_id,
+                pipeline_step_id=self.pipeline_step_id))
+            db.commit()
+        finally:
+            if db.open:
+                db.close()
+                
+    def output(self):
+        return SQLTarget(sample_id=self.sample_id,
+                         pipeline_step_id=self.pipeline_step_id)
+
 
 if __name__ == "__main__":
     luigi.run()
