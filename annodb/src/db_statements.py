@@ -87,3 +87,27 @@ SELECT sample_name, sample_type, capture_kit, prep_id
 FROM sample
 WHERE sample_id = {sample_id}
 """
+GET_PIPELINE_STEP_ID = """
+SELECT id
+FROM pipeline_step
+WHERE description = "Imported Chromosome {chromosome}"
+"""
+GET_STEP_STATUS = """
+SELECT finished
+FROM sample_pipeline_step
+WHERE sample_id = {sample_id} AND pipeline_step_id = {pipeline_step_id}
+"""
+INSERT_PIPELINE_STEP = """
+INSERT INTO sample_pipeline_step (sample_id, pipeline_step_id)
+VALUE ({sample_id}, {pipeline_step_id})
+"""
+UPDATE_PIPELINE_STEP_SUBMIT_TIME = """
+UPDATE sample_pipeline_step
+SET submit_time = NOW()
+WHERE sample_id = {sample_id} AND pipeline_step_id = {pipeline_step_id}
+"""
+UPDATE_PIPELINE_STEP_FINISH_TIME = """
+UPDATE sample_pipeline_step
+SET finish_time = NOW(), finished = 1
+WHERE sample_id = {sample_id} AND pipeline_step_id = {pipeline_step_id}
+"""

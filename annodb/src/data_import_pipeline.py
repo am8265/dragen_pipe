@@ -14,7 +14,7 @@ import operator
 import tabix
 from shutil import copy
 from collections import OrderedDict
-from parse_vcf_and_load import parse_vcf_and_load
+from parse_vcf import parse_vcf
 from dragen_globals import *
 from db_statements import *
 
@@ -107,59 +107,37 @@ class CopyDataToScratch(luigi.Task):
         return CopyDataTarget(targets=self.targets, originals=self.originals)
 
 class ParsedVCFTarget(luigi.Target):
-    """Target describing the output of parsing a VCF/gVCF pair,
-        and verification of the entries in the database
+    """Target describing verification of the entries in the database
     """
-    def __init__(self, vcf, chromosome, sample_id, output_base):
-        self.vcf = vcf
+    def __init__(self, chromosome, sample_id):
         self.chromosome = chromosome
         self.sample_id = sample_id
-        self.output_base = output_base
-        self.novel_variants = output_base + ".novel_variants.txt"
-        self.called_variants = output_base + ".calls.txt"
-        self.variant_id_vcf = output_base + ".variant_id.vcf"
-        self.matched_indels = output_base + ".matched_indels.txt"
 
     def exists(self):
-        #print("checking files")
-        for fn in (self.novel_variants, self.called_variants,
-                   self.variant_id_vcf, self.matched_indels):
-            if not os.path.isfile(fn):
-                return False
         db = get_connection("dragen")
         try:
-            vcf_lines = 0
-            vcf_extra_calls = 0
-            vcf_tabix = tabix.open(self.vcf)
-            for vcf_fields in vcf_tabix.querys(self.chromosome):
-                vcf_lines += 1
-                vcf_extra_calls += vcf_fields[VCF_COLUMNS_DICT["ALT"]].count(",")
-            vcf_variants_count = vcf_lines + vcf_extra_calls
-            #print(vcf_variants_count)
-            calls_line_count = get_num_lines_from_vcf(
-                self.called_variants, header=False)
-            #print(calls_line_count)
-            if vcf_variants_count != calls_line_count:
-                return False
-            variant_id_vcf_line_count = get_num_lines_from_vcf(
-                self.variant_id_vcf, header=False)
-            #print(variant_id_vcf_line_count)
-            if vcf_lines != variant_id_vcf_line_count:
-                return False
             cur = db.cursor()
-            cur.execute(GET_NUM_CALLS_FOR_SAMPLE.format(
-                CHROM=self.chromosome, sample_id=self.sample_id))
-            db_count = cur.fetchone()[0]
-            #print(db_count)
-            if db_count != vcf_variants_count:
+            cur.execute(GET_PIPELINE_STEP_ID.format(
+                chromosome=self.chromosome))
+            pipeline_step_id = cur.fetchone()[0]
+            cur.execute(GET_STEP_STATUS.format(
+                sample_id=self.sample_id,
+                pipeline_step_id=pipeline_step_id))
+            row = cur.fetchone()
+            if row:
+                if row[0] == 1:
+                    return True
+                else:
+                    return False
+            else:
+                cur.execute(INSERT_PIPELINE_STEP.format(
+                    sample_id=self.sample_id,
+                    pipeline_step_id=pipeline_step_id))
+                db.commit()
                 return False
-            return True
         finally:
             if db.open:
                 db.close()
-
-    def open(self, mode="r"):
-        return get_fh(self.called_variants, mode)
 
 class ParseVCF(SGEJobTask):
     """parse the specified VCF and gVCF, output text files for the data, and
@@ -198,22 +176,79 @@ class ParseVCF(SGEJobTask):
         else:
             self.output_base = os.path.splitext(self.vcf)[0]
         self.copied_files_dict = self.input().get_targets()
+        self.novel_variants = self.output_base + ".novel_variants.txt"
+        self.called_variants = self.output_base + ".calls.txt"
+        self.variant_id_vcf = self.output_base + ".variant_id.vcf"
+        self.matched_indels = self.output_base + ".matched_indels.txt"
 
     def requires(self):
         return self.clone(CopyDataToScratch)
 
     def work(self):
-        parse_vcf_and_load(
+        db = get_connection("dragen")
+        try:
+            cur = db.cursor()
+            cur.execute(GET_PIPELINE_STEP_ID.format(chromosome=self.chromosome))
+            pipeline_step_id = cur.fetchone()[0]
+            cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
+                sample_id=self.sample_id, pipeline_step_id=pipeline_step_id))
+            db.commit()
+        finally:
+            if db.open:
+                db.close()
+        parse_vcf(
             vcf=self.copied_files_dict["vcf"],
             gvcf=self.copied_files_dict["gvcf"],
             pileup=self.copied_files_dict["pileup"],
             CHROM=self.chromosome, sample_id=self.sample_id,
             output_base=self.output_base, debug=self.debug)
+        for fn in (self.novel_variants, self.called_variants,
+                   self.variant_id_vcf, self.matched_indels):
+            if not os.path.isfile(fn):
+                raise ValueError("failed running task; {} doesn't exist".format(
+                    fn=fn))
+        vcf_lines = 0
+        vcf_extra_calls = 0
+        vcf_tabix = tabix.open(self.vcf)
+        for vcf_fields in vcf_tabix.querys(self.chromosome):
+            vcf_lines += 1
+            vcf_extra_calls += vcf_fields[VCF_COLUMNS_DICT["ALT"]].count(",")
+        vcf_variants_count = vcf_lines + vcf_extra_calls
+        calls_line_count = get_num_lines_from_vcf(
+            self.called_variants, header=False)
+        if vcf_variants_count != calls_line_count:
+            raise ValueError("incorrect number of variants in calls table")
+        variant_id_vcf_line_count = get_num_lines_from_vcf(
+            self.variant_id_vcf, header=False)
+        if vcf_lines != variant_id_vcf_line_count:
+            raise ValueError(
+                "incorrect number of lines in variant_id annotated VCF")
+        db = get_connection("dragen")
+        try:
+            cur = db.cursor()
+            for table_name, table_file in (
+                ("variant_chr" + self.chromosome, self.novel_variants),
+                ("called_variant_chr" + self.chromosome, self.called_variants),
+                ("matched_indels", self.matched_indels)):
+                cur.execute(LOAD_TABLE.format(
+                    table_name=table_name, table_file=table_file))
+            cur.execute(GET_NUM_CALLS_FOR_SAMPLE.format(
+                CHROM=self.chromosome, sample_id=self.sample_id))
+            db_count = cur.fetchone()[0]
+            if db_count != vcf_variants_count:
+                db.rollback()
+                raise ValueError(
+                    "incorrect number of calls in the called_variant table")
+            cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
+                sample_id=self.sample_id, pipeline_step_id=pipeline_step_id))
+            db.commit()
+        finally:
+            if db.open:
+                db.close()
 
     def output(self):
         return ParsedVCFTarget(
-            vcf=self.copied_files_dict["vcf"], chromosome=self.chromosome,
-            sample_id=self.sample_id, output_base=self.output_base)
+            chromosome=self.chromosome, sample_id=self.sample_id)
 
 class ImportSample(luigi.WrapperTask):
     """import a sample by requiring() a ParseVCF Task for each chromosome
