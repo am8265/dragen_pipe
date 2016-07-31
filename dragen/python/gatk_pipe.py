@@ -63,7 +63,7 @@ class CopyBam(SGEJobTask):
     def work(self):
         os.system("mkdir -p {0}/scripts".format(self.scratch + self.sample_name))
         os.system("mkdir -p {0}/logs".format(self.scratch + self.sample_name))
-        cmd = ("rsync -a --partial --timeout=20000 -r {bam} {bam_index} {scratch}/{sample_name}/"
+        cmd = ("rsync -a --timeout=20000 -r {bam} {bam_index} {scratch}/{sample_name}/"
               ).format(bam=self.bam,
                        scratch_bam=self.scratch_bam,
                        bam_index=self.bam_index,
@@ -139,11 +139,11 @@ class RealignerTargetCreator(SGEJobTask):
             o.write(cmd + "\n")
         subprocess.check_call(shlex.split(cmd))
 
-    def output(self):
-        yield luigi.LocalTarget(self.interval_list)
-
     def requires(self):
         return self.clone(CopyBam)
+
+    def output(self):
+        yield luigi.LocalTarget(self.interval_list)
 
 
 class IndelRealigner(SGEJobTask):
@@ -1053,34 +1053,34 @@ class CombineVariants(SGEJobTask):
         vcf is then sorted producing the analysisReady.vcf.
         """
         filter_flag = 0
-        with open(self.tmp_vcf,'w') as vcf_out:
-            with open(self.snp_filtered) as header:
-                for line in header.readlines():
-                    if line[0] == '#':
-                        if line[0:8] == '##FILTER' and filter_flag == 0 :
-                            filter_flag = 1
-                            #SNP specific FILTER whether using VQSR or snp filtering
-                            if self.sample_type == 'exome' or self.sample_type =='genome':
-                                vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.00to99.90,Description="Truth sensitivity tranche level for SNP model\n')
-                                vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.90to100.00+,Description="Truth sensitivity tranche level for SNP model\n')
-                                vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.90to100.00,Description="Truth sensitivity tranche level for SNP model\n')
-                            else:
-                                vcf_out.write('##FILTER=<ID=SNP_filter,Description="QD < 2.0 || FS > 60.0 || MQ < 40.0 || MQRankSum < -12.5 || ReadPosRankSum < -8.0">\n')
+        with open(self.tmp_vcf,'w') as vcf_out, open(self.snp_filtered) as header:
+            for line in header.readlines():
+                if line[0] == '#':
+                    if line[0:8] == '##FILTER' and filter_flag == 0 :
+                        filter_flag = 1
+                        #SNP specific FILTER whether using VQSR or snp filtering
+                        if self.sample_type == 'exome' or self.sample_type =='genome':
+                            vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.00to99.90,Description="Truth sensitivity tranche level for SNP model\n')
+                            vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.90to100.00+,Description="Truth sensitivity tranche level for SNP model\n')
+                            vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.90to100.00,Description="Truth sensitivity tranche level for SNP model\n')
+                        else:
+                            vcf_out.write('##FILTER=<ID=SNP_filter,Description="QD < 2.0 || FS > 60.0 || MQ < 40.0 || MQRankSum < -12.5 || ReadPosRankSum < -8.0">\n')
 
-                            #Indel specific filters whether using VQSR or indel filtering
-                            if self.sample_type =='genome':
-                                vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.00to99.90,Description="Truth sensitivity tranche level for INDEL model\n')
-                                vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.90to100.00+,Description="Truth sensitivity tranche level for INDEL model\n')
-                                vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.90to100.00,Description="Truth sensitivity tranche level for INDEL model\n')
-                            else:
-                                vcf_out.write('##FILTER=<ID=INDEL_filter,Description="QD < 2.0 || FS > 200.0 || ReadPosRankSum < -20.0">\n')
+                        #Indel specific filters whether using VQSR or indel filtering
+                        if self.sample_type =='genome':
+                            vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.00to99.90,Description="Truth sensitivity tranche level for INDEL model\n')
+                            vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.90to100.00+,Description="Truth sensitivity tranche level for INDEL model\n')
+                            vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.90to100.00,Description="Truth sensitivity tranche level for INDEL model\n')
+                        else:
+                            vcf_out.write('##FILTER=<ID=INDEL_filter,Description="QD < 2.0 || FS > 200.0 || ReadPosRankSum < -20.0">\n')
 
-                        #AnnoDBID annotation will be added during the annotation pipeline
-                        if line[0:13] == "##INFO=<ID=AN":
-                                vcf_out.write('##INFO=<ID=AnnoDBID,Number=1,Type=String,Description="AnnoDBID">\n')
-                        vcf_out.write(line)
-                    else:
-                        break
+                    #AnnoDBID annotation will be added during the annotation pipeline
+                    if line[0:13] == "##INFO=<ID=AN":
+                            vcf_out.write('##INFO=<ID=AnnoDBID,Number=1,Type=String,Description="AnnoDBID">\n')
+                    vcf_out.write(line)
+                else:
+                    break
+
             with open(self.snp_filtered) as snps:
 
                 for snp in snps.readlines():
@@ -1101,6 +1101,7 @@ class CombineVariants(SGEJobTask):
 
         with open(self.script,'w') as o:
             o.write(sort_cmd + "\n")
+
         subprocess.check_call(shlex.split(sort_cmd))
 
     def requires(self):
@@ -1113,11 +1114,12 @@ class CombineVariants(SGEJobTask):
         else:
             raise Exception, "Sample type: %s not supported in this module" % self.sample_type
     def output(self):
-        return luigi.LocalTarget(self.final_vcf_gz)
+        return luigi.LocalTarget(self.final_vcf)
 
 class AnnotateVCF(SGEJobTask):
     base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
     scratch = luigi.Parameter()
     sample_type = luigi.Parameter()
 
@@ -1129,11 +1131,6 @@ class AnnotateVCF(SGEJobTask):
         description = 'bgzip version used')
     snpEff = luigi.Parameter(default=snpEff,
         description = 'snpEff version used')
-
-    #SnpEff parameters
-    snpeff_cfg="/nfs/goldstein/software/snpEff/4.1/snpEff.config"
-    snpeff_options=""
-    intervals="/nfs/goldstein/goldsteinlab/software/snpEff_3_3/data/GRCh37.73/intron_exon_boundaries.unique.custom_interval.bed"
 
     n_cpu = 1
     parallel_env = "threaded"
@@ -1149,10 +1146,17 @@ class AnnotateVCF(SGEJobTask):
             scratch=self.scratch, sample_name=self.sample_name)
         self.annotated_vcf_gz = "{scratch}/{sample_name}/{sample_name}.analysisReady.annotated.vcf.gz".format(
             scratch=self.scratch, sample_name=self.sample_name)
+        self.annotated_vcf_gz_index = "{scratch}/{sample_name}/{sample_name}.analysisReady.annotated.vcf.gz.tbi".format(
+            scratch=self.scratch, sample_name=self.sample_name)
         self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
             scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
 
     def work(self):
+        #SnpEff parameters
+        snpeff_cfg="/nfs/goldstein/software/snpEff/4.1/snpEff.config"
+        snpeff_options=""
+        intervals="/nfs/goldstein/goldsteinlab/software/snpEff_3_3/data/GRCh37.73/intron_exon_boundaries.unique.custom_interval.bed"
+
         snpEff_cmd = ("{java} -Xmx5G -jar {snpEff} eff "
                      "GRCh37.74 -c {snpeff_cfg} "
                      "-interval {intervals} "
@@ -1160,9 +1164,9 @@ class AnnotateVCF(SGEJobTask):
                      "-o vcf {final_vcf}"
                      ).format(java=java,
                               snpEff=snpEff,
+                              snpeff_cfg=snpeff_cfg,
                               intervals=intervals,
                               final_vcf=self.final_vcf)
-
         bgzip_cmd = ("{bgzip} {annotated_vcf}").format(bgzip=bgzip,annotated_vcf=self.annotated_vcf)
         tabix_cmd = ("{tabix} {annotated_vcf_gz}").format(tabix=tabix,annotated_vcf_gz=self.annotated_vcf_gz)
 
@@ -1171,9 +1175,22 @@ class AnnotateVCF(SGEJobTask):
             o.write(bgzip_cmd + "\n")
             o.write(tabix_cmd + "\n")
 
+        with open(self.annotated_vcf,'w') as vcf_out, \
+            open(self.annotated_vcf + ".log", "w") as log_fh:
+                p = subprocess.Popen(shlex.split(snpEff_cmd), stdout=vcf_out, stderr=log_fh)
+                p.wait()
+        if p.returncode:
+            raise subprocess.CalledProcessError(p.returncode, cmd)
+
         subprocess.check_call(shlex.split(snpEff_cmd))
-        subprocess.check_call(shlex.split(bgzip_cmd))
-        subprocess.check_call(shlex.split(tabix_cmd))
+        #subprocess.check_call(shlex.split(bgzip_cmd))
+        #subprocess.check_call(shlex.split(tabix_cmd))
+
+    def requires(self):
+        return self.clone(CombineVariants)
+
+    def output(self):
+        return luigi.LocalTarget(self.annotated_vcf_gz_index)
 
 class ArchiveSample(SGEJobTask):
     """Archive samples on Amplidata"""
@@ -1214,7 +1231,7 @@ class ArchiveSample(SGEJobTask):
         self.g_vcf_gz_index = "{scratch}/{sample_name}/{sample_name}.g.vcf.gz.tbi".format(
             scratch=self.scratch, sample_name=self.sample_name)
         """
-        self.annotated_vcf_gz_index = "{scratch}/{sample_name}/{sample_name}.analysisReady.vcf.gz.tbi".format(
+        self.annotated_vcf_gz_index = "{scratch}/{sample_name}/{sample_name}.analysisReady.annotated.vcf.gz.tbi".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.copy_complete = "{base_directory}/{sample_name}/copy_complete".format(
             base_directory=self.base_directory, sample_name=self.sample_name)
@@ -1225,13 +1242,13 @@ class ArchiveSample(SGEJobTask):
 
     def work(self):
         cmd = ("rsync -a --timeout=25000 -r "
-              "{script_dir} {recal_bam} {recal_bam_index} {final_vcf_gz} "
-              "{final_vcf_gz_index} {g_vcf_gz} {base_directory}/{sample_name}"
+              "{script_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
+              "{annotated_vcf_gz_index} {g_vcf_gz} {base_directory}/{sample_name}"
               ).format(recal_bam=self.recal_bam,
                       recal_bam_index=self.recal_bam_index,
                       script_dir=self.script_dir,
-                      final_vcf_gz=self.final_vcf_gz,
-                      final_vcf_gz_index=self.final_vcf_gz_index,
+                      annotated_vcf_gz=self.annotated_vcf_gz,
+                      annotated_vcf_gz_index=self.annotated_vcf_gz_index,
                       base_directory=self.base_directory,
                       g_vcf_gz=self.g_vcf_gz,
                       sample_name=self.sample_name)
@@ -1248,10 +1265,10 @@ class ArchiveSample(SGEJobTask):
         rm_cmd = ['rm',self.bam]
         rm_folder_cmd = ['rm','-rf',self.scratch_dir]
         #subprocess.call(rm_cmd)
-        subprocess.call(rm_folder_cmd)
+        #subprocess.call(rm_folder_cmd)
 
     def requires(self):
-        return self.clone(CombineVariants)
+        return self.clone(AnnotateVCF)
 
     def output(self):
         return luigi.LocalTarget(self.copy_complete)
