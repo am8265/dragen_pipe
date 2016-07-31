@@ -1227,10 +1227,8 @@ class ArchiveSample(SGEJobTask):
             scratch=self.scratch, sample_name=self.sample_name)
         self.g_vcf_gz = "{scratch}/{sample_name}/{sample_name}.g.vcf.gz".format(
             scratch=self.scratch, sample_name=self.sample_name)
-        """
         self.g_vcf_gz_index = "{scratch}/{sample_name}/{sample_name}.g.vcf.gz.tbi".format(
             scratch=self.scratch, sample_name=self.sample_name)
-        """
         self.annotated_vcf_gz_index = "{scratch}/{sample_name}/{sample_name}.analysisReady.annotated.vcf.gz.tbi".format(
             scratch=self.scratch, sample_name=self.sample_name)
         self.copy_complete = "{base_directory}/{sample_name}/copy_complete".format(
@@ -1243,7 +1241,8 @@ class ArchiveSample(SGEJobTask):
     def work(self):
         cmd = ("rsync -a --timeout=25000 -r "
               "{script_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
-              "{annotated_vcf_gz_index} {g_vcf_gz} {base_directory}/{sample_name}"
+              "{annotated_vcf_gz_index} {g_vcf_gz} {base_directory}/{sample_name} "
+              "{g_vcf_gz_index}"
               ).format(recal_bam=self.recal_bam,
                       recal_bam_index=self.recal_bam_index,
                       script_dir=self.script_dir,
@@ -1251,6 +1250,7 @@ class ArchiveSample(SGEJobTask):
                       annotated_vcf_gz_index=self.annotated_vcf_gz_index,
                       base_directory=self.base_directory,
                       g_vcf_gz=self.g_vcf_gz,
+                      g_vcf_gz_index=self.g_vcf_gz_index,
                       sample_name=self.sample_name)
         with open(self.script,'w') as o:
             o.write(cmd + "\n")
