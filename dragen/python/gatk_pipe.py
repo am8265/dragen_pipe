@@ -6,7 +6,8 @@ import sys
 import subprocess
 import luigi
 import MySQLdb
-from luigi.contrib.sge import SGEJobTask, LocalSGEJobTask
+from luigi.contrib.sge import SGEJobTask
+from dragen_globals import *
 from dragen_sample import dragen_sample
 
 """
@@ -24,7 +25,7 @@ bedtools="/nfs/goldstein/software/bedtools-2.25.0/bin/bedtools"
 snpEff="/nfs/goldstein/software/snpEff/4.1/snpEff.jar"
 
 #GATK parameters
-max_mem="15"
+max_mem="25"
 #ref="/nfs/goldsteindata/refDB/HS_Build37/BWA_INDEX_hs37d5_BWAmem/hs37d5.fa"
 ref="/scratch/HS_Build37/BWA_INDEX_hs37d5/hs37d5.fa"
 hapmap="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/hapmap_3.3.b37.vcf"
@@ -34,6 +35,7 @@ Mills1000g="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/Mills_and_1
 dbSNP="/nfs/goldsteindata/refDB/dbSNP/dbsnp_147.b37.vcf"
 interval="/nfs/goldstein/software/dragen_pipe/dragen/conf/hs37d5.intervals"
 
+cfg = get_cfg()
 
 class CopyBam(SGEJobTask):
     """class for copying dragen aligned bam to a scratch location"""
@@ -42,6 +44,7 @@ class CopyBam(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    pseudo_prepid = luigi.Parameter()
     interval = luigi.Parameter(default=interval)
 
     n_cpu = 1
@@ -59,8 +62,28 @@ class CopyBam(SGEJobTask):
             scratch=self.scratch,sample_name=self.sample_name)
         self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
             scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+        db = get_connection("seqdb")
+        try:
+            cur = db.cursor()
+            cur.execute(GET_PIPELINE_STEP_ID.format(
+                step_name=self.__class__.__name__))
+            self.pipeline_step_id = cur.fetchone()[0]
+        finally:
+            if db.open:
+                db.close()
 
     def work(self):
+        db = get_connection("seqdb")
+        try:
+            cur = db.cursor()
+            cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
+                        pseudo_prepid=self.pseudo_prepid,
+                        pipeline_step_id=self.pipeline_step_id))
+            db.commit()
+        finally:
+            if db.open:
+                db.close()
+
         os.system("mkdir -p {0}/scripts".format(self.scratch + self.sample_name))
         os.system("mkdir -p {0}/logs".format(self.scratch + self.sample_name))
         cmd = ("rsync -a --timeout=20000 -r {bam} {bam_index} {scratch}/{sample_name}/"
@@ -73,10 +96,24 @@ class CopyBam(SGEJobTask):
             o.write(cmd + "\n")
         subprocess.check_call(shlex.split(cmd))
 
+        db = get_connection("seqcb")
+        try:
+            cur = db.cursor()
+            cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
+                        pseudo_prepid=self.pseudo_prepid,
+                        pipeline_step_id=self.pipeline_step_id))
+            db.commit()
+        finally:
+            if db.open:
+                db.close()
+
     def output(self):
+        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
+            pipeline_step_id=self.pipeline_step_id)
+        """
         yield luigi.LocalTarget("{scratch}/{sample_name}/{sample_name}.bam.bai".format(
             scratch=self.scratch,sample_name=self.sample_name))
-
+        """
 class RealignerTargetCreator(SGEJobTask):
     """class for creating targets for indel realignment BAMs from Dragen"""
 
@@ -377,6 +414,8 @@ class HaplotypeCaller(SGEJobTask):
             scratch=self.scratch, sample_name=self.sample_name)
         self.gvcf = "{scratch}/{sample_name}/{sample_name}.g.vcf.gz".format(
             scratch=self.scratch, sample_name=self.sample_name)
+        self.gvcf_index = "{scratch}/{sample_name}/{sample_name}.g.vcf.gz.tbi".format(
+            scratch=self.scratch, sample_name=self.sample_name)
         self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
             scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
 
@@ -416,7 +455,7 @@ class HaplotypeCaller(SGEJobTask):
         return self.clone(PrintReads)
 
     def output(self):
-        return luigi.LocalTarget(self.gvcf)
+        return luigi.LocalTarget(self.gvcf_index)
 
 class GenotypeGVCFs(SGEJobTask):
     """class to perfrom variant calling from gVCFs"""
@@ -1273,24 +1312,34 @@ class ArchiveSample(SGEJobTask):
     def output(self):
         return luigi.LocalTarget(self.copy_complete)
 
-class CheckBam(luigi.Target):
-    pass
 
-class CheckTruncated(luigi.Target):
-    """ Class to check if target file is truncated or not """
-    def __init__(self,infile,sample_type):
-        self.infile = infile
-        self.sample_type = sample_type
+class SQLTarget(luigi.Target):
+    """Target describing verification of the entries in the database
+    """
+    def __init__(self, pseudo_prepid, pipeline_step_id):
+        self.pseudo_prepid = pseudo_prepid
+        self.pipeline_step_id = pipeline_step_id
 
     def exists(self):
-        """checks if the file was truncated or not"""
-        f = subprocess.Popen(['tail','-1',infile],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-        while True:
-            line = f.stdout.readline()
-        print line
-        chr = line.split('\t')[0]
+        db = get_connection("seqdb")
+        try:
+            cur = db.cursor()
+            cur.execute(GET_STEP_STATUS.format(
+                pseudo_prepid=self.pseudo_prepid,
+                pipeline_step_id=self.pipeline_step_id))
+            row = cur.fetchone()
+            if row:
+                if row[0] == 1:
+                    return True
+                else:
+                    return False
+            else:
+                cur.execute(INSERT_PIPELINE_STEP.format(
+                    pseudo_prepid=self.pseudo_prepid,
+                    pipeline_step_id=self.pipeline_step_id))
+                db.commit()
+                return False
+        finally:
+            if db.open:
+                db.close()
 
-        if chr != 'MT' or chr != 'X' or chr != 'Y':
-            return False
-        else:
-            return True
