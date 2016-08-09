@@ -40,7 +40,10 @@ class config(luigi.Config):
     dbsnp = luigi.Parameter()
     cnf_file = luigi.Parameter()
     max_mem = luigi.IntParameter()
+    binner_loc  = luigi.Parameter()
 
+    
+    
 class RootTask(luigi.WrapperTask):
     """
     Wrapper Task
@@ -136,9 +139,9 @@ class RunCvgMetrics(SGEJobTask):
     scratch  = luigi.Parameter()
     
     ## System Parameters 
-    n_cpu = 12
+    n_cpu = 2
     parallel_env = "threaded"
-    shared_tmp_dir = "/home/rp2801/git/"
+    shared_tmp_dir = "/nfs/seqscratch11/rp2801/genome_cvg_temp"
 
     def __init__(self,*args,**kwargs):
         """
@@ -179,23 +182,25 @@ class RunCvgMetrics(SGEJobTask):
             else: ## Run wgs metrics across the genome
                 self.cvg_cmd1 = """{0} -Xmx{1}g -XX:ParallelGCThreads=24 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={3} I={4} O={5} MQ=20 Q=10""".format(config().java,config().max_mem,config().picard,config().ref,self.bam,self.raw_output_file)
                
-                ## Run the cvg metrics on X and Y Chromosomes only            
-                self.cvg_cmd2 = """{0} -Xmx{1}g -XX:ParallelGCThreads=24 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={3} I={4} INTERVALS={5} O={6} MQ=20 Q=10""".format(config().java,config().max_mem,config().picard,config().ref,self.bam,config().bait_file_X,self.raw_output_file)              
-                self.cvg_cmd3 = """{0} -Xmx{1}g -XX:ParallelGCThreads=24 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT {3} I={4} INTERVALS={5} O={6} MQ=20 Q=10""".format(config().java,config().max_mem,config().picard,config().ref,self.bam,config().bait_file_Y,self.raw_output_file_X)              
+                ## Run the cvg metrics on X and Y Chromosomes only
+                self.cvg_sex1= """{0} -Xmx{1}g -XX:ParallelGCThreads=24 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={3} I={4} INTERVALS={5} O={6} MQ=20 Q=10"""
+                self.cvg_cmd2 = self.cvg_sex1.format(config().java,config().max_mem,config().picard,config().ref,self.bam,config().bait_file_X,self.raw_output_file)              
+                self.cvg_cmd3 = self.cvg_sex2.format(config().java,config().max_mem,config().picard,config().ref,self.bam,config().bait_file_Y,self.raw_output_file_X)              
                              
         else: ## Anything other than genome i.e. Exome or Custom Capture( maybe have an elif here to check further ?)
             self.cvg_cmd1 = """{0} -XX:ParallelGCThreads=24 -jar {1} CollectHsMetrics BI={2} TI={3} VALIDATION_STRINGENCY=LENIENT METRIC_ACCUMULATION_LEVEL=ALL_READS I={4} O={5} MQ=20 Q=10""".format(config().java,config().picard,config().bait_file,self.target_file,self.bam,self.raw_output_file)
 
-        ## Run the Metrics cvg metrics on X and Y Chromosomes only            
-            self.cvg_cmd2 = """{0} -XX:ParallelGCThreads=24 -jar {1} CollectHsMetrics BI={2} TI={3} VALIDATION_STRINGENCY=LENIENT METRIC_ACCUMULATION_LEVEL=ALL_READS I={4} O={5} MQ=20 Q=10""".format(config().java,config().picard,config().bait_file,config().bait_file_X,self.bam,self.raw_output_file_X)
-            self.cvg_cmd3 = """{0} -XX:ParallelGCThreads=24 -jar {1} CollectHsMetrics BI={2} TI={3} VALIDATION_STRINGENCY=LENIENT METRIC_ACCUMULATION_LEVEL=ALL_READS I={4} O={5} MQ=20 Q=10""".format(config().java,config().picard,config().bait_file,config().bait_file_Y,self.bam,self.raw_output_file_Y)
+            ## Run the Metrics cvg metrics on X and Y Chromosomes only
+            self.cvg_sex2 =  """{0} -XX:ParallelGCThreads=24 -jar {1} CollectHsMetrics BI={2} TI={3} VALIDATION_STRINGENCY=LENIENT METRIC_ACCUMULATION_LEVEL=ALL_READS I={4} O={5} MQ=20 Q=10"""
+            self.cvg_cmd2 =self.cvg_sex2.format(config().java,config().picard,config().bait_file,config().bait_file_X,self.bam,self.raw_output_file_X)
+            self.cvg_cmd3 = self.cvg_sex2.format(config().java,config().picard,config().bait_file,config().bait_file_Y,self.bam,self.raw_output_file_Y)
 
-        self.parser_cmd1 = """cat {0} | grep -v "^#"|awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1}""".format(self.raw_output_file,self.output_file)
-        self.parser_cmd2 = """cat {0} | grep -v "^#"|awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1}""".format(self.raw_output_file_X,self.output_file_X)
-        self.parser_cmd3 = """cat {0} | grep -v "^#"|awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1}""".format(self.raw_output_file_Y,self.output_file_Y)
         self.parser_cmd = """cat {0} | grep -v "^#" | awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1}"""
+        self.parser_cmd1 = self.parser_cmd.format(self.raw_output_file,self.output_file)
+        self.parser_cmd2 = self.parser_cmd.format(self.raw_output_file_X,self.output_file_X)
+        self.parser_cmd3 = self.parser_cmd.format(self.raw_output_file_Y,self.output_file_Y)
         
-
+       
             
     def output(self):
         """
@@ -241,7 +246,7 @@ class CreateTargetFile(SGEJobTask):
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/home/rp2801/git/"
+    shared_tmp_dir = "/nfs/seqscratch11/rp2801/genome_cvg_temp"
 
     def __init__(self,*args,**kwargs):
         super(CreateTargetFile,self).__init__(*args,**kwargs)
@@ -306,7 +311,7 @@ class CreatePed(SGEJobTask):
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/home/rp2801/git"
+    shared_tmp_dir = "/nfs/seqscratch11/rp2801/genome_cvg_temp"
 
 
     def __init__(self,*args,**kwargs):
@@ -379,15 +384,20 @@ class CreateGenomeBed(SGEJobTask):
     n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/nfs/seqscratch11/rp2801/genome_cvg_temp/"
-
+    no_tarball=True
     bam = luigi.Parameter()
     sample = luigi.Parameter()
     scratch = luigi.Parameter()
-    poll_time = luigi.Parameter(default=5,description="The time to wait to run qstat")
+    
+    #no_tarball = luigi.Parameter()
     
     def __init__(self,*args,**kwargs):
         super(CreateGenomeBed,self).__init__(*args,**kwargs)
 
+        #self.bam = args[0]
+        #self.sample = args[1]
+        #self.scratch = args[2]
+        #self.poll_time = luigi.Parameter(default=5,description="The time to wait to run qstat")
         
         if not os.path.isdir(self.scratch): ## Recursively create the directory if it doesnt exist
             os.makedirs(self.scratch)
@@ -401,7 +411,7 @@ class CreateGenomeBed(SGEJobTask):
 
         
 
-        self.gzip_cmd = "/nfs/goldstein/software/bin/bgzip {0}".format(self.genomecov_bed)
+        self.gzip_cmd = "/nfs/goldstein/software/pigz-2.3.1/pigz {0}".format(self.genomecov_bed)
         self.gzipped_genomecov_bed = self.genomecov_bed+'.gz'
         self.tabix_cmd = "/nfs/goldstein/software/bin/tabix -p bed {0}".format(self.gzipped_genomecov_bed)
         self.tbi_file = self.gzipped_genomecov_bed+'.tbi'
@@ -429,27 +439,31 @@ class CreateGenomeBed(SGEJobTask):
         os.system(self.gzip_cmd)
         os.system(self.tabix_cmd)
 
-class CoverageBinning(SGEJobTask):
+
+class Binning(SGEJobTask):
     """
     Move to annodb pipeline 
     Task to run the coverage binning script
     """
 
 
-    bam_file = luigi.Parameter()
+    bam_file = luigi.Parameter(default='bam')
+    gvcf = luigi.Parameter(default='gvcf')
     sample = luigi.Parameter()
     block_size = luigi.Parameter()
     scratch = luigi.Parameter()
-
+    mode = luigi.Parameter()
+    
+    
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/home/rp2801/git"
-      
+    shared_tmp_dir = "/nfs/seqscratch11/rp2801/genome_cvg_temp"
+    
     
     def __init__(self,*args,**kwargs):
 
-        super(CoverageBinning,self).__init__(*args,**kwargs)
+        super(Binning,self).__init__(*args,**kwargs)
 
         if not os.path.isdir(self.scratch): ## Recursively create the directory if it doesnt exist
             os.makedirs(self.scratch)
@@ -460,18 +474,24 @@ class CoverageBinning(SGEJobTask):
         self.human_chromosomes = [str(x) for x in self.human_chromosomes]
         self.human_chromosomes.extend(['X', 'Y','MT'])
 
-        self.binning_cmd = "{0} {1} {2} {3} {4} {5}".format(config().pypy_loc,
-                                     config().coverage_binner_loc,
-                                     self.block_size,self.genomecov_bed,
-                                     self.sample,self.scratch)
-        
+        if self.mode == 'coverage':
+            self.binning_cmd = "{0} {1} --sample_id {2} --block_size {3} --output_dir {4} {5} --mode coverage".format(
+                config().pypy_loc,config().binner_loc,self.sample,self.block_size,self.scratch,
+                self.genomecov_bed)        
+        elif self.mode == 'gq':
+            self.binning_cmd = "{0} {1} --sample_id {2} --block_size {3} --output_dir {4} {5} --mode gq".format(
+                config().pypy_loc,config().binner_loc,self.sample,self.block_size,self.scratch,
+                self.gvcf)
    
     def requires(self):
         """
         Dependency is the completion of the CreateGenomeBed Task
         """
-       
-        return [CreateGenomeBed(self.bam,self.sample_name,self.scratch)]
+    
+        if self.mode == 'coverage':
+            return [CreateGenomeBed(bam=self.bam_file,sample=self.sample,scratch=self.scratch)]
+        elif self.mode == 'gq':
+            return MyExtTask(self.gvcf)
         
     
     def output(self):
@@ -481,11 +501,11 @@ class CoverageBinning(SGEJobTask):
 
         
         for chrom in self.human_chromosomes:
-            file_loc = os.path.join(self.config,self.sample+'_read_coverage_'+self.block_size
+            file_loc = os.path.join(self.scratch,self.sample+'_read_coverage_'+self.block_size
                                     +'_chr%s.txt'%chrom)
-            yield file_loc
+            yield luigi.LocalTarget(file_loc)
         
-        #return os.path.join(self.scratch,self.sample+'.genomecvg.bed')
+        
 
     def work(self):
         """ Run the binning script
@@ -504,7 +524,7 @@ class AlignmentMetrics(SGEJobTask):
     sample_name = luigi.Parameter()
 
     ## System Parameters 
-    n_cpu = 12
+    n_cpu = 4
     parallel_env = "threaded"
     shared_tmp_dir = "/home/rp2801/git"
 
@@ -516,7 +536,7 @@ class AlignmentMetrics(SGEJobTask):
 
         self.output_file_raw = os.path.join(self.scratch,self.sample+'.alignment.metrics.raw.txt')
         self.output_file = os.path.join(self.scratch,self.sample+'.alignment.metrics.txt')
-        self.cmd = "{0} -XX:ParallelGCThreads=12 -jar {1} CollectAlignmentSummaryMetrics TMP_DIR={2} VALIDATION_STRINGENCY=SILENT REFERENCE_SEQUENCE={3} INPUT={4} OUTPUT={5}".format(config().java,config().picard,config().scratch,config().ref,self.bam,self.output_file)               
+        self.cmd = "{0} -XX:ParallelGCThreads=4 -jar {1} CollectAlignmentSummaryMetrics TMP_DIR={2} VALIDATION_STRINGENCY=SILENT REFERENCE_SEQUENCE={3} INPUT={4} OUTPUT={5}".format(config().java,config().picard,config().scratch,config().ref,self.bam,self.output_file)               
         self.parser_cmd = """cat {0} | grep -v "^#" | awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1}"""
         
         
@@ -556,7 +576,7 @@ class DuplicateMetrics(SGEJobTask):
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/home/rp2801/git"
+    shared_tmp_dir = "/nfs/seqscratch11/rp2801/genome_cvg_temp"
 
     
     def __init__(self):
@@ -691,16 +711,14 @@ class UpdateDatabase(SGEJobTask):
     """
 
     output_file = luigi.Parameter()
-    ## A list parameter containing the field names to be used for update
+    ## A dict parameter containing the field names to be used for update
     ## from the output file and the corresponding field in the database 
     fields = luigi.DictParameter() 
     cnf_file = luigi.Parameter()
     testmode = luigi.BoolParameter()
-    seq_type = luigi.Parameter()
-    prepid = luigi.Parameter() 
-    #chgvid = kwargs['chgvid']
-    #seq_type = kwargs['seq_type']
-    
+    seqtype = luigi.Parameter()
+    prepid = luigi.Parameter()
+    chgvid = luigi.Parameter()  
         
     
     def __init__(self,*args,**kwargs):
@@ -709,11 +727,12 @@ class UpdateDatabase(SGEJobTask):
             db = MySQLdb.connect(read_default_group='clienttestdb',db='sequenceDB',read_default_file=self.cnf_file)
             db_cursor = db.cursor()
 
-        self.query_statement = """ UPDATE TABLE seqdbClone SET {0} = {1} WHERE CHGVID = {2} AND seqType = {3} AND prepid = {4}"""
+        self.query_statement = """ UPDATE seqdbClone SET {0} = {1} WHERE CHGVID = {2} AND seqType = {3} AND prepid = {4}"""
         
         self.out_hash = {}
         with open(self.output_file,'w') as OUT:
             for line in OUT:
+                line = line.strip('\n')
                 contents = line.split(' ')
                 self.out_hash[contents[0]] = contents[1]
 
@@ -737,8 +756,8 @@ class UpdateDatabase(SGEJobTask):
                       'prep_id':self.prep_id,'chgvid':self.chgvid,
                       'testmode':self.testmode}
         for key in self.fields.keys():
-            check_args['db_field'] = key
-            check_args['value'] = db_field
+            check_args['db_field'] = self.fields[key]
+            check_args['value'] = self.out_hash[key]
             return CheckUpdates(check_args)
  
     def work(self):
@@ -750,7 +769,7 @@ class UpdateDatabase(SGEJobTask):
         for key in self.fields.keys():
             value = self.out_hash[field]
             db_field = self.fields[key]
-            self.db_cursor.execute(self.query_statement.format(db_field,value))
+            self.db_cursor.execute(self.query_statement.format(db_field,value,self.chgvid,self.seqtype,self.prepid))
             self.db.commit()
             
         self.db.close()
