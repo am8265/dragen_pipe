@@ -86,8 +86,7 @@ def get_fastq_loc(curs, sample):
                         for flowcell in fastq_loc:
                             locs.append(os.path.realpath(flowcell))
         else:
-            fastq_loc = glob('/nfs/fastq_temp*/{0}/{1}/*XX'.format(
-                corrected_sample_type,sample['sample_name']))
+            fastq_loc = glob('/nfs/seqsata*/seqfinal/whole_genome/{}/*XX'.format(sample['sample_name']))
             if fastq_loc:
                 for flowcell in fastq_loc:
                     locs.append(os.path.realpath(flowcell))
