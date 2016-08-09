@@ -1,4 +1,7 @@
 #!/nfs/goldstein/software/python2.7.7/bin/python
+"""Converts Ilumina 1.7 fastq sequencing performed at Duke University via CHGV
+into Illumina 1.8 fastq format.
+"""
 
 import shlex
 import subprocess
@@ -58,6 +61,7 @@ def main():
             else:
                 raise Exception, 'File {} could not be processed'.format(sequence_file)
 
+            """Future Optimization: pipe seqtk output directly into gzip"""
             seqtk_cmd = '/nfs/goldstein/software/seqtk/seqtk seq -Q64 -V {}'.format(sequence_file)
             print seqtk_cmd
 
