@@ -16,7 +16,7 @@ Dragen based alignment
 """
 
 #Pipeline programs
-gatk="/nfs/goldstein/software/GATK-3.6.0"
+gatk="/nfs/goldstein/software/GATK-3.6.0-nightly-2016-08-10-g9a77889/"
 java="/nfs/goldstein/software/jdk1.8.0_05/bin/java"
 bgzip="/nfs/goldstein/software/bin/bgzip"
 tabix="/nfs/goldstein/software/bin/tabix"
