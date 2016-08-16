@@ -24,7 +24,8 @@ def insert_pseudo_prepid(sample,debug):
             ).format(prepID=sample.metadata['prepid'][0])
     if debug:
         print query
-
+        print sample.metadata['prepid']
+    raw_input()
     curs.execute(query)
 
     pseudo_prepid_query = "SELECT LAST_INSERT_ID()"
@@ -32,15 +33,17 @@ def insert_pseudo_prepid(sample,debug):
     pseudo_prepid = curs.fetchone()
 
     if debug:
-       print pseudo_prepid
+       print pseudo_prepid[0]
 
     #Iterate over remaining prepids, if any inserting with the new pseudo_prepid
     if len(sample.metadata['prepid']) > 1:
         for prepid in sample.metadata['prepid'][1:]:
             multiple_query = ("INSERT INTO pseudo_prepid "
                     "(pseudo_prepid,prepid) "
-                    "VALUES ({pseudo_prepid},{prepID}) ; "
-            ).format(prepid=prepid,pseudo_prepid=pseudo_prepid)
+                    "VALUES ({pseudo_prepid},{prepid}) ; "
+            ).format(prepid=prepid,pseudo_prepid=pseudo_prepid[0])
+            if debug:
+               print multiple_query
             curs.execute(multiple_query)
 
     return pseudo_prepid[0]
