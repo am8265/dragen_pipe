@@ -6,6 +6,7 @@ Define a class describing samples going through the dragen pipeline
 import argparse
 import MySQLdb
 import os
+import pdb
 import subprocess
 import sys
 import time
@@ -45,7 +46,7 @@ def get_fastq_loc(curs, sample):
     locs = []
     #correcting the downstream consequences of "custom capture" as the sample_type
     corrected_sample_type = sample['sample_type'].upper().replace(" ","_")
-
+    #pdb.set_trace()
     for prepid in sample["prepid"]:
         query = ("SELECT seqsataloc,FCIllumID FROM Flowcell f "
             "JOIN Lane l ON f.FCID=l.FCID "
@@ -61,50 +62,71 @@ def get_fastq_loc(curs, sample):
         that under this catergory: Old Casava 1.8 sample (pre-seqDB) and
         Casava 1.7 samples sequenced by the Illumina GAII."""
         if seqsatalocs:
-            for flowcell in seqsatalocs:
+            """For externally submitted sample they have a fake Flowcell entry
+            in the database.  The Flowcell.FCIllumID begins with 'X' always.
+            Typically when processing the external sample each read group is
+            enumerated 1,2,3...etc.  """
+            if flowcell[0][1][0] == 'X':
                 if 'seqsata' in flowcell[0]:
-                    fastq_loc = ('/nfs/{0}/seqfinal/whole_genome/{1}/{2}'
-                            ).format(flowcell[0],sample['sample_name'],flowcell[1])
+                    fastq_loc = glob(('/nfs/{0}/seqfinal/whole_genome/{1}/[0-9]'
+                            ).format(flowcell[0],sample['sample_name']))
+                    for flowcell in fastq_loc:
+                        locs.append(os.path.realpath(flowcell))
                 elif 'fastq' in flowcell[0]:
-                    fastq_loc = ('/nfs/{0}/{1}/{2}/{3}'
+                    fastq_loc = glob(('/nfs/{0}/{1}/{2}/[0-9]'
                             ).format(flowcell[0],corrected_sample_type,
-                                    sample['sample_name'],flowcell[1])
-                else:
-                    raise Exception, "fastqloc does not within seqsata or fastq drive!"
-                read = glob(os.path.realpath(fastq_loc))
-                if read != []:
-                    locs.append(os.path.realpath(fastq_loc))
-                else:
-                    # For samples in the database but stored on the quantum and 
-                    # have not had their location properly restored
+                                    sample['sample_name']))
+                    for flowcell in fastq_loc:
+                        locs.append(os.path.realpath(flowcell))
+            else: #For regular samples
+                for flowcell in seqsatalocs:
+                    if 'seqsata' in flowcell[0]:
+                        fastq_loc = ('/nfs/{0}/seqfinal/whole_genome/{1}/{2}'
+                                ).format(flowcell[0],sample['sample_name'],flowcell[1])
+                    elif 'fastq' in flowcell[0]:
+                        fastq_loc = ('/nfs/{0}/{1}/{2}/{3}'
+                                ).format(flowcell[0],corrected_sample_type,
+                                        sample['sample_name'],flowcell[1])
+                    else:
+                        raise Exception, "fastqloc does not within seqsata or fastq drive!"
+                    read = glob(os.path.realpath(fastq_loc))
+                    if read != []:
+                        locs.append(os.path.realpath(fastq_loc))
+                    else:
+                        # For samples in the database but stored on the quantum and 
+                        # have not had their location properly restored
 
-                    fastq_loc = glob('/nfs/fastq_temp*/{0}/{1}/*XX'.format(
-                        corrected_sample_type,sample['sample_name']))
-                    print fastq_loc,'/nfs/fastq_temp*/{0}/{1}/*XX'.format(
-                        corrected_sample_type,sample['sample_name'])
-                    if fastq_loc:
-                        for flowcell in fastq_loc:
-                            locs.append(os.path.realpath(flowcell))
-        else:
-            fastq_loc = glob('/nfs/seqsata*/seqfinal/whole_genome/{}/*XX'.format(sample['sample_name']))
+                        fastq_loc = glob('/nfs/fastq_temp*/{0}/{1}/*XX'.format(
+                            corrected_sample_type,sample['sample_name']))
+                        print fastq_loc,'/nfs/fastq_temp*/{0}/{1}/*XX'.format(
+                            corrected_sample_type,sample['sample_name'])
+                        if fastq_loc:
+                            for flowcell in fastq_loc:
+                                locs.append(os.path.realpath(flowcell))
+
+        else: #For samples with flowcells not in sequenceDB
+            fastq_loc = glob('/nfs/fastq16/{}/{}/*XX'.format(corrected_sample_type,sample['sample_name']))
+
             if fastq_loc:
                 for flowcell in fastq_loc:
                     locs.append(os.path.realpath(flowcell))
+            elif glob('/nfs/fastq16/{}/{}/[0-9]'.format(corrected_sample_type,sample['sample_name'])) != []:
+                fastq_loc = glob('/nfs/fastq16/{}/{}/[0-9]'.format(corrected_sample_type,sample['sample_name']))
+                for flowcell in fastq_loc:
+                    locs.append(os.path.realpath(flowcell))
+
+            elif glob('/nfs/seqsata*/seqfinal/whole_genome/{}/*XX'.format(sample['sample_name'])) != []:
+                fastq_loc = glob('/nfs/seqsata*/seqfinal/whole_genome/{}/*XX'.format(sample['sample_name']))
+                for flowcell in fastq_loc:
+                    locs.append(os.path.realpath(flowcell))
             else:
-                fastq_loc = glob('/stornext/seqfinal/casava1.8/whole_{0}/{1}/*XX'.format(
-                    corrected_sample_type.lower(),sample['sample_name']))
-                if fastq_loc:
-                    for flowcell in fastq_loc:
-                        locs.append(os.path.realpath(flowcell))
-                else:
-                    print '/stornext/seqfinal/casava1.8/whole_{0}/{1}/*XX'.format(
-                    corrected_sample_type.lower(),sample['sample_name'])
-                    raise Exception, "Sample {0} Fastq files not found!".format(sample['sample_name'])
+                print '/stornext/seqfinal/casava1.8/whole_{0}/{1}/*XX'.format(
+                corrected_sample_type.lower(),sample['sample_name'])
+                raise Exception, "Sample {0} Fastq files not found!".format(sample['sample_name'])
 
     """For samples in the database we can exclude any samples that only have
     R1 data however for sampels that predate the database we have to manually
     check for R2 existance"""
-
     locs = check_fastq_locs(list(set(locs)))
     return locs
 
