@@ -1343,7 +1343,6 @@ class SQLTarget(luigi.Target):
             if db.open:
                 db.close()
 
-
 class Binning(SGEJobTask):
     """
     Move to annodb pipeline 
@@ -1416,3 +1415,4 @@ class Binning(SGEJobTask):
         """
 
         os.system(self.binning_cmd)
+
