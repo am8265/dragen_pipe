@@ -1395,7 +1395,7 @@ class Binning(SGEJobTask):
     block_size = luigi.Parameter()
     scratch = luigi.Parameter()
     mode = luigi.Parameter()
-    
+    taskchecker = luigi.BooleanParameter(default='False')
     
     ## System Parameters 
     n_cpu = 1
@@ -1407,6 +1407,7 @@ class Binning(SGEJobTask):
 
         super(Binning,self).__init__(*args,**kwargs)
 
+    
         if not os.path.isdir(self.scratch): ## Recursively create the directory if it doesnt exist
             os.makedirs(self.scratch)
 
@@ -1429,11 +1430,17 @@ class Binning(SGEJobTask):
         """
         Dependency is the completion of the CreateGenomeBed Task
         """
-    
-        if self.mode == 'coverage':
-            return [CreateGenomeBed(bam=self.bam_file,sample=self.sample,scratch=self.scratch)]
+
+        if self.taskchecker == True:
+            ## Create a dummy file
+            os.system('touch dummy.in.txt')
+            return MyExtTask('dummy.in.txt')
+
+        elif self.mode == 'coverage':
+            #return [CreateGenomeBed(bam=self.bam_file,sample=self.sample,scratch=self.scratch)]
+            return self.clone(CreateGenomeBed)
         elif self.mode == 'gq':
-            #return MyExtTask(self.gvcf)
+            return MyExtTask(self.gvcf)
         
     
     def output(self):
@@ -1441,17 +1448,21 @@ class Binning(SGEJobTask):
         Output from this task are 23 files for each chromosome
         """
 
-        
-        for chrom in self.human_chromosomes:
-            file_loc = os.path.join(self.scratch,self.sample+'_read_coverage_'+self.block_size
+        if self.taskchecker == True:
+            return 'dummy.out.txt'
+        else:        
+            for chrom in self.human_chromosomes:
+                file_loc = os.path.join(self.scratch,self.sample+'_read_coverage_'+self.block_size
                                     +'_chr%s.txt'%chrom)
-            yield luigi.LocalTarget(file_loc)
-        
-        
+                yield luigi.LocalTarget(file_loc)
+                
 
     def work(self):
         """ Run the binning script
         """
 
-        os.system(self.binning_cmd)
-
+        if self.taskchecker == True:
+            os.system('touch dummy.out.txt')
+        else:
+            os.system(self.binning_cmd)
+        
