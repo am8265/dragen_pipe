@@ -37,6 +37,45 @@ interval="/nfs/goldstein/software/dragen_pipe/dragen/conf/hs37d5.intervals"
 
 cfg = get_cfg()
 
+class config(luigi.Config):
+    """
+    config class for instantiating parameters for this pipeline
+    the values are read from luigi.cfg in the current folder
+    """
+
+    java = luigi.Parameter()
+    picard = luigi.Parameter()
+    ref = luigi.Parameter()
+    seqdict_file = luigi.Parameter()
+    bed_file = luigi.Parameter()
+    target_file = luigi.Parameter()
+    create_targetfile = luigi.BooleanParameter()
+    bait_file = luigi.Parameter()
+    bait_file_X = luigi.Parameter()
+    bait_file_Y = luigi.Parameter()
+    python_path = luigi.Parameter()
+    relatedness_refs = luigi.Parameter()
+    sampleped_loc = luigi.Parameter()
+    relatedness_markers = luigi.Parameter()
+    bedtools_loc = luigi.Parameter()
+    pypy_loc = luigi.Parameter()
+    binner_loc  = luigi.Parameter()
+    dbsnp = luigi.Parameter()
+    cnf_file = luigi.Parameter()
+    max_mem = luigi.IntParameter()
+    
+
+class db(luigi.Config):
+    """
+    Database config variable will be read from the
+    db section of the config file
+    """
+    
+    cnf = luigi.Parameter()
+    seqdb_group = luigi.Parameter()
+    dragen_group = luigi.Parameter()
+
+    
 class CopyBam(SGEJobTask):
     """class for copying dragen aligned bam to a scratch location"""
     base_directory = luigi.Parameter()
