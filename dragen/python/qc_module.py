@@ -264,7 +264,6 @@ class CreateTargetFile(SGEJobTask):
 
     
     
-
     def requires(self):
         """ 
         Dependcy for this task is the existence of the bedfile
@@ -411,7 +410,7 @@ class CreateGenomeBed(SGEJobTask):
 
         
 
-        self.gzip_cmd = "/nfs/goldstein/software/pigz-2.3.1/pigz {0}".format(self.genomecov_bed)
+        self.gzip_cmd = "bgzip {0}".format(self.genomecov_bed)
         self.gzipped_genomecov_bed = self.genomecov_bed+'.gz'
         self.tabix_cmd = "/nfs/goldstein/software/bin/tabix -p bed {0}".format(self.gzipped_genomecov_bed)
         self.tbi_file = self.gzipped_genomecov_bed+'.tbi'
@@ -428,16 +427,18 @@ class CreateGenomeBed(SGEJobTask):
         Output is the genomecov bed file
         """
 
-        return [luigi.LocalTarget(self.genomecov_bed),luigi.LocalTarget(self.gzipped_genomecov_bed),luigi.LocalTarget(self.tbi_file)]
+        #return [luigi.LocalTarget(self.genomecov_bed),luigi.LocalTarget(self.gzipped_genomecov_bed),luigi.LocalTarget(self.tbi_file)]
+        return [luigi.LocalTarget(self.genomecov_bed)]
 
+                
     def work(self):
         """
         Run the bedtools cmd
         """
 
         os.system(self.genomecov_cmd)
-        os.system(self.gzip_cmd)
-        os.system(self.tabix_cmd)
+        #os.system(self.gzip_cmd)
+        #os.system(self.tabix_cmd)
 
 
 class Binning(SGEJobTask):
@@ -524,7 +525,7 @@ class AlignmentMetrics(SGEJobTask):
     sample_name = luigi.Parameter()
 
     ## System Parameters 
-    n_cpu = 4
+    n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/home/rp2801/git"
 
@@ -536,8 +537,8 @@ class AlignmentMetrics(SGEJobTask):
 
         self.output_file_raw = os.path.join(self.scratch,self.sample+'.alignment.metrics.raw.txt')
         self.output_file = os.path.join(self.scratch,self.sample+'.alignment.metrics.txt')
-        self.cmd = "{0} -XX:ParallelGCThreads=4 -jar {1} CollectAlignmentSummaryMetrics TMP_DIR={2} VALIDATION_STRINGENCY=SILENT REFERENCE_SEQUENCE={3} INPUT={4} OUTPUT={5}".format(config().java,config().picard,config().scratch,config().ref,self.bam,self.output_file)               
-        self.parser_cmd = """cat {0} | grep -v "^#" | awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1}"""
+        self.cmd = "{0} -XX:ParallelGCThreads=12 -jar {1} CollectAlignmentSummaryMetrics TMP_DIR={2} VALIDATION_STRINGENCY=SILENT REFERENCE_SEQUENCE={3} INPUT={4} OUTPUT={5}".format(config().java,config().picard,config().scratch,config().ref,self.bam,self.output_file_raw)               
+        self.parser_cmd = """cat {0} | grep -v "^#" | awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1}""".format(self.output_file_raw,self.output_file)
         
         
     def exists(self):
@@ -561,7 +562,7 @@ class AlignmentMetrics(SGEJobTask):
         """
 
         os.system(self.cmd)
-        os.system(self.parser_cmd.format(self.output_file_raw,self.output_file))
+        os.system(self.parser_cmd)
         
 
 class DuplicateMetrics(SGEJobTask):
@@ -585,7 +586,7 @@ class DuplicateMetrics(SGEJobTask):
             os.makedirs(self.scratch)
 
         self.output_file = os.path.join(self.scratch,self.sample_name+'duplicates.txt')
-        self.cmd = "grep 'duplicates marked' %s"%self.dragen_log
+        self.cmd = "grep 'duplicates marked' {0}".format(self.dragen_log)
         
 
     def requires(self):
@@ -639,10 +640,11 @@ class VariantCallingMetrics(SGEJobTask):
         #sample_name = luigi.Parameter()
         if not os.path.isdir(self.scratch): ## Recursively create the directory if it doesnt exist
             os.makedirs(self.scratch)
-        
-        self.output_file = os.path.join(self.scratch,"{0}.variant_calling_summary_metrics".format(self.sample_name))
-        self.cmd = "{java} -jar {picard} CollectVariantCallingMetrics INPUT={vcf} OUTPUT={sample} DBSNP={db}".format(java=config().java,picard=config().picard,vcf=self.vcf,sample=self.sample_name,db=config().dbsnp)
-        self.parser_cmd = """cat {0} | grep -v '^#'| awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1}.processed """
+
+        self.output_file_raw = os.path.join(self.scratch,"{0}.variant_calling_summary_metrics.raw.txt".format(self.sample_name))
+        self.output_file = os.path.join(self.scratch,"{0}.variant_calling_summary_metrics.txt".format(self.sample_name))
+        self.cmd = "{0} -XX:ParallelGCThreads=12 -jar {1} CollectVariantCallingMetrics INPUT={2} OUTPUT={3} DBSNP={4}".format(config().java,config().picard,self.vcf,self.output_file_raw,config().dbsnp)
+        self.parser_cmd = """cat {0} | grep -v '^#'| awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1} """.format(self.output_file_raw,self.output_file)
 
         
     def requires(self):
@@ -774,8 +776,7 @@ class UpdateDatabase(SGEJobTask):
             
         self.db.close()
 
-
-        
+       
 class GenderCheck(SGEJobTask):
     """
     Check gender using X,Y chromosome coverage and update seqgender field
@@ -784,7 +785,7 @@ class GenderCheck(SGEJobTask):
     ## Parameters for this task
     sample = luigi.Parameter()
     seqtype = luigi.Parameter()
-    prepkit = luigi.Parameter()
+    prepid = luigi.Parameter()
     testmode = luigi.BoolParameter()
     ## Contains defaults for dragen pipeline
     
@@ -808,13 +809,20 @@ class GenderCheck(SGEJobTask):
         
         self.db_cursor.execute(temp_query)
         x_cvg = query_result[0][1]
+        y_cvg = query_result[0][2]
+        
+        sample_query = ("""SELECT CHGVID FROM seqdbClone WHERE CHGVID = {0} AND
+                        AND seqType = {1} AND prepID = {2}"""
+                        )
+    
+    
         
     def requires(self):
         """
         The requirement for this task 
         """
         ## Define a better dependency
-        luigi.ExternalTask(self.cnf_file)
+        #self.
 
         ## Run Cvg Metrics on X and Y chromosomes
         
@@ -1009,8 +1017,6 @@ class RunRelatednessCheck(SGEJobTask):
         yield MyExtTask(threshold_file)
         yield MyExtTask(relatedness_map)
         
-
-
     def work(self):
         """
         Run the python relatedness script 

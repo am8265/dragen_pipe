@@ -1,7 +1,6 @@
 import sys
 import subprocess
 from utilities import is_gzipped,fh
-import numpy as np
 import argparse
 import os
 
