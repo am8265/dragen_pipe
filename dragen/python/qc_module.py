@@ -41,9 +41,17 @@ class config(luigi.Config):
     cnf_file = luigi.Parameter()
     max_mem = luigi.IntParameter()
     binner_loc  = luigi.Parameter()
+    hapman = luigi.Parameter()
+    omni = luigi.Parameter()
+    1000g = luigi.Parameter()
 
-    
-    
+
+class db(luigi.Config):
+    cnf = luigi.Parameter()
+    seqdb_group = luigi.Parameter()
+    dragen_group = luigi.Parameter()
+
+
 class RootTask(luigi.WrapperTask):
     """
     Wrapper Task
