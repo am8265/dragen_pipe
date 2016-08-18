@@ -1,0 +1,2208 @@
+#!/nfs/goldstein/software/python2.7.7/bin/python
+ 
+"""
+Create a configuration file used by the Dragen system to processed IGM samples
+based on their priority level in the Dragen pipeline queue
+"""
+
+import os
+import shlex
+import sys
+import subprocess
+import luigi
+import MySQLdb
+from luigi.contrib.sge import SGEJobTask, LocalSGEJobTask
+from luigi.util import inherits
+#from dragen_sample import dragen_sample
+import logging
+import time
+import utils 
+
+#Pipeline programs
+gatk="/nfs/goldstein/software/GATK-3.6.0"
+java="/nfs/goldstein/software/jdk1.8.0_05/bin/java"
+bgzip="/nfs/goldstein/software/bin/bgzip"
+tabix="/nfs/goldstein/software/bin/tabix"
+picard="/nfs/goldstein/software/picard-tools-1.131/picard.jar"
+bedtools="/nfs/goldstein/software/bedtools-2.25.0/bin/bedtools"
+
+#GATK parameters
+max_mem="15"
+ref="/nfs/goldsteindata/refDB/HS_Build37/BWA_INDEX_hs37d5_BWAmem/hs37d5.fa"
+hapmap="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/hapmap_3.3.b37.vcf"
+omni="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/1000G_omni2.5.b37.vcf"
+g1000="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/1000G_phase1.indels.b37.vcf"
+Mills1000g="/nfs/goldstein/goldsteinlab/software/GATK_bundle_2.8_b37/Mills_and_1000G_gold_standard.indels.b37.vcf"
+dbSNP="/nfs/goldsteindata/refDB/dbSNP/dbsnp_147.b37.vcf"
+interval="/nfs/goldstein/software/dragen_pipe/dragen/conf/hs37d5.intervals"
+
+
+
+class config(luigi.Config):
+    """
+    config class for instantiating parameters for this pipeline
+    the values are read from luigi.cfg in the current folder 
+    """
+
+    '''
+    ## GATK pipeline variables
+    gatk = luigi.Parameter()
+    #java = luigi.Parameter()
+    max_mem = luigi.IntParameter()
+    ref = luigi.Parameter()  
+    scratch = luigi.Parameter()
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    interval_list = luigi.Parameter()
+    recal_table = luigi.Parameter()
+    
+    # BAMs
+    bam = luigi.Parameter()
+    realn_bam = luigi.Parameter()
+    #realn_recal_bam = luigi.Parameter()
+
+    
+    # VQSR
+    vcf = luigi.Parameter()
+    snp_vcf = luigi.Parameter()
+    indel_vcf = luigi.Parameter()
+    
+    # resources
+    hapman=luigi.Parameter()
+    omni=luigi.Parameter()
+    g1000=luigi.Parameter()
+    Mills1000g=luigi.Parameter()
+    dbSNP=luigi.Parameter()
+    '''
+
+    ## Post GATK Variables,commented out redundant parameters
+    java = luigi.Parameter()
+    picard = luigi.Parameter()
+    ref = luigi.Parameter()
+    seqdict_file = luigi.Parameter()
+    bed_file = luigi.Parameter()
+    target_file = luigi.Parameter()
+    create_targetfile = luigi.BooleanParameter()
+    bait_file = luigi.Parameter()
+    bait_file_X = luigi.Parameter()
+    bait_file_Y = luigi.Parameter()
+    scratch = luigi.Parameter(default='./')
+    output_dir = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    bam = luigi.Parameter()
+    seq_type = luigi.Parameter()
+    python_path = luigi.Parameter()
+    relatedness_refs = luigi.Parameter()
+    sampleped_loc = luigi.Parameter()
+    relatedness_markers = luigi.Parameter()
+    bedtools_loc = luigi.Parameter()
+    pypy_loc = luigi.Parameter()
+    coverage_binner_loc = luigi.Parameter()
+    dbsnp = luigi.Parameter()
+    cnf_file = luigi.Parameter()
+    max_mem = luigi.IntParameter()
+
+class RealignerTargetCreator(SGEJobTask):
+    """class for creating targets for indel realignment BAMs from Dragen"""
+
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
+
+    java = luigi.Parameter(default=java,
+        description = 'java version used')
+    gatk = luigi.Parameter(default=gatk,
+        description = 'gatk version used')
+    max_mem = luigi.Parameter(default=max_mem,
+        description = 'heap size for java in Gb')
+    ref = luigi.Parameter(default=ref,
+        description = 'reference genome location')
+    dbSNP = luigi.Parameter(default=dbSNP,
+        description = 'dbSNP location')
+    Mills1000g = luigi.Parameter(default=Mills1000g,
+        description = 'Mills, Devin curated dataset')
+
+    n_cpu = 4
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    def __init__(self, *args, **kwargs):
+        super(RealignerTargetCreator, self).__init__(*args, **kwargs)
+        self.bam = "{base_directory}/{sample_name}/{sample_name}.bam".format(
+            base_directory=self.base_directory, sample_name=self.sample_name)
+        self.interval_list = "{scratch}/{sample_name}/{sample_name}.interval_list".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+
+    def work(self):
+        os.system("mkdir -p {0}/scripts".format(self.scratch + self.sample_name))
+        os.system("mkdir -p {0}/logs".format(self.scratch + self.sample_name))
+
+        cmd = ("{java} -Xmx{max_mem}g "
+            "-jar {gatk}/GenomeAnalysisTK.jar "
+            "-R {ref} "
+            "-T RealignerTargetCreator "
+            "-L {interval} "
+            "-I {bam} "
+            "-o {interval_list} "
+            "-known {Mills1000g} "
+            "-known {dbSNP} "
+            "-nt 4 ").format(java=java,
+                gatk=gatk,
+                max_mem=max_mem,
+                ref=ref,
+                interval=interval,
+                bam=self.bam,
+                interval_list=self.interval_list,
+                Mills1000g=Mills1000g,
+                dbSNP=dbSNP)
+        if not os.path.isdir(os.path.dirname(self.script)):
+            os.makedirs(os.path.dirname(self.script))
+        with open(self.script,'w') as o:
+            o.write(cmd + "\n")
+        subprocess.check_call(shlex.split(cmd))
+
+    def output(self):
+        yield luigi.LocalTarget(self.interval_list)
+
+class IndelRealigner(SGEJobTask):
+    """class to create BAM with realigned BAMs"""
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
+
+    java = luigi.Parameter(default=java,
+        description = 'java version used')
+    gatk = luigi.Parameter(default=gatk,
+        description = 'gatk version used')
+    max_mem = luigi.Parameter(default=max_mem,
+        description = 'heap size for java in Gb')
+    ref = luigi.Parameter(default=ref,
+        description = 'reference genome location')
+    dbSNP = luigi.Parameter(default=dbSNP,
+        description = 'dbSNP location')
+    Mills1000g = luigi.Parameter(default=Mills1000g,
+        description = 'Mills, Devin curated dataset')
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    def __init__(self, *args, **kwargs):
+        super(IndelRealigner, self).__init__(*args, **kwargs)
+        self.bam = "{base_directory}/{sample_name}/{sample_name}.bam".format(
+            base_directory=self.base_directory, sample_name=self.sample_name)
+        self.interval_list = "{scratch}/{sample_name}/{sample_name}.interval_list".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.realn_bam = "{scratch}/{sample_name}/{sample_name}.realn.bam".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+
+    def work(self):
+        cmd = ("{java} -Xmx{max_mem}g "
+            "-jar {gatk}/GenomeAnalysisTK.jar "
+            "-R {ref} "
+            "-T IndelRealigner "
+            "-L {interval} "
+            "-I {bam} "
+            "-o {realn_bam} "
+            "-targetIntervals {interval_list} "
+            "-maxReads 10000000 "
+            "-maxInMemory 450000 "
+            "-known {Mills1000g} "
+            "-known {dbSNP}").format(java=java,
+                gatk=gatk,
+                max_mem=max_mem,
+                ref=ref,
+                interval=interval,
+                bam=self.bam,
+                realn_bam=self.realn_bam,
+                interval_list=self.interval_list,
+                Mills1000g=Mills1000g,
+                dbSNP=dbSNP)
+        with open(self.script,'w') as o:
+            o.write(cmd + "\n")
+            subprocess.check_call(shlex.split(cmd))
+
+    def requires(self):
+        return self.clone(RealignerTargetCreator)
+
+    def output(self):
+        return luigi.LocalTarget(self.realn_bam)
+
+class BaseRecalibrator(SGEJobTask):
+    """class to create a recalibration table with realigned BAMs"""
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
+
+    java = luigi.Parameter(default=java,
+        description = 'java version used')
+    gatk = luigi.Parameter(default=gatk,
+        description = 'gatk version used')
+    max_mem = luigi.Parameter(default=max_mem,
+        description = 'heap size for java in Gb')
+    ref = luigi.Parameter(default=ref,
+        description = 'reference genome location')
+    dbSNP = luigi.Parameter(default=dbSNP,
+        description = 'dbSNP location')
+    Mills1000g = luigi.Parameter(default=Mills1000g,
+        description = 'Mills, Devin curated dataset')
+    n_cpu = 4
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    def __init__(self, *args, **kwargs):
+        super(BaseRecalibrator, self).__init__(*args, **kwargs)
+        self.bam = "{base_directory}/{sample_name}/{sample_name}.bam".format(
+            base_directory=self.base_directory, sample_name=self.sample_name)
+        self.realn_bam = "{scratch}/{sample_name}/{sample_name}.realn.bam".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.recal_table = "{scratch}/{sample_name}/{sample_name}.recal_table".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+
+
+    def work(self):
+        cmd = ("{java} -Xmx{max_mem}g "
+            "-jar {gatk}/GenomeAnalysisTK.jar "
+            "-R {ref} "
+            "-T BaseRecalibrator "
+            "-L {interval} "
+            "-I {realn_bam} "
+            "-nct 4 "
+            "-o {recal_table} "
+            "-L {capture_kit_bed} "
+            "-knownSites {Mills1000g} "
+            "-knownSites {dbSNP}").format(java=java,
+                gatk=gatk,
+                max_mem=max_mem,
+                ref=ref,
+                interval=interval,
+                realn_bam=self.realn_bam,
+                recal_table=self.recal_table,
+                Mills1000g=Mills1000g,
+                capture_kit_bed=self.capture_kit_bed,
+                dbSNP=dbSNP)
+        with open(self.script,'w') as o:
+            o.write(cmd + "\n")
+            subprocess.check_call(shlex.split(cmd))
+
+
+    def requires(self):
+        return self.clone(IndelRealigner)
+
+    def output(self):
+        return luigi.LocalTarget(self.recal_table)
+
+class PrintReads(SGEJobTask):
+    """class to create BAM with realigned and recalculated BAMs"""
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
+
+    java = luigi.Parameter(default=java,
+        description = 'java version used')
+    gatk = luigi.Parameter(default=gatk,
+        description = 'gatk version used')
+    max_mem = luigi.Parameter(default=max_mem,
+        description = 'heap size for java in Gb')
+    ref = luigi.Parameter(default=ref,
+        description = 'reference genome location')
+
+    n_cpu = 4
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    def __init__(self, *args, **kwargs):
+        super(PrintReads, self).__init__(*args, **kwargs)
+        self.realn_bam = "{scratch}/{sample_name}/{sample_name}.realn.bam".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.recal_table = "{scratch}/{sample_name}/{sample_name}.recal_table".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.recal_bam = "{scratch}/{sample_name}/{sample_name}.realn.recal.bam".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+
+    def work(self):
+        cmd = ("{java} -Xmx{max_mem}g "
+            "-jar {gatk}/GenomeAnalysisTK.jar "
+            "-R {ref} "
+            "-T PrintReads "
+            "-L {interval} "
+            "-I {realn_bam} "
+            "-BQSR {recal_table} "
+            "-o {recal_bam} "
+            "-nct 4").format(java=java,
+                gatk=gatk,
+                max_mem=max_mem,
+                ref=ref,
+                interval=interval,
+                realn_bam=self.realn_bam,
+                recal_table=self.recal_table,
+                recal_bam=self.recal_bam)
+
+        with open(self.script,'w') as o:
+            o.write(cmd + "\n")
+            subprocess.check_call(shlex.split(cmd))
+
+    def requires(self):
+        return self.clone(BaseRecalibrator)
+
+    def output(self):
+        return luigi.LocalTarget(self.recal_bam)
+
+class HaplotypeCaller(SGEJobTask):
+    """class to create gVCFs"""
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
+
+    java = luigi.Parameter(default=java,
+        description = 'java version used')
+    gatk = luigi.Parameter(default=gatk,
+        description = 'gatk version used')
+    max_mem = luigi.Parameter(default=max_mem,
+        description = 'heap size for java in Gb')
+    ref = luigi.Parameter(default=ref,
+        description = 'reference genome location')
+    dbSNP = luigi.Parameter(default=dbSNP,
+        description = 'dbSNP location')
+    n_cpu = 4
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    def __init__(self, *args, **kwargs):
+        super(HaplotypeCaller, self).__init__(*args, **kwargs)
+        self.recal_table = "{scratch}/{sample_name}/{sample_name}.recal_table".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.recal_bam = "{scratch}/{sample_name}/{sample_name}.realn.recal.bam".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.gvcf = "{scratch}/{sample_name}/{sample_name}.g.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+
+    def work(self):
+        cmd = ("{java} -Xmx{max_mem}g "
+            "-jar {gatk}/GenomeAnalysisTK.jar "
+            "-R {ref} "
+            "-T HaplotypeCaller "
+            "-L {interval} "
+            "-I {recal_bam} "
+            "-o {gvcf} "
+            "-stand_call_conf 20 "
+            "-stand_emit_conf 20 "
+            "--emitRefConfidence GVCF "
+            "--variant_index_type LINEAR "
+            "--variant_index_parameter 128000 "
+            "--dbsnp {dbSNP} "
+            "-nct 4").format(java=java,
+                gatk=gatk,
+                max_mem=max_mem,
+                ref=ref,
+                interval=interval,
+                recal_bam=self.recal_bam,
+                gvcf=self.gvcf,
+                dbSNP=dbSNP)
+
+        with open(self.script,'w') as o:
+            o.write(cmd + "\n")
+            subprocess.check_call(shlex.split(cmd))
+
+       #rm_cmd = ['rm',self.recal_bam]
+       #print rm_cmd
+       #subprocess.call(rm_cmd)
+
+    def requires(self):
+        return self.clone(PrintReads)
+
+    def output(self):
+        return luigi.LocalTarget(self.gvcf)
+
+class GenotypeGVCFs(SGEJobTask):
+    """class to perfrom variant calling from gVCFs"""
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
+
+    java = luigi.Parameter(default=java,
+        description = 'java version used')
+    gatk = luigi.Parameter(default=gatk,
+        description = 'gatk version used')
+    max_mem = luigi.Parameter(default=max_mem,
+        description = 'heap size for java in Gb')
+    ref = luigi.Parameter(default=ref,
+        description = 'reference genome location')
+    dbSNP = luigi.Parameter(default=dbSNP,
+        description = 'dbSNP location')
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    def __init__(self, *args, **kwargs):
+        super(GenotypeGVCFs, self).__init__(*args, **kwargs)
+        self.recal_table = "{scratch}/{sample_name}/{sample_name}.recal_table".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.recal_bam = "{scratch}/{sample_name}/{sample_name}.realn.recal.bam".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.gvcf = "{scratch}/{sample_name}/{sample_name}.g.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.vcf = "{scratch}/{sample_name}/{sample_name}.raw.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+
+    def work(self):
+        cmd = ("{java} -Xmx{max_mem}g "
+            "-jar {gatk}/GenomeAnalysisTK.jar "
+            "-R {ref} "
+            "-T GenotypeGVCFs "
+            "-L {interval} "
+            "-o {vcf} "
+            "-stand_call_conf 20 "
+            "-stand_emit_conf 20 "
+            "-V {gvcf}").format(java=java,
+                gatk=gatk,
+                max_mem=max_mem,
+                ref=ref,
+                interval=interval,
+                gvcf=self.gvcf,
+                vcf=self.vcf)
+
+        with open(self.script,'w') as o:
+            o.write(cmd + "\n")
+            subprocess.check_call(shlex.split(cmd))
+
+       #rm_cmd = ['rm',self.recal_bam]
+       #print rm_cmd
+       #subprocess.call(rm_cmd)
+
+    def requires(self):
+        return self.clone(HaplotypeCaller)
+
+    def output(self):
+        return luigi.LocalTarget(self.vcf)
+
+class SelectVariantsSNP(SGEJobTask):
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
+
+    java = luigi.Parameter(default=java,
+        description = 'java version used')
+    gatk = luigi.Parameter(default=gatk,
+        description = 'gatk version used')
+    max_mem = luigi.Parameter(default=max_mem,
+        description = 'heap size for java in Gb')
+    ref = luigi.Parameter(default=ref,
+        description = 'reference genome location')
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    def __init__(self, *args, **kwargs):
+        super(SelectVariantsSNP, self).__init__(*args, **kwargs)
+        self.recal_table = "{scratch}/{sample_name}/{sample_name}.recal_table".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.vcf = "{scratch}/{sample_name}/{sample_name}.raw.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.snp_vcf = "{scratch}/{sample_name}/{sample_name}.snp.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+
+    def work(self):
+        cmd = ("{java} -Xmx{max_mem}g "
+            "-jar {gatk}/GenomeAnalysisTK.jar "
+            "-R {ref} "
+            "-T SelectVariants "
+            "-L {interval} "
+            "-V {vcf} "
+            "-selectType SNP "
+            "-o {snp_vcf}").format(java=java,
+                gatk=gatk,
+                max_mem=max_mem,
+                ref=ref,
+                interval=interval,
+                snp_vcf=self.snp_vcf,
+                vcf=self.vcf)
+
+        with open(self.script,'w') as o:
+            o.write(cmd + "\n")
+            subprocess.check_call(shlex.split(cmd))
+
+
+    def requires(self):
+        return self.clone(GenotypeGVCFs)
+
+    def output(self):
+        return luigi.LocalTarget(self.snp_vcf)
+
+class SelectVariantsINDEL(SGEJobTask):
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
+
+    java = luigi.Parameter(default=java,
+        description = 'java version used')
+    gatk = luigi.Parameter(default=gatk,
+        description = 'gatk version used')
+    max_mem = luigi.Parameter(default=max_mem,
+        description = 'heap size for java in Gb')
+    ref = luigi.Parameter(default=ref,
+        description = 'reference genome location')
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    def __init__(self, *args, **kwargs):
+        super(SelectVariantsINDEL, self).__init__(*args, **kwargs)
+        self.recal_table = "{scratch}/{sample_name}/{sample_name}.recal_table".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.vcf = "{scratch}/{sample_name}/{sample_name}.raw.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.indel_vcf = "{scratch}/{sample_name}/{sample_name}.indel.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+
+    def work(self):
+        cmd = ("{java} -Xmx{max_mem}g "
+            "-jar {gatk}/GenomeAnalysisTK.jar "
+            "-R {ref} "
+            "-T SelectVariants "
+            "-L {interval} "
+            "-V {vcf} "
+            "-selectType INDEL "
+            "-o {snp_vcf}").format(java=java,
+                gatk=gatk,
+                max_mem=max_mem,
+                ref=ref,
+                interval=interval,
+                snp_vcf=self.indel_vcf,
+                vcf=self.vcf)
+
+        with open(self.script,'w') as o:
+            o.write(cmd + "\n")
+            subprocess.check_call(shlex.split(cmd))
+
+
+    def requires(self):
+        return self.clone(SelectVariantsSNP)
+
+    def output(self):
+        return luigi.LocalTarget(self.indel_vcf)
+
+
+class VariantRecalibratorSNP(SGEJobTask):
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
+
+    java = luigi.Parameter(default=java,
+        description = 'java version used')
+    gatk = luigi.Parameter(default=gatk,
+        description = 'gatk version used')
+    max_mem = luigi.Parameter(default=max_mem,
+        description = 'heap size for java in Gb')
+    ref = luigi.Parameter(default=ref,
+        description = 'reference genome location')
+    dbSNP = luigi.Parameter(default=dbSNP,
+        description = 'dbSNP location')
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    def __init__(self, *args, **kwargs):
+        super(VariantRecalibratorSNP, self).__init__(*args, **kwargs)
+        self.snp_vcf = "{scratch}/{sample_name}/{sample_name}.snp.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.snp_recal = "{scratch}/{sample_name}/{sample_name}.snp.recal".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.snp_tranches = "{scratch}/{sample_name}/{sample_name}.snp.tranches".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.snp_rscript = "{scratch}/{sample_name}/{sample_name}.snp.rscript".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+
+    def work(self):
+        cmd = ("{java} -Xmx{max_mem}g "
+            "-jar {gatk}/GenomeAnalysisTK.jar "
+            "-R {ref} "
+            "-T VariantRecalibrator "
+            "-L {interval} "
+            "--input {snp_vcf} "
+            "-an DP "
+            "-an QD "
+            "-an FS "
+            "-an SOR "
+            "-an MQ "
+            "-an MQRankSum "
+            "-an ReadPosRankSum "
+            "-mode SNP "
+            "--maxGaussians 4 "
+            "-tranche 100.0 -tranche 99.9 -tranche 99.0 -tranche 90.0 "
+            "-recalFile {snp_recal} "
+            "-tranchesFile {snp_tranches} "
+            "-rscriptFile {snp_rscript} "
+            "-resource:hapmap,known=false,training=true,truth=true,prior=15.0 {hapmap} "
+            "-resource:omni,known=false,training=true,truth=false,prior=12.0 {omni} "
+            "-resource:1000G,known=false,training=true,truth=false,prior=10.0 {g1000} "
+            "-resource:dbsnp,known=true,training=false,truth=false,prior=2.0 {dbSNP} "
+            ).format(java=java,
+                gatk=gatk,
+                max_mem=max_mem,
+                ref=ref,
+                interval=interval,
+                snp_vcf=self.snp_vcf,
+                snp_recal=self.snp_recal,
+                snp_tranches=self.snp_tranches,
+                snp_rscript=self.snp_rscript,
+                dbSNP=dbSNP,
+                hapmap=hapmap,
+                omni=omni,
+                g1000=g1000)
+        with open(self.script,'w') as o:
+            o.write(cmd + "\n")
+            subprocess.check_call(shlex.split(cmd))
+
+    def requires(self):
+        if self.sample_type == 'genome':
+            return self.clone(SelectVariantsSNP)
+        elif self.sample_type == 'exome':
+            return self.clone(SelectVariantsSNP)
+        else:
+            raise Exception, "Sample type: %s not supported in this module" % self.sample_type
+
+
+    def output(self):
+        #return luigi.LocalTarget(self.snp_rscript),luigi.LocalTarget(self.snp_tranches),luigi.LocalTarget(self.snp_recal)
+        return luigi.LocalTarget(self.snp_recal)
+
+        ####double check dbsnp version ####
+
+class VariantRecalibratorINDEL(SGEJobTask):
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
+
+    java = luigi.Parameter(default=java,
+        description = 'java version used')
+    gatk = luigi.Parameter(default=gatk,
+        description = 'gatk version used')
+    max_mem = luigi.Parameter(default=max_mem,
+        description = 'heap size for java in Gb')
+    ref = luigi.Parameter(default=ref,
+        description = 'reference genome location')
+    dbSNP = luigi.Parameter(default=dbSNP,
+        description = 'dbSNP location')
+    Mills1000g = luigi.Parameter(default=Mills1000g,
+        description = 'Mills, Devin curated dataset')
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    def __init__(self, *args, **kwargs):
+        super(VariantRecalibratorINDEL, self).__init__(*args, **kwargs)
+        self.indel_vcf = "{scratch}/{sample_name}/{sample_name}.indel.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.indel_recal = "{scratch}/{sample_name}/{sample_name}.indel.recal".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.indel_tranches = "{scratch}/{sample_name}/{sample_name}.indel.tranches".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+
+    def work(self):
+        cmd = ("{java} -Xmx{max_mem}g "
+            "-jar {gatk}/GenomeAnalysisTK.jar "
+            "-R {ref} "
+            "-T VariantRecalibrator "
+            "-L {interval} "
+            "-I {indel_vcf} "
+            "-an QD "
+            "-an DP "
+            "-an FS "
+            "-an SOR "
+            "-an MQRankSum "
+            "-an ReadPosRankSum "
+            "-an InbreedingCoeff "
+            "-mode INDEL "
+            "--maxGaussians 4 "
+            "-tranche 100.0 -tranche 99.9 -tranche 99.0 -tranche 90.0 "
+            "-recalFile {indel_recal} "
+            "-tranchesFile {indel_tranches} "
+            "-resource:mills,known=true,training=true,truth=true,prior=12.0 {Mills1000g} "
+            ).format(java=java,
+                gatk=gatk,
+                max_mem=max_mem,
+                ref=ref,
+                interval=interval,
+                indel_vcf=self.indel_vcf,
+                indel_recal=self.indel_recal,
+                indel_tranches=self.indel_tranches,
+                indel_rscript=self.indel_rscript,
+                Mills1000g=Mills1000g)
+        with open(self.script,'w') as o:
+            o.write(cmd + "\n")
+            subprocess.check_call(shlex.split(cmd))
+
+    def requires(self):
+        if self.sample_type == 'genome':
+            return self.clone(VariantRecalibratorSNP)
+        else:
+            raise Exception, "Sample type: %s not supported in this module" % self.sample_type
+
+    def output(self):
+        return luigi.LocalTarget(self.indel_recal)
+
+class ApplyRecalibrationSNP(SGEJobTask):
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
+
+    java = luigi.Parameter(default=java,
+        description = 'java version used')
+    gatk = luigi.Parameter(default=gatk,
+        description = 'gatk version used')
+    max_mem = luigi.Parameter(default=max_mem,
+        description = 'heap size for java in Gb')
+    ref = luigi.Parameter(default=ref,
+        description = 'reference genome location')
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    def __init__(self, *args, **kwargs):
+        super(ApplyRecalibrationSNP, self).__init__(*args, **kwargs)
+        self.vcf = "{scratch}/{sample_name}/{sample_name}.snp.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.snp_recal = "{scratch}/{sample_name}/{sample_name}.snp.recal".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.snp_tranches = "{scratch}/{sample_name}/{sample_name}.snp.tranches".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.snp_filtered = "{scratch}/{sample_name}/{sample_name}.snp.filtered.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+
+    def work(self):
+        cmd = ("{java} -Xmx{max_mem}g "
+            "-jar {gatk}/GenomeAnalysisTK.jar "
+            "-R {ref} "
+            "-T ApplyRecalibration "
+            "-L {interval} "
+            "-input {vcf} "
+            "-tranchesFile {snp_tranches} "
+            "-recalFile {snp_recal} "
+            "-o {snp_filtered} "
+            "--ts_filter_level 99.0 "
+            "-mode SNP ").format(java=java,
+                gatk=gatk,
+                max_mem=max_mem,
+                ref=ref,
+                interval=interval,
+                vcf=self.vcf,
+                snp_tranches=self.snp_tranches,
+                snp_filtered=self.snp_filtered,
+                snp_recal=self.snp_recal)
+        with open(self.script,'w') as o:
+            o.write(cmd + "\n")
+            subprocess.check_call(shlex.split(cmd))
+
+    def requires(self):
+        if self.sample_type == 'genome':
+            return self.clone(VariantRecalibratorINDEL)
+        elif self.sample_type == 'exome':
+            return self.clone(VariantRecalibratorSNP)
+        else:
+            raise Exception, "Sample type: %s not supported in this module" % self.sample_type
+
+    def output(self):
+        return luigi.LocalTarget(self.snp_filtered)
+
+class ApplyRecalibrationINDEL(SGEJobTask):
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
+
+    java = luigi.Parameter(default=java,
+        description = 'java version used')
+    gatk = luigi.Parameter(default=gatk,
+        description = 'gatk version used')
+    max_mem = luigi.Parameter(default=max_mem,
+        description = 'heap size for java in Gb')
+    ref = luigi.Parameter(default=ref,
+        description = 'reference genome location')
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    def __init__(self, *args, **kwargs):
+        super(ApplyRecalibrationINDEL, self).__init__(*args, **kwargs)
+        self.snp_filtered = "{scratch}/{sample_name}/{sample_name}.snp.filtered.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.indel_recal = "{scratch}/{sample_name}/{sample_name}.indel.recal".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.indel_tranches = "{scratch}/{sample_name}/{sample_name}.indel.tranches".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.indel_filtered = "{scratch}/{sample_name}/{sample_name}.snp.indel.filtered.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+
+    def work(self):
+       cmd = ("{java} -Xmx{max_mem}g "
+            "-jar {gatk}/GenomeAnalysisTK.jar "
+            "-R {ref} "
+            "-T ApplyRecalibration "
+            "-L {interval} "
+            "-input {snp_filtered} "
+            "-tranchesFile {indel_tranches} "
+            "-recalFile {indel_recal} "
+            "-o {indel_filtered} "
+            "--ts_filter_level 99.0 "
+            "-mode INDEL ").format(java=java,
+                gatk=gatk,
+                max_mem=max_mem,
+                ref=ref,
+                interval=interval,
+                snp_filtered=self.snp_filtered,
+                indel_recal=self.indel_recal,
+                indel_tranches=self.indel_tranches,
+                indel_filtered=self.indel_filtered)
+       with open(self.script,'w') as o:
+           o.write(cmd + "\n")
+           subprocess.check_call(shlex.split(cmd))
+
+    def requires(self):
+        if self.sample_type == 'genome':
+            return self.clone(ApplyRecalibrationSNP)
+        else:
+            raise Exception, "Sample type: %s not supported in this module" % self.sample_type
+
+    def output(self):
+        return luigi.LocalTarget(self.indel_filtered)
+
+class VariantFiltrationSNP(SGEJobTask):
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
+
+    java = luigi.Parameter(default=java,
+        description = 'java version used')
+    gatk = luigi.Parameter(default=gatk,
+        description = 'gatk version used')
+    max_mem = luigi.Parameter(default=max_mem,
+        description = 'heap size for java in Gb')
+    ref = luigi.Parameter(default=ref,
+        description = 'reference genome location')
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    def __init__(self, *args, **kwargs):
+        super(VariantFiltrationSNP, self).__init__(*args, **kwargs)
+        self.snp_vcf = "{scratch}/{sample_name}/{sample_name}.snp.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.snp_filtered = "{scratch}/{sample_name}/{sample_name}.snp.filtered.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+
+    def work(self):
+       cmd = ("{java} -Xmx{max_mem}g "
+            "-jar {gatk}/GenomeAnalysisTK.jar "
+            "-R {ref} "
+            "-T VariantFiltration "
+            "-L {interval} "
+            "-V {snp_vcf} "
+            "--filterExpression \"QD < 2.0 || FS > 60.0 || MQ < 40.0 || MQRankSum < -12.5 || ReadPosRankSum < -8.0\" "
+            "--filterName \"SNP_filter\" "
+            "-o {snp_filtered} ").format(java=java,
+                gatk=gatk,
+                max_mem=max_mem,
+                ref=ref,
+                interval=interval,
+                snp_vcf=self.snp_vcf,
+                snp_filtered=self.snp_filtered)
+       with open(self.script,'w') as o:
+           o.write(cmd + "\n")
+           subprocess.check_call(shlex.split(cmd))
+
+    def requires(self):
+        if self.sample_type == 'custom_capture':
+            return self.clone(SelectVariantsSNP)
+        else:
+            raise Exception, "Sample type: %s not supported in this module" % self.sample_type
+
+    def output(self):
+        return luigi.LocalTarget(self.snp_filtered)
+
+class VariantFiltrationINDEL(SGEJobTask):
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
+
+    java = luigi.Parameter(default=java,
+        description = 'java version used')
+    gatk = luigi.Parameter(default=gatk,
+        description = 'gatk version used')
+    max_mem = luigi.Parameter(default=max_mem,
+        description = 'heap size for java in Gb')
+    ref = luigi.Parameter(default=ref,
+        description = 'reference genome location')
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    def __init__(self, *args, **kwargs):
+        super(VariantFiltrationINDEL, self).__init__(*args, **kwargs)
+        self.indel_vcf = "{scratch}/{sample_name}/{sample_name}.indel.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.indel_filtered = "{scratch}/{sample_name}/{sample_name}.indel.filtered.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+
+    def work(self):
+       cmd = ("{java} -Xmx{max_mem}g "
+            "-jar {gatk}/GenomeAnalysisTK.jar "
+            "-R {ref} "
+            "-T VariantFiltration "
+            "-L {interval} "
+            "-V {indel_vcf} "
+            "--filterExpression \"QD < 2.0 || FS > 200.0 || ReadPosRankSum < -20.0\" "
+            "--filterName \"INDEL_filter\" "
+            "-o {indel_filtered}").format(java=java,
+                gatk=gatk,
+                max_mem=max_mem,
+                ref=ref,
+                interval=interval,
+                indel_vcf=self.indel_vcf,
+                indel_filtered=self.indel_filtered)
+       with open(self.script,'w') as o:
+           o.write(cmd + "\n")
+           subprocess.check_call(shlex.split(cmd))
+
+    def requires(self):
+        if self.sample_type == 'exome':
+            return self.clone(ApplyRecalibrationSNP),self.clone(SelectVariantsINDEL)
+        elif self.sample_type == 'custom_capture':
+            return self.clone(VariantFiltrationINDEL)
+        else:
+            raise Exception, "Sample type: %s not supported in this module" % self.sample_type
+    def output(self):
+        return luigi.LocalTarget(self.indel_filtered)
+
+
+class CombineVariants(SGEJobTask):
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
+
+    java = luigi.Parameter(default=java,
+        description = 'java version used')
+    tabix = luigi.Parameter(default=tabix,
+        description = 'tabix version used')
+    picard = luigi.Parameter(default=picard,
+        description = 'picard version used')
+    bgzip = luigi.Parameter(default=bgzip,
+        description = 'bgzip version used')
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    def __init__(self, *args, **kwargs):
+        super(CombineVariants, self).__init__(*args, **kwargs)
+        self.snp_filtered = "{scratch}/{sample_name}/{sample_name}.snp.filtered.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.vcf = "{scratch}/{sample_name}/{sample_name}.raw.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.indel_filtered = "{scratch}/{sample_name}/{sample_name}.indel.filtered.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.final_vcf = "{scratch}/{sample_name}/{sample_name}.analysisReady.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.final_vcf_gz = "{scratch}/{sample_name}/{sample_name}.analysisReady.vcf.gz".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.tmp_vcf = "{scratch}/{sample_name}/{sample_name}.tmp.vcf".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+
+    def work(self):
+        filter_flag = 0
+        with open(self.tmp_vcf,'w') as vcf_out:
+            with open(self.snp_filtered) as header:
+                for line in header.readlines():
+                    if line[0] == '#':
+                        if line[0:8] == '##FILTER' and filter_flag == 0 :
+                            filter_flag = 1
+                            #SNP specific filters
+                            if self.sample_type == 'exome' or self.sample_type =='genome':
+                                vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.00to99.90,Description="Truth sensitivity tranche level for SNP model\n')
+                                vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.90to100.00+,Description="Truth sensitivity tranche level for SNP model\n')
+                                vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.90to100.00,Description="Truth sensitivity tranche level for SNP model\n')
+                            else:
+                                vcf_out.write('##FILTER=<ID=SNP_filter,Description="QD < 2.0 || FS > 60.0 || MQ < 40.0 || MQRankSum < -12.5 || ReadPosRankSum < -8.0">\n')
+
+                            #Indel specific filters
+                            if self.sample_type =='genome':
+                                vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.00to99.90,Description="Truth sensitivity tranche level for INDEL model\n')
+                                vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.90to100.00+,Description="Truth sensitivity tranche level for INDEL model\n')
+                                vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.90to100.00,Description="Truth sensitivity tranche level for INDEL model\n')
+                            else:
+                                vcf_out.write('##FILTER=<ID=INDEL_filter,Description="QD < 2.0 || FS > 200.0 || ReadPosRankSum < -20.0">\n')
+
+                        #AnnoDBID annotation will be added during the annotation pipeline
+                        if line[0:13] == "##INFO=<ID=AN":
+                                vcf_out.write('##INFO=<ID=AnnoDBID,Number=1,Type=String,Description="AnnoDBID">\n')
+                        vcf_out.write(line)
+                    else:
+                        break
+            with open(self.snp_filtered) as snps:
+                for snp in snps.readlines():
+                    if snp[0] != '#':
+                        vcf_out.write(snp)
+            with open(self.indel_filtered) as indels:
+                for indel in indels.readlines():
+                    if indel[0] != '#':
+                        vcf_out.write(indel)
+
+        pre_cmd = ("/bin/bash -c cat <(head -1000 {vcf} | grep ^#) "
+            "<(grep -v ^# {snp_filtered}) "
+            "<(grep -v ^# {indel_filtered}) >> "
+            "{tmp_vcf} "
+            ).format(snp_filtered=self.snp_filtered,
+                indel_filtered=self.indel_filtered,
+                tmp_vcf=self.tmp_vcf,
+                vcf=self.vcf)
+
+        sort_cmd = ("{java} -jar {picard} "
+            "SortVcf "
+            "I={tmp_vcf} "
+            "O={final_vcf}").format(java=java,
+                picard=picard,
+                tmp_vcf=self.tmp_vcf,
+                final_vcf=self.final_vcf)
+
+        bgzip_cmd = ("{bgzip} {final_vcf}").format(bgzip=bgzip,final_vcf=self.final_vcf)
+        tabix_cmd = ("{tabix} {final_vcf_gz}").format(tabix=tabix,final_vcf_gz=self.final_vcf_gz)
+
+        #rm_cmd = ('').format()
+        with open(self.script,'w') as o:
+            o.write(pre_cmd + "\n")
+            o.write(sort_cmd + "\n")
+            o.write(bgzip_cmd + "\n")
+            o.write(tabix_cmd + "\n")
+            #o.write(rm_cmd + "\n")
+
+        subprocess.check_call(shlex.split(sort_cmd))
+        subprocess.check_call(shlex.split(bgzip_cmd))
+        subprocess.check_call(shlex.split(tabix_cmd))
+
+    def requires(self):
+        if self.sample_type == 'exome':
+            return self.clone(VariantFiltrationINDEL)
+        elif self.sample_type == 'custom_capture':
+            return self.clone(VariantFiltrationINDEL)
+        elif self.sample_type == 'genome':
+            return self.clone(ApplyRecalibrationINDEL)
+        else:
+            raise Exception, "Sample type: %s not supported in this module" % self.sample_type
+    def output(self):
+        return luigi.LocalTarget(self.final_vcf_gz)
+
+class ArchiveSample:
+    """Archive samples on Amplidata"""
+
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
+    dragen_id = luigi.Parameter()
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    """
+    db = MySQLdb.connect(db="sequenceDB", read_default_group="clientsequencedb",
+            read_default_file="/nfs/goldstein/software/dragen/.my.cnf")
+    curs = db.cursor()
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(ApplyRecalibrationSNP, self).__init__(*args, **kwargs)
+        self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
+            scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+        self.recal_bam = "{scratch}/{sample_name}/{sample_name}.realn.recal.bam".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+        self.bam = "{base_directory}/{sample_name}/{sample_name}.bam".format(
+            base_directory=self.base_directory, sample_name=self.sample_name)
+        self.final_vcf_gz = "{scratch}/{sample_name}/{sample_name}.analysisReady.vcf.gz".format(
+            scratch=self.scratch, sample_name=self.sample_name)
+
+    def work(self):
+        cmd = ("rsync -a --partial --timeout=20000 -r "
+              "{script_dir} {recal_bam} {final_vcf_gz}"
+              ).format(recal_bam=recal_bam,
+                      script_dir=script_dir,
+                      final_vcf_gz=final_vcf_gz)
+
+        with open(self.script,'w') as o:
+            o.write(cmd + "\n")
+            subprocess.check_call(shlex.split(cmd))
+
+        # Original dragen BAM could be technically deleted earlier after the
+        # realigned BAM has been created on scratch space but it is safer to 
+        # delete after the final realigned, recalculated BAM has been archived
+        # since our scratch space has failed in the past.
+        rm_cmd = ['rm',self.bam,self.scratch_dir]
+        rm_folder_cmd = ['rm','-rf',self.scratch_dir]
+        #print rm_cmd
+        #subprocess.call(rm_cmd)
+
+    def requires(self):
+        return self.clone(CombineVariants)
+
+    def output(self):
+        return luigi.LocalTarget(self.copy_complete)
+
+################################################## END OF GATK PIPELINE ####################################################################################
+
+
+
+##################################################################################################
+##                                POST GATK TASKS                                               ##
+##                                Added By : Raghav                                             ##
+##################################################################################################
+##   Notes :                                                                                    ##
+##   1. Created a new config class, combining Josh and my variables                             ##
+##   2. Working on integrating the two pipelines                                                ##   
+##                                                                                              ##
+##                                                                                              ##
+##                                                                                              ##
+##################################################################################################
+##        Run as :                                                                              ##  
+##        luigi --module luigized_coverage_statistics RunCvgMetrics  --local-scheduler          ##
+##        Parameters are stored in luigi.cfg                                                    ##
+##                                                                                              ##
+##################################################################################################
+
+
+class RootTask(luigi.WrapperTask):
+    """
+    Wrapper Task
+    """
+
+    ## Read in the bam file from the cmd line just to make sure
+    ## to ensure uniqueness of the RootTask 
+    bam = luigi.Parameter()
+    
+    
+    def requires(self):
+        self.output_file = "{0}/{1}.cvg.metrics.txt".format(self.scratch,self.sample_name)
+        #self.output_file = config().scratch+config().sample_name+'.cvg.metrics.txt'
+        return [ParsePicardOutputs(self.output_file,self.bam)]
+
+
+
+class MyExtTask(luigi.ExternalTask):
+    """
+    Checks whether the file specified exists on disk
+    """
+
+    file_loc = luigi.Parameter()
+    def output(self):
+        return luigi.LocalTarget(self.file_loc)
+
+
+
+class ParsePicardOutputs(SGEJobTask):
+    """
+    All Picard outputs seem to follow a standard format
+    A simple shell command is used for creating a standard processed
+    output file to extract values and load into a database
+    Information is represented as a two column output,first is the
+    field name and the second the value of that field
+    """
+
+
+    picard_output = luigi.Parameter()
+    
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git"
+
+    def __init__(self,*args,**kwargs):
+        """
+        Initialize Class Variables
+        """
+
+        super(ParsePicardOutputs,self).__init__(*args,**kwargs)
+        self.output_file = "{0}.processed".format(self.picard_output)
+        
+
+        ## Define the command to be run 
+        self.cmd = """cat %s | grep -v '^#'| awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > %s """%(self.picard_output,self.output_file)
+
+    def requires(self):
+        """ 
+        Dependency is the presence of the picard outputfile 
+        """
+        
+        return MyExtTask(self.picard_output)
+
+    def output(self):
+        """
+        Output from this task
+        """
+
+        return luigi.LocalTarget(self.output_file)
+
+    def work(self):
+        """
+        Just a simple shell command is enough!
+        """
+        
+        os.system(self.cmd)
+        #os.system("""touch %s.transposed"""%(self.output_file))
+        
+
+
+class RunCvgMetrics(SGEJobTask):
+    """ 
+    A luigi task
+    """
+
+    
+    ## Task Specific Parameters  
+    bam = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    seq_type = luigi.Parameter()
+    wgsinterval = luigi.BooleanParameter(default=False)
+    bed_file = luigi.Parameter(default='/nfs/seqscratch11/rp2801/backup/coverage_statistics/ccds_r14.bed')
+    x_y = luigi.BooleanParameter(default=True)
+    create_targetfile = luigi.BooleanParameter(default=False)
+    ## Full path to the temporary scratch directory
+    ## (e.g./nfs/seqscratch11/rp2801/ALIGNMENT/exomes/als3445)
+    scratch  = luigi.Parameter()
+    
+    ## System Parameters 
+    n_cpu = 12
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git/"
+
+    def __init__(self,*args,**kwargs):
+        """
+        Initialize Class Variables
+        :type args: List
+        :type kwargs: Dict
+        """
+
+        super(RunCvgMetrics,self).__init__(*args,**kwargs)
+        if not os.path.isdir(self.scratch): ## Recursively create the directory if it doesnt exist
+            os.makedirs(self.scratch)
+            
+
+
+        ## Define on the fly parameters 
+        #self.output_file = "{0}/{1}.cvg.metrics.txt".format(self.scratch,self.sample_name)
+        self.output_file = os.path.join(self.scratch,self.sample_name + ".cvg.metrics.txt")
+        #self.raw_output_file = "{0}/{1}.cvg.metrics.raw.txt".format(self.scratch,self.sample_name)
+        self.raw_output_file = os.path.join(self.scratch,self.sample_name + ".cvg.metrics.raw.txt")
+        if self.x_y:
+
+            self.output_file_X = os.path.join(self.scratch,self.sample_name+ ".cvg.metrics.X.txt")
+            self.raw_output_file_X = os.path.join(self.scratch,self.sample_name + ".cvg.metrics.X.raw.txt")
+            self.output_file_Y = os.path.join(self.scratch,self.sample_name+ ".cvg.metrics.Y.txt")
+            self.raw_output_file_Y = os.path.join(self.scratch,self.sample_name + ".cvg.metrics.Y.raw.txt")
+
+            
+        if self.create_targetfile:
+            self.bed_stem = utils.get_filename_from_fullpath(config().bed_file)
+            self.target_file = os.path.join(self.scratch,self.bed_stem)
+
+        else:
+            self.target_file = config().target_file 
+
+        
+        ## Define shell commands to be run
+        if self.seq_type.upper() == 'GENOME': ## If it is a genome sample
+            if self.wgsinterval == True: ## Restrict wgs metrics to an interval
+                self.cvg_cmd1 = """{0} -Xmx{1}g -XX:ParallelGCThreads=24 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={3} I={4} INTERVALS={5} O={6}MQ=20 Q=10""".format(config().java,config().max_mem,config().picard,config().ref,self.bam,self.target_file,self.raw_output_file)
+                
+            else: ## Run wgs metrics across the genome
+                self.cvg_cmd1 = """{0} -Xmx{1}g -XX:ParallelGCThreads=24 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={3} I={4} O={5} MQ=20 Q=10""".format(config().java,config().max_mem,config().picard,config().ref,self.bam,self.raw_output_file)
+               
+                ## Run the cvg metrics on X and Y Chromosomes only            
+                self.cvg_cmd2 = """{0} -Xmx{1}g -XX:ParallelGCThreads=24 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={3} I={4} INTERVALS={5} O={6} MQ=20 Q=10""".format(config().java,config().max_mem,config().picard,config().ref,self.bam,config().bait_file_X,self.raw_output_file)              
+                self.cvg_cmd3 = """{0} -Xmx{1}g -XX:ParallelGCThreads=24 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT {3} I={4} INTERVALS={5} O={6} MQ=20 Q=10""".format(config().java,config().max_mem,config().picard,config().ref,self.bam,config().bait_file_Y,self.raw_output_file_X)              
+                             
+        else: ## Anything other than genome i.e. Exome or Custom Capture( maybe have an elif here to check further ?)
+            self.cvg_cmd1 = """{0} -XX:ParallelGCThreads=24 -jar {1} CollectHsMetrics BI={2} TI={3} VALIDATION_STRINGENCY=LENIENT METRIC_ACCUMULATION_LEVEL=ALL_READS I={4} O={5} MQ=20 Q=10""".format(config().java,config().picard,config().bait_file,self.target_file,self.bam,self.raw_output_file)
+
+        ## Run the Metrics cvg metrics on X and Y Chromosomes only            
+            self.cvg_cmd2 = """{0} -XX:ParallelGCThreads=24 -jar {1} CollectHsMetrics BI={2} TI={3} VALIDATION_STRINGENCY=LENIENT METRIC_ACCUMULATION_LEVEL=ALL_READS I={4} O={5} MQ=20 Q=10""".format(config().java,config().picard,config().bait_file,config().bait_file_X,self.bam,self.raw_output_file_X)
+            self.cvg_cmd3 = """{0} -XX:ParallelGCThreads=24 -jar {1} CollectHsMetrics BI={2} TI={3} VALIDATION_STRINGENCY=LENIENT METRIC_ACCUMULATION_LEVEL=ALL_READS I={4} O={5} MQ=20 Q=10""".format(config().java,config().picard,config().bait_file,config().bait_file_Y,self.bam,self.raw_output_file_Y)
+
+        self.parser_cmd1 = """cat {0} | grep -v "^#"|awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1}""".format(self.raw_output_file,self.output_file)
+        self.parser_cmd2 = """cat {0} | grep -v "^#"|awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1}""".format(self.raw_output_file_X,self.output_file_X)
+        self.parser_cmd3 = """cat {0} | grep -v "^#"|awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1}""".format(self.raw_output_file_Y,self.output_file_Y)
+        self.parser_cmd = """cat {0} | grep -v "^#" | awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1}"""
+        #self.parser_cmd1 = self.parser_cmd%('temp',self.output_file)
+        #self.parser_cmd2 = self.parser_cmd%('temp',self.output_file_X)
+        #self.parser_cmd3 = self.parser_cmd%('temp',self.output_file_Y)
+
+            
+    def output(self):
+        """
+        The output produced by this task 
+        """
+        yield luigi.LocalTarget(self.output_file)
+        yield luigi.LocalTarget(self.output_file_X)
+        yield luigi.LocalTarget(self.output_file_Y)
+        
+
+    def requires(self):
+        """
+        The dependency for this task is the CreateTargetFile task
+        if the appropriate flag is specified by the user
+        """
+
+        if self.create_targetfile == True:
+            yield [CreateTargetFile(self.bed_file,self.scratch),MyExtTask(self.bam)]
+        else:
+            yield MyExtTask(self.bam)
+        
+        
+    def work(self):
+        """
+        Run Picard CalculateHsMetrics or WgsMetrics
+        """
+        ## Run the command
+        os.system(self.cvg_cmd1)
+        subprocess.check_output(self.parser_cmd1,shell=True)
+        if self.x_y:
+            os.system(self.cvg_cmd2)
+            subprocess.check_output(self.parser_cmd2,shell=True)
+            os.system(self.cvg_cmd3)
+            subprocess.check_output(self.parser_cmd3,shell=True)
+        #os.system("touch %s"%(self.output_file))
+
+
+class CreateTargetFile(SGEJobTask):
+    """ 
+    Task for creating a new target file(the format used by Picard)
+    from a bed file 
+    """
+    
+   
+    def __init__(self,*args,**kwargs):
+        super(CreateTargetFile,self).__init__(*args,**kwargs)
+        
+        self.bed_file = args[0]
+        self.scratch = args[1]
+        
+        if not os.path.isdir(self.scratch): ## Recursively create the directory if it doesnt exist
+            os.makedirs(self.scratch)
+
+        self.bed_stem = utils.get_filename_from_fullpath(self.bed_file) + ".list"
+        self.output_file = os.path.join(self.scratch,self.bed_stem)
+        
+        self.bedtointerval_cmd = ("{0} -jar {1} BedToIntervalList I={2} SD={3} OUTPUT={4}".format(config().java,config().picard,self.bed_file,config().seqdict_file,self.output_file))    
+
+    
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git/"
+    
+
+    def requires(self):
+        """ 
+        Dependcy for this task is the existence of the bedfile
+        and the human build37 sequence dictionary file
+        """
+        
+        return [MyExtTask(config().bed_file),MyExtTask(config().seqdict_file)]
+
+    
+    def output(self):
+        """
+        Returns the output from this task.
+        In this case, a successful executation of this task will create a
+        file on the local file system
+        """      
+        
+        return luigi.LocalTarget(self.output_file)
+
+
+    def work(self):
+        """
+        Run Picard BedToIntervalList 
+        """
+             
+        os.system(self.bedtointerval_cmd)
+
+
+        
+class CreatePed(SGEJobTask):
+    """ 
+    A luigi Task for creating ped files
+    """
+    
+    ped_type = luigi.Parameter() ## This has one of two values :
+                                 ## ethnicity or relatedness
+
+    bam = luigi.Parameter()
+    vcf = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    family_id = luigi.Parameter(default="")
+    seq_type = luigi.Parameter()
+    scratch = luigi.Parameter()
+    
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git"
+
+
+    def __init__(self,*args,**kwargs):
+        super(CreatePed,self).__init__(*args,**kwargs)
+        if not os.path.isdir(self.scratch): ## Recursively create the directory if it doesnt exist
+            os.makedirs(self.scratch)
+
+        self.output_file = self.sample_name+'.'+self.ped_type+'.ped'
+        self.output_ped = os.path.join(self.scratch,self.output_file)
+                
+
+        if self.ped_type == 'relatedness':
+            self.sampletoped_cmd = (
+                                    "{0} {1} --scratch {2} --vcffile {3} --bamfile {4}" 
+                                    " --markers {5} --refs {6} --sample {7} --fid {8}"
+                                    " --seq_type {9} --ped_type {10} --output {11}"
+                                    .format(config().python_path,config().sampleped_loc,
+                                    self.scratch,self.vcf,self.bam,
+                                    config().relatedness_markers,
+                                    config().relatedness_refs,self.sample_name,
+                                    self.family_id,self.seq_type,self.ped_type,
+                                    self.scratch)
+                                   )
+            
+        elif self.ped_type == 'ethnicity':
+            self.sampletoped_cmd = (
+                                    "{0} {1} --scratch {2} --vcffile {3} --bamfile {4}"
+                                    " --markers {5} --refs {6} --sample {7}"
+                                    " --seq_type {8} --ped_type {9} --output {10}" 
+                                    %(config().python_path,config().sampleped_loc,
+                                    self.scratch,self.vcf_file,self.bam,
+                                    config().relatedness_markers,
+                                    config().relatedness_refs,self.sample_name,
+                                    self.seq_type,self.ped_type,self.scratch)
+                                  )
+
+
+    def requires(self):
+        """
+        The dependencies for this task are the existence of the relevant files
+        """
+        
+        return [MyExtTask(self.bam),MyExtTask(self.vcf),MyExtTask(config().relatedness_refs)]
+
+
+    def output(self):
+        """
+        Output from this task is a ped file named with correct type
+        """
+           
+        return luigi.LocalTarget(self.output_ped)
+
+
+    def work(self):
+        """
+        To run this task, the sampletoped_fixed.py script is called
+        """
+        os.system(self.sampletoped_cmd)
+
+
+        
+class CreateGenomeBed(SGEJobTask):
+    """
+    Use bedtools to create the input bed file for the coverage binning script
+    """
+
+    
+    def __init__(self,*args,**kwargs):
+        super(CreateGenomeBed,self).__init__(*args,**kwargs)
+
+        bam = args[0]
+        sample_name = args[1]
+        scratch = args[2]
+        
+        if not os.path.isdir(self.scratch): ## Recursively create the directory if it doesnt exist
+            os.makedirs(self.scratch)
+
+        
+        self.genomecov_bed = os.path.join(self.scratch,self.sample+'.genomecvg.bed')
+
+        self.genomecov_cmd = "{0} genomecov -bga -ibam {1} > {2}"%(
+                              config().bedtools_loc,self.bam,
+                              self.genomecov_bed)    
+   
+      
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git"
+
+    
+    def requires(self):
+        """
+        The dependency is the presence of the bam file
+        """
+        
+        return MyExtTask(self.bam)
+
+    def output(self):
+        """
+        Output is the genomecov bed file
+        """
+
+        return luigi.LocalTarget(self.genomecov_bed)
+
+    def work(self):
+        """
+        Run the bedtools cmd
+        """
+
+        os.system(self.genomecov_cmd)
+
+
+
+class CoverageBinning(SGEJobTask):
+    """
+    Task to run the coverage binning script
+    """
+
+
+    bam_file = luigi.Parameter()
+    sample = luigi.Parameter()
+    block_size = luigi.Parameter()
+    scratch = luigi.Parameter()
+    
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git"
+      
+    
+    def __init__(self,*args,**kwargs):
+
+        super(CoverageBinning,self).__init__(*args,**kwargs)
+
+        if not os.path.isdir(self.scratch): ## Recursively create the directory if it doesnt exist
+            os.makedirs(self.scratch)
+
+        self.genomecov_bed = os.path.join(self.scratch,self.sample+'.genomecvg.bed')
+        self.human_chromosomes = []
+        self.human_chromosomes.extend(range(1, 23))
+        self.human_chromosomes = [str(x) for x in self.human_chromosomes]
+        self.human_chromosomes.extend(['X', 'Y','MT'])
+
+        self.binning_cmd = "{0} {1} {2} {3} {4} {5}".format(config().pypy_loc,
+                                     config().coverage_binner_loc,
+                                     self.block_size,self.genomecov_bed,
+                                     self.sample,self.scratch)
+        
+   
+    def requires(self):
+        """
+        Dependency is the completion of the CreateGenomeBed Task
+        """
+       
+        return [CreateGenomeBed(self.bam,self.sample_name,self.scratch)]
+        
+    
+    def output(self):
+        """
+        Output from this task are 23 files for each chromosome
+        """
+
+        for chrom in self.human_chromosomes:
+            file_loc = os.path.join(self.config,self.sample+'_read_coverage_'+self.block_size
+                                    +'_chr%s.txt'%chrom)
+            yield file_loc
+            
+
+    def work(self):
+        """ Run the binning script
+        """
+
+        os.system(self.binning_cmd)
+
+
+class AlignmentMetrics(SGEJobTask):
+    """
+    Run Picard AlignmentSummaryMetrics
+    """
+    
+
+    bam = luigi.Parameter()
+    sample_name = luigi.Parameter()
+
+    n_cpu = 12
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git"
+
+    def __init__(self,*args,**kwargs):
+        super(AlignmentMetrics,self).__init__(*args,**kwargs)
+
+        if not os.path.isdir(self.scratch): ## Recursively create the directory if it doesnt exist
+            os.makedirs(self.scratch)
+
+        self.output_file = os.path.join(scratch,sample+'.alignment.metrics.txt')
+        self.cmd = "{0} -XX:ParallelGCThreads=12 -jar {1} CollectAlignmentSummaryMetrics TMP_DIR={2} VALIDATION_STRINGENCY=SILENT REFERENCE_SEQUENCE={3} INPUT={4} OUTPUT={5}".format(config().java,config().picard,config().scratch,config().ref,self.bam,self.output_file)               
+    
+    
+    def exists(self):
+        """
+        Check whether the output file is present
+        """
+
+        return luigi.LocalTarget(self.output_file)
+
+    def requires(self):
+        """
+        The dependencies for this task is simply the existence of the bam file
+        from dragen with duplicates removed
+        """
+        
+        return MyExtTask(self.bam) 
+
+    def work(self):
+        """
+        Execute the command for this task 
+        """
+
+        os.system(self.cmd)
+
+
+class DuplicateMetrics(SGEJobTask):
+    """
+    Parse Duplicate Metrics from dragen logs
+    """
+    
+    dragen_log = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git"
+
+    
+    def __init__(self):
+        super(DuplicateMetrics,self).__init__(*args,**kwargs)
+        if not os.path.isdir(self.scratch): ## Recursively create the directory if it doesnt exist
+            os.makedirs(self.scratch)
+
+        self.output_file = os.path.join(self.scratch,self.sample_name+'duplicates.txt')
+        self.cmd = "grep 'duplicates marked' %s"%self.dragen_log
+        
+
+    def requires(self):
+        """ 
+        Dependencies for this task is the existence of the log file 
+        """
+        return MyExtTask(self.bam)
+
+
+    def output(self):
+        """
+        """
+        return luigi.LocalTarget(self.output_file)
+
+
+    def work(self):
+        """
+        Execute this task
+        """
+        ## The regular expression to catch the percentage duplicates in the grep string
+        catch_dup = re.compile('.*\((.*)%\).*')
+
+        dragen_output = subprocess.check_output(self.cmd,shell=True)
+        match = re.match(catch_dup,dragen_output)
+        if match:
+            perc_duplicates = match.group(1)
+            with open(self.output_file,'w') as OUT_HANDLE:
+                print >> OUT_HANDLE,perc_duplicates
+                
+        #else: IMPLEMENT LOGGING 
+
+class VariantCallingMetrics(SGEJobTask):
+    """
+    Run the picard tool for qc evaluation of the variant calls 
+    """
+
+    sample_name = luigi.Parameter()
+    vcf = luigi.Parameter()
+    scratch = luigi.Parameter()
+    
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git"
+      
+    
+    def __init__(self,*args,**kwargs):
+        super(VariantCallingMetrics,self).__init__(*args,**kwargs)
+        #sample_name = luigi.Parameter()
+        if not os.path.isdir(self.scratch): ## Recursively create the directory if it doesnt exist
+            os.makedirs(self.scratch)
+          
+        self.output_file = "{0}.variant_calling_summary_metrics".format(self.sample_name)
+        self.cmd = "{java} -jar {picard} CollectVariantCallingMetrics INPUT={vcf} OUTPUT={sample} DBSNP={db}".format(java=config().java,picard=config().picard,vcf=self.vcf,sample=self.sample_name,db=config().dbsnp)
+        self.parse_picard = """cat {0} | grep -v '^#'| awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {0}.processed """.format(self.output_file)
+
+        
+    def requires(self):
+        """
+        The requirement for this task is the presence of the analysis ready 
+        vcf file from the GATK pipeline
+        """
+    
+        return MyExtTask(self.vcf)
+
+    def output(self):
+        """
+        The result from this task is the creation of the metrics file
+        """
+        
+        return luigi.LocalTarget("{0}.processed".format(self.output_file))
+
+    def work(self):
+        """
+        Run this task
+        """
+    
+        os.system(self.cmd)
+        os.system(self.parse_picard) 
+
+
+class CheckUpdates(luigi.Target):
+    """
+    Checks whether the database entry was updated
+    correctly
+    """
+
+    cnf_file = luigi.Parameter()
+    value = luigi.Parameter()
+    db_field = luigi.Parameter()
+    seq_type = luigi.Parameter()
+    prep_id = luigi.Parameter()
+    chgvid = luigi.Parameter()
+    
+    def __init__(self,*args,**kwargs):
+        super(CheckUpdates,self).__init__(*args,**kwargs)
+        testdb = MySQLdb.connect(read_default_group='clienttestdb',db='sequenceDB',read_default_file=self.cnf_file)
+        testdb_cursor = testdb.cursor()
+        query_statement = """ SELECT {0} FROM seqdbClone WHERE CHGVID = '{1}' AND seq_type = '{2}' AND prepid = {3} """.format(self.db_field,self.chgvid,self.seq_type,self.prep_id)
+        testdb_cursor.execute(query_statement)
+        self.db_val = testdb_cursor.fetchall()
+        
+    
+    def exists(self):
+        if len(db_val > 1):
+            print "More than 1 entry , warning : duplicate prepids !"
+        if self.value == self.db_val[0][-1]:
+            return True
+        else:
+            return False
+        
+    
+class UpdateDatabase(SGEJobTask):
+    """
+    Populate database with output files
+    """
+
+    output_file = luigi.Parameter()
+    cnf_file = luigi.Parameter()
+    ## A list parameter containing the field names to be used for update
+    fields = luigi.DictParameter() 
+
+    ## The corresponding database field names
+    #fields_database  = luigi.ListParameter()
+    
+    def __init__(self,*args,**kwargs):
+        super(UpdateDatabase,self).__init__(*args,**kwargs)
+        testdb = MySQLdb.connect(read_default_group='clienttestdb',db='sequenceDB',read_default_file=self.cnf_file)
+        testdb_cursor = testdb.cursor()
+
+        query_statement = """ UPDATE TABLE seqdbClone SET {0} = {1} WHERE CHGVID = {2} AND seqType = {3} AND prepid = {4}"""
+        
+
+    def requires(self):
+        """
+        The requirement for this task
+        the outputfile from different tasks should
+        be present
+        """
+        
+        return [MyExtTask(self.output_file)]
+    
+
+    def output(self):
+        """
+        The output from this task
+        """
+
+        for key in self.fields.keys():
+            yield 
+
+    def work(self):
+        """
+        Run this task
+        """
+
+        with open(self.output_file,'w') as OUT:
+            for line in OUT:
+                contents = line.split(' ')
+                out_hash[contents[0]] = contents[1]
+
+        for key in fields.keys():
+            value = out_hash[field]
+            db_field = fields[key]
+            self.testdb_cursor.execute(self.query_statement.format(db_field,value))
+            self.db.commit()
+            
+        self.db.close()
+
+
+        
+class GenderCheck(SGEJobTask):
+    """
+    Check gender using X,Y chromosome coverage and update seqgender field
+    """
+
+    ## Parameters for this task
+    sample = luigi.Parameter()
+    seqtype = luigi.Parameter()
+    prepkit = luigi.Parameter()
+    ## Contains defaults for dragen pipeline
+    
+    
+    def __init__(self,*args,**kwargs):
+        super(GenderCheck,self).__init__(*args,**kwargs)
+        ## Possible set of update entries for the seqgender column
+        self.valid_updates = ['M','F','Ambiguous','N/A']
+        
+        ## Read the cnf_file and get a connection to the database
+        
+        self.db = MySQLdb.connect(db=database,read_default_group="clientsequencedb",
+                             read_default_file=config().cnf_file)
+
+        ## Define the SQL queries that need to be executed in this task
+        ## Query which returns seqgender,used for checking successful update
+        self.check_query = """ SELECT seqgender FROM seqdb_dragen WHERE CHGVID = {1} AND SeqType = {2} AND PrepKit = {3}""".format(CHGVID,seqType,prepKit) 
+        self.update_query = """ UPDATE TABLE seqdb_dragen SET seqgender = {0} WHERE CHGVID = {1} AND SeqType = {2} AND PrepKit = {3}"""
+
+        
+        
+    def requires(self):
+        """
+        The requirement for this task 
+        """
+        ## Define a better dependency
+        luigi.ExternalTask(self.cnf_file)
+
+        ## Run Cvg Metrics on X and Y chromosomes
+        
+        
+        
+    def output(self):
+        """
+        The output from this task
+        """
+
+        ## The sucess of the task depends on the sample seqgender being
+        ## updated to one of the valid set of update entries (possible
+        ## potential for a bug here where a wrong update could be made and
+        ## go unoticed in this check)
+
+        ## Get a cursor to the database
+        temp_cursor = self.db.cursor()
+        
+        
+    def work(self):
+        """
+        Run this task
+        """
+
+        
+def EthnicityPipeline(LocalSGEJobTask):
+    """
+    Run the Ethnicity Pipeline
+    """
+
+
+class CheckAppendStatus(luigi.Target):
+    """
+    This is a target class for checking whether the database
+    entry was correctly flagged
+    """
+
+
+    sample = luigi.Parameter()
+    seq_type = luigi.Parameter()
+
+
+    def __init__(self):
+        super(CheckAppendStatus,self).__init__(*args,**kwargs)
+        self.cmd = '''seqdb -e "use sequenceDB; SELECT to_append FROM table_name WHERE sample_name='%s',seq_type='%s' '''%(self.sample,self.seq_type)
+
+    def exists(self):
+        """
+        Checks whether the database was updated
+        """
+
+        db_entry = subprocess.check_output(self.cmd)
+        
+        if db_entry != 'False':
+            return False
+        
+        return True 
+
+
+           
+#@inherits(CreatePed) ## Try this method out too 
+class CreateRelatednessPed(SGEJobTask):
+    """
+    Wrapper Task for creating a relatedness ped file and
+    flagging the database entry to False
+    """
+
+    ped_type = luigi.Parameter(significant=True) ## This has one of two values :
+                                 ## ethnicity or relatedness
+    bam = luigi.Parameter(significant=True)
+    #vcf_file = luigi.Parameter(significant=True)
+    sample_name = luigi.Parameter(significant=True)
+    family_id = luigi.Parameter(default="",significant=True)
+    seq_type = luigi.Parameter(significant=True)
+    master_ped = luigi.Parameter()
+
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git"
+      
+    
+    def __init__(self,*args,**kwargs):
+        super(CreateRelatednessPed,self).__init__(*args,**kwargs)       
+        self.output_file = config().scratch+self.sample+'.'+self.ped_type+'.ped'        
+        self.vcf = "{0}/{1}.analysisReady.vcf.gz".format(config().scratch,self.sample_name)
+        self.cmd = '''seqdb -e "use sequenceDB; UPDATE table_name SET to_append=TRUE WHERE sample_name=%s, seq_type=%s" '''%(self.sample_name,self.seq_type)
+
+
+    def requires(self):
+        """
+        The dependency for this task is the completion of the
+        CreatePed Task with the appropriate signatures
+        """
+        
+        return CreatePed(self.ped_type,self.bam,self.vcf,
+                         self.sample_name,self.family_id,self.seq_type)
+
+    
+    def output(self):
+        """
+        The Output from this task 
+        The database entry is flagged as False
+        """
+        
+        return CheckAppendStatus(self.sample_name,self.seq_type)
+        
+
+    def work(self):
+        """
+        Run this task, a simple append
+        should do it
+        """
+
+        os.system(self.cmd)
+
+class AppendMasterPed(SGEJobTask):
+    """
+    Append the samples to the masterped
+    """
+
+    masterped = luigi.Parameter()
+    ped_loc = luigi.Parameter()
+
+    
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git"
+
+    
+    def __init__(self,*args,**kwargs):
+        super(AppendMasterPed,self).__init__(*args,**kwargs)
+        self.cmd = "cat {0} >> {1}"
+        
+    def requires(self):
+        """
+        Make sure relevant files are present
+        """
+
+        return [MyExtTask(self.masterped),MyExtTask(self.ped_loc)]
+
+    def work(self):
+        """
+        Run the task
+        """
+        os.system(self.cmd.format(self.ped_loc,self.masterped))
+        
+    
+class RunRelatednessCheck(SGEJobTask):
+    """
+    This Task would be run nightly as a batch 
+    """
+
+    masterped = luigi.Parameter()
+    threshold_file = luigi.Parameter()
+    relatedness_map = luigi.Parameter()
+    database = luigi.Parameter()
+    cyrptic_threshold = luigi.Parameter()
+    cnf = luigi.Parameter() ## MySQL config file 
+    database_table = luigi.Parameter()
+    test_mode = luigi.Parameter()
+    #last_run = luigi.DateParameter()
+    
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git"
+
+    
+    def __init__(self,*args,**kwargs):
+        super(RunRelatednessCheck,self).__init__(*args,**kwargs)
+        self.append_cmd = "cat {0} >> {1}"
+        self.relatedness_cmd = "{0} new_relatedness_check.py {1} {2} {3} {4} {5}".format(config().python_path,config().scratch,self.threshold_file,self.cryptic_threshold,self.test_mode)
+        ## Check the database for the number of samples to be appended
+        db = MySQLdb.connect(db=self.database,read_default_group="clientseqdb",read_default_file=self.cnf)
+        ## Get the samples to append to master ped 
+        db_cursor = db.cursor()        
+        temp_query = "USE %s SELECT CHGVID,ped_location FROM %s WHERE is_append = False"%(database,database_table)
+        db_cursor.execute(temp_query)
+        self.result = db_cursor.fetchall()
+                
+
+        
+    def requires(self):
+        """
+        The dependencies for this task
+        """
+
+        for chgvid,ped_loc in self.result:
+            yield AppendMasterPed(masterped,ped_loc)
+            
+        yield MyExtTask(threshold_file)
+        yield MyExtTask(relatedness_map)
+        
+
+
+    def work(self):
+        """
+        Run the python relatedness script 
+        """
+        
+        ## Iterate over the results and append the individual peds to the masterped
+        for element in self.result:
+            ped_location = element[1]
+            os.system(self.append_cmd.format(ped_location,self.masterped))
+
+        ## Run the relatedness pipeline
+        os.system(self.relatedness_cmd)
+            
+    def output(self):
+        """
+        The output from this task
+        The line count should be appended by 1 
+        """
+
+        return 
+
+
+class CheckAppend(luigi.Target):
+    """
+    A Target class for checking if the append was sucessful
+    """
+    
+    masterped = luigi.Parameter()
+    num_samples = luigi.Parameter()
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git"
+
+    def __init__(self,*args,**kwargs):
+        super(CheckAppend,self).__init__(*args,**kwargs)
+        
+
+
+        

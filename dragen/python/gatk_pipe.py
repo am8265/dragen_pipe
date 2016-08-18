@@ -1343,3 +1343,76 @@ class SQLTarget(luigi.Target):
             if db.open:
                 db.close()
 
+class Binning(SGEJobTask):
+    """
+    Move to annodb pipeline 
+    Task to run the coverage binning script
+    """
+
+
+    bam_file = luigi.Parameter(default='bam')
+    gvcf = luigi.Parameter(default='gvcf')
+    sample = luigi.Parameter()
+    block_size = luigi.Parameter()
+    scratch = luigi.Parameter()
+    mode = luigi.Parameter()
+    
+    
+    ## System Parameters 
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch11/rp2801/genome_cvg_temp"
+    
+    
+    def __init__(self,*args,**kwargs):
+
+        super(Binning,self).__init__(*args,**kwargs)
+
+        if not os.path.isdir(self.scratch): ## Recursively create the directory if it doesnt exist
+            os.makedirs(self.scratch)
+
+        self.genomecov_bed = os.path.join(self.scratch,self.sample+'.genomecvg.bed')
+        self.human_chromosomes = []
+        self.human_chromosomes.extend(range(1, 23))
+        self.human_chromosomes = [str(x) for x in self.human_chromosomes]
+        self.human_chromosomes.extend(['X', 'Y','MT'])
+
+        if self.mode == 'coverage':
+            self.binning_cmd = "{0} {1} --sample_id {2} --block_size {3} --output_dir {4} {5} --mode coverage".format(
+                config().pypy_loc,config().binner_loc,self.sample,self.block_size,self.scratch,
+                self.genomecov_bed)        
+        elif self.mode == 'gq':
+            self.binning_cmd = "{0} {1} --sample_id {2} --block_size {3} --output_dir {4} {5} --mode gq".format(
+                config().pypy_loc,config().binner_loc,self.sample,self.block_size,self.scratch,
+                self.gvcf)
+   
+    def requires(self):
+        """
+        Dependency is the completion of the CreateGenomeBed Task
+        """
+    
+        if self.mode == 'coverage':
+            return [CreateGenomeBed(bam=self.bam_file,sample=self.sample,scratch=self.scratch)]
+        elif self.mode == 'gq':
+            #return MyExtTask(self.gvcf)
+        
+    
+    def output(self):
+        """
+        Output from this task are 23 files for each chromosome
+        """
+
+        
+        for chrom in self.human_chromosomes:
+            file_loc = os.path.join(self.scratch,self.sample+'_read_coverage_'+self.block_size
+                                    +'_chr%s.txt'%chrom)
+            yield luigi.LocalTarget(file_loc)
+        
+        
+
+    def work(self):
+        """ Run the binning script
+        """
+
+        os.system(self.binning_cmd)
+
