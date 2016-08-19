@@ -16,10 +16,9 @@ import utils
 class config(luigi.Config):
     """
     config class for instantiating parameters for this pipeline
-    the values are read from luigi.cfg in the current folder 
+    the values are read from luigi.cfg in the current folder
     """
 
-    ## Post GATK Variables,commented out redundant parameters
     java = luigi.Parameter()
     picard = luigi.Parameter()
     ref = luigi.Parameter()
@@ -36,21 +35,21 @@ class config(luigi.Config):
     relatedness_markers = luigi.Parameter()
     bedtools_loc = luigi.Parameter()
     pypy_loc = luigi.Parameter()
-    coverage_binner_loc = luigi.Parameter()
+    binner_loc  = luigi.Parameter()
     dbsnp = luigi.Parameter()
     cnf_file = luigi.Parameter()
     max_mem = luigi.IntParameter()
-    binner_loc  = luigi.Parameter()
-    hapman = luigi.Parameter()
-    omni = luigi.Parameter()
-    1000g = luigi.Parameter()
-
+    
 
 class db(luigi.Config):
+    """
+    Database config variable will be read from the
+    db section of the config file
+    """
+    
     cnf = luigi.Parameter()
     seqdb_group = luigi.Parameter()
     dragen_group = luigi.Parameter()
-
 
 class RootTask(luigi.WrapperTask):
     """
@@ -510,7 +509,7 @@ class Binning(SGEJobTask):
 
         
         for chrom in self.human_chromosomes:
-            file_loc = os.path.join(self.scratch,self.sample+'_read_coverage_'+self.block_size
+            file_loc = os.path.join(self.scratch,self.sample+'_%s_binned_'%self.mode+self.block_size
                                     +'_chr%s.txt'%chrom)
             yield luigi.LocalTarget(file_loc)
         
