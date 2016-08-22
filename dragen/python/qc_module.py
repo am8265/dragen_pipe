@@ -530,21 +530,26 @@ class AlignmentMetrics(SGEJobTask):
 
     bam = luigi.Parameter()
     sample_name = luigi.Parameter()
-
+    scratch = luigi.Parameter()
+    
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/home/rp2801/git"
 
+    
     def __init__(self,*args,**kwargs):
         super(AlignmentMetrics,self).__init__(*args,**kwargs)
+
+        #self.sample_dir = os.path.join(self.scratch,self.sample_name)
+        
 
         if not os.path.isdir(self.scratch): ## Recursively create the directory if it doesnt exist
             os.makedirs(self.scratch)
 
-        self.output_file_raw = os.path.join(self.scratch,self.sample+'.alignment.metrics.raw.txt')
-        self.output_file = os.path.join(self.scratch,self.sample+'.alignment.metrics.txt')
-        self.cmd = "{0} -XX:ParallelGCThreads=12 -jar {1} CollectAlignmentSummaryMetrics TMP_DIR={2} VALIDATION_STRINGENCY=SILENT REFERENCE_SEQUENCE={3} INPUT={4} OUTPUT={5}".format(config().java,config().picard,config().scratch,config().ref,self.bam,self.output_file_raw)               
+        self.output_file_raw = os.path.join(self.scratch,self.sample_name+'.alignment.metrics.raw.txt')
+        self.output_file = os.path.join(self.scratch,self.sample_name+'.alignment.metrics.txt')
+        self.cmd = "{0} -XX:ParallelGCThreads=12 -jar {1} CollectAlignmentSummaryMetrics TMP_DIR={2} VALIDATION_STRINGENCY=SILENT REFERENCE_SEQUENCE={3} INPUT={4} OUTPUT={5}".format(config().java,config().picard,self.scratch,config().ref,self.bam,self.output_file_raw)               
         self.parser_cmd = """cat {0} | grep -v "^#" | awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1}""".format(self.output_file_raw,self.output_file)
         
         
