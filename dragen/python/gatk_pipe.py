@@ -16,7 +16,7 @@ Dragen based alignment
 """
 
 #Pipeline programs
-gatk="/nfs/goldstein/software/GATK-3.6.0-nightly-2016-08-10-g9a77889/"
+gatk="/nfs/goldstein/software/GATK-3.6.0-nightly-2016-08-10-g9a77889"
 java="/nfs/goldstein/software/jdk1.8.0_05/bin/java"
 bgzip="/nfs/goldstein/software/bin/bgzip"
 tabix="/nfs/goldstein/software/bin/tabix"
@@ -83,7 +83,7 @@ class CopyBam(SGEJobTask):
     scratch = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-    pseudo_prepid = luigi.Parameter()
+    #pseudo_prepid = luigi.Parameter()
     interval = luigi.Parameter(default=interval)
 
     n_cpu = 1
@@ -101,6 +101,8 @@ class CopyBam(SGEJobTask):
             scratch=self.scratch,sample_name=self.sample_name)
         self.script = "{scratch}/{sample_name}/scripts/{class_name}.sh".format(
             scratch=self.scratch, sample_name=self.sample_name,class_name=self.__class__.__name__)
+
+        """
         db = get_connection("seqdb")
         try:
             cur = db.cursor()
@@ -110,8 +112,9 @@ class CopyBam(SGEJobTask):
         finally:
             if db.open:
                 db.close()
-
+        """
     def work(self):
+        """
         db = get_connection("seqdb")
         try:
             cur = db.cursor()
@@ -122,7 +125,7 @@ class CopyBam(SGEJobTask):
         finally:
             if db.open:
                 db.close()
-
+        """
         os.system("mkdir -p {0}/scripts".format(self.scratch + self.sample_name))
         os.system("mkdir -p {0}/logs".format(self.scratch + self.sample_name))
         cmd = ("rsync -a --timeout=20000 -r {bam} {bam_index} {scratch}/{sample_name}/"
@@ -135,6 +138,7 @@ class CopyBam(SGEJobTask):
             o.write(cmd + "\n")
         subprocess.check_call(shlex.split(cmd))
 
+        """
         db = get_connection("seqcb")
         try:
             cur = db.cursor()
@@ -145,14 +149,17 @@ class CopyBam(SGEJobTask):
         finally:
             if db.open:
                 db.close()
-
+        """
+        
     def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
+        """
+        return SQLTarget(pseud_prepid=self.pseudo_prepid,
             pipeline_step_id=self.pipeline_step_id)
         """
+        
         yield luigi.LocalTarget("{scratch}/{sample_name}/{sample_name}.bam.bai".format(
             scratch=self.scratch,sample_name=self.sample_name))
-        """
+        
 class RealignerTargetCreator(SGEJobTask):
     """class for creating targets for indel realignment BAMs from Dragen"""
 
@@ -1351,7 +1358,9 @@ class ArchiveSample(SGEJobTask):
         #subprocess.call(rm_folder_cmd)
 
     def requires(self):
-        return [self.clone(AnnotateVCF),self.clone(CvgBinning),self.clone(GQBinning)]
+        yield self.clone(AnnotateVCF)
+        yield self.clone(CvgBinning)
+        yield self.clone(GQBinning)
 
     def output(self):
         return luigi.LocalTarget(self.copy_complete)
@@ -1439,19 +1448,32 @@ class CreateGenomeBed(SGEJobTask):
         self.tabix_cmd = "/nfs/goldstein/software/bin/tabix -p bed {0}".format(self.gzipped_genomecov_bed)
         self.tbi_file = self.gzipped_genomecov_bed+'.tbi'
           
+        self.human_chromosomes = []
+        self.human_chromosomes.extend(range(1, 23))
+        self.human_chromosomes = [str(x) for x in self.human_chromosomes]
+        self.human_chromosomes.extend(['X', 'Y','MT'])
+                       
+
+        
     def requires(self):
         """
         The dependency is the presence of the bam file
         """
         
-        return MyExtTask(self.bam)
+        return self.clone(PrintReads)
 
     def output(self):
         """
         Output is the genomecov bed file
         """
 
-        return [self.clone(PrintReads)]
+        
+        for chrom in self.human_chromosomes:
+            file_loc = os.path.join(self.output_dir,self.sample_name+'_gq_binned_'+config().block_size
+                                +'_chr%s.txt'%chrom)                
+            yield luigi.LocalTarget(file_loc)
+
+        
 
                 
     def work(self):
@@ -1603,4 +1625,56 @@ class GQBinning(SGEJobTask):
         """
 
         os.system(self.binning_cmd)
+
         
+class AlignmentMetrics(SGEJobTask):
+    """
+    Run Picard AlignmentSummaryMetrics
+    """
+
+    base_directory = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    interval = luigi.Parameter(default=interval)
+    
+    
+    ## System Parameters 
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git"
+
+    def __init__(self,*args,**kwargs):
+        super(AlignmentMetrics,self).__init__(*args,**kwargs)
+       
+        self.sample_dir = os.path.join(self.scratch,self.sample_name)
+
+        self.output_file_raw = os.path.join(self.scratch,self.sample_name+'.alignment.metrics.raw.txt')
+        self.output_file = os.path.join(self.scratch,self.sample_name+'.alignment.metrics.txt')
+        self.cmd = "{0} -XX:ParallelGCThreads=12 -jar {1} CollectAlignmentSummaryMetrics TMP_DIR={2} VALIDATION_STRINGENCY=SILENT REFERENCE_SEQUENCE={3} INPUT={4} OUTPUT={5}".format(config().java,config().picard,self.scratch,config().ref,self.bam,self.output_file_raw)               
+        self.parser_cmd = """cat {0} | grep -v "^#" | awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1}""".format(self.output_file_raw,self.output_file)
+        
+        
+    def exists(self):
+        """
+        Check whether the output file is present
+        """
+
+        return luigi.LocalTarget(self.output_file)
+
+    def requires(self):
+        """
+        The dependencies for this task is simply the existence of the bam file
+        from dragen with duplicates removed
+        """
+        
+        return MyExtTask(self.bam) 
+
+    def work(self):
+        """
+        Execute the command for this task 
+        """
+
+        os.system(self.cmd)
+        os.system(self.parser_cmd)
