@@ -25,7 +25,6 @@ def insert_pseudo_prepid(sample,debug):
     if debug:
         print query
         print sample.metadata['prepid']
-    raw_input()
     curs.execute(query)
 
     pseudo_prepid_query = "SELECT LAST_INSERT_ID()"
