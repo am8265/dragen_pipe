@@ -1427,11 +1427,9 @@ class CreateGenomeBed(SGEJobTask):
     
     def __init__(self,*args,**kwargs):
         super(CreateGenomeBed,self).__init__(*args,**kwargs)
-
          
         if not os.path.isdir(self.scratch): ## Recursively create the directory if it doesnt exist
             os.makedirs(self.scratch)
-
         
         self.sample_dir = os.path.join(self.scratch,self.sample_name)
         self.output_dir = os.path.join(self.sample_dir,'cvg_binned')
@@ -1439,9 +1437,7 @@ class CreateGenomeBed(SGEJobTask):
         self.recal_bam = os.path.join(self.sample_dir,self.sample_name+'.realn.recal.bam') 
         self.genomecov_cmd = "{0} genomecov -bga -ibam {1} > {2}".format(
                               config().bedtools_loc,self.recal_bam,
-                              self.genomecov_bed)
-
-        
+                              self.genomecov_bed)     
 
         self.gzip_cmd = "bgzip {0}".format(self.genomecov_bed)
         self.gzipped_genomecov_bed = self.genomecov_bed+'.gz'
@@ -1466,15 +1462,8 @@ class CreateGenomeBed(SGEJobTask):
         """
         Output is the genomecov bed file
         """
-
         
-        for chrom in self.human_chromosomes:
-            file_loc = os.path.join(self.output_dir,self.sample_name+'_gq_binned_'+config().block_size
-                                +'_chr%s.txt'%chrom)                
-            yield luigi.LocalTarget(file_loc)
-
-        
-
+        return self.genomecov_bed
                 
     def work(self):
         """
@@ -1650,18 +1639,18 @@ class AlignmentMetrics(SGEJobTask):
        
         self.sample_dir = os.path.join(self.scratch,self.sample_name)
 
-        self.output_file_raw = os.path.join(self.scratch,self.sample_name+'.alignment.metrics.raw.txt')
-        self.output_file = os.path.join(self.scratch,self.sample_name+'.alignment.metrics.txt')
+        self.output_file_raw = os.path.join(self.sample_dir,self.sample_name+'.alignment.metrics.raw.txt')
+        self.output_file = os.path.join(self.sample_dir,self.sample_name+'.alignment.metrics.txt')
         self.cmd = "{0} -XX:ParallelGCThreads=12 -jar {1} CollectAlignmentSummaryMetrics TMP_DIR={2} VALIDATION_STRINGENCY=SILENT REFERENCE_SEQUENCE={3} INPUT={4} OUTPUT={5}".format(config().java,config().picard,self.scratch,config().ref,self.bam,self.output_file_raw)               
-        self.parser_cmd = """cat {0} | grep -v "^#" | awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1}""".format(self.output_file_raw,self.output_file)
+        self.parser_cmd = """cat {0} | grep -v "^#" | awk -f ../sh/transpose.awk > {1}""".format(self.output_file_raw,self.output_file)
         
         
     def exists(self):
         """
         Check whether the output file is present
         """
-
-        return luigi.LocalTarget(self.output_file)
+        
+        return self.clone(PrintReads)
 
     def requires(self):
         """
@@ -1671,6 +1660,7 @@ class AlignmentMetrics(SGEJobTask):
         
         return MyExtTask(self.bam) 
 
+    
     def work(self):
         """
         Execute the command for this task 
@@ -1678,3 +1668,155 @@ class AlignmentMetrics(SGEJobTask):
 
         os.system(self.cmd)
         os.system(self.parser_cmd)
+
+        
+class CreateTargetFile(SGEJobTask):
+    """ 
+    Task for creating a new target file(the format used by Picard)
+    from a bed file 
+    """
+
+    ## System Parameters 
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch11/rp2801/genome_cvg_temp"
+
+    def __init__(self,*args,**kwargs):
+        super(CreateTargetFile,self).__init__(*args,**kwargs)
+        
+        self.bed_file = args[0]
+        self.scratch = args[1]
+        
+        if not os.path.isdir(self.scratch): ## Recursively create the directory if it doesnt exist
+            os.makedirs(self.scratch)
+
+        self.bed_stem = utils.get_filename_from_fullpath(self.bed_file) + ".list"
+        self.output_file = os.path.join(self.scratch,self.bed_stem)
+        
+        self.bedtointerval_cmd = ("{0} -jar {1} BedToIntervalList I={2} SD={3} OUTPUT={4}".format(config().java,config().picard,self.bed_file,config().seqdict_file,self.output_file))    
+
+    
+    
+    def requires(self):
+        """ 
+        Dependency for this task is the existence of the bedfile
+        and the human build37 sequence dictionary file
+        """
+        
+        return [MyExtTask(config().bed_file),MyExtTask(config().seqdict_file)]
+
+
+class RunCvgMetrics(SGEJobTask):
+    """ 
+    A luigi task
+    """
+
+    
+    ## Task Specific Parameters  
+    bam = luigi.Parameter()
+    sample_name = luigi.Parameter()
+    seq_type = luigi.Parameter()
+    wgsinterval = luigi.BooleanParameter(default=False)
+    bed_file = luigi.Parameter(default='/nfs/seqscratch11/rp2801/backup/coverage_statistics/ccds_r14.bed')
+    x_y = luigi.BooleanParameter(default=True)
+    create_targetfile = luigi.BooleanParameter(default=False)
+    ## Full path to the temporary scratch directory
+    ## (e.g./nfs/seqscratch11/rp2801/ALIGNMENT/exomes/als3445)
+    scratch  = luigi.Parameter()
+    
+    ## System Parameters 
+    n_cpu = 2
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch11/rp2801/genome_cvg_temp"
+
+    def __init__(self,*args,**kwargs):
+        """
+        Initialize Class Variables
+        :type args: List
+        :type kwargs: Dict
+        """
+
+        super(RunCvgMetrics,self).__init__(*args,**kwargs)
+           
+
+        ## Define on the fly parameters
+        self.sample_dir = os.path.join(self.scratch,self.sample_name)
+        self.output_file = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.txt")
+        self.raw_output_file = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.raw.txt")
+        if self.x_y:
+            self.output_file_X = os.path.join(self.sample_dir,self.sample_name+ ".cvg.metrics.X.txt")
+            self.raw_output_file_X = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.X.raw.txt")
+            self.output_file_Y = os.path.join(self.sample_dir,self.sample_name+ ".cvg.metrics.Y.txt")
+            self.raw_output_file_Y = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.Y.raw.txt")
+
+            
+        if self.create_targetfile:
+            self.bed_stem = utils.get_filename_from_fullpath(config().bed_file)
+            self.target_file = os.path.join(self.sample_dir,self.bed_stem)
+
+        else:
+            self.target_file = config().target_file 
+
+        
+        ## Define shell commands to be run
+        if self.seq_type.upper() == 'GENOME': ## If it is a genome sample
+            if self.wgsinterval == True: ## Restrict wgs metrics to an interval
+                self.cvg_cmd1 = """{0} -Xmx{1}g -XX:ParallelGCThreads=24 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={3} I={4} INTERVALS={5} O={6}MQ=20 Q=10""".format(config().java,config().max_mem,config().picard,config().ref,self.bam,self.target_file,self.raw_output_file)
+                
+            else: ## Run wgs metrics across the genome
+                self.cvg_cmd1 = """{0} -Xmx{1}g -XX:ParallelGCThreads=24 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={3} I={4} O={5} MQ=20 Q=10""".format(config().java,config().max_mem,config().picard,config().ref,self.bam,self.raw_output_file)
+               
+                ## Run the cvg metrics on X and Y Chromosomes only
+                self.cvg_sex1= """{0} -Xmx{1}g -XX:ParallelGCThreads=24 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={3} I={4} INTERVALS={5} O={6} MQ=20 Q=10"""
+                self.cvg_cmd2 = self.cvg_sex1.format(config().java,config().max_mem,config().picard,config().ref,self.bam,config().bait_file_X,self.raw_output_file)              
+                self.cvg_cmd3 = self.cvg_sex2.format(config().java,config().max_mem,config().picard,config().ref,self.bam,config().bait_file_Y,self.raw_output_file_X)              
+                             
+        else: ## Anything other than genome i.e. Exome or Custom Capture( maybe have an elif here to check further ?)
+            self.cvg_cmd1 = """{0} -XX:ParallelGCThreads=24 -jar {1} CollectHsMetrics BI={2} TI={3} VALIDATION_STRINGENCY=LENIENT METRIC_ACCUMULATION_LEVEL=ALL_READS I={4} O={5} MQ=20 Q=10""".format(config().java,config().picard,config().bait_file,self.target_file,self.bam,self.raw_output_file)
+
+            ## Run the Metrics cvg metrics on X and Y Chromosomes only
+            self.cvg_sex2 =  """{0} -XX:ParallelGCThreads=24 -jar {1} CollectHsMetrics BI={2} TI={3} VALIDATION_STRINGENCY=LENIENT METRIC_ACCUMULATION_LEVEL=ALL_READS I={4} O={5} MQ=20 Q=10"""
+            self.cvg_cmd2 =self.cvg_sex2.format(config().java,config().picard,config().bait_file,config().bait_file_X,self.bam,self.raw_output_file_X)
+            self.cvg_cmd3 = self.cvg_sex2.format(config().java,config().picard,config().bait_file,config().bait_file_Y,self.bam,self.raw_output_file_Y)
+
+        self.parser_cmd = """cat {0} | grep -v "^#" | awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1}"""
+        self.parser_cmd1 = self.parser_cmd.format(self.raw_output_file,self.output_file)
+        self.parser_cmd2 = self.parser_cmd.format(self.raw_output_file_X,self.output_file_X)
+        self.parser_cmd3 = self.parser_cmd.format(self.raw_output_file_Y,self.output_file_Y)
+        
+       
+            
+    def output(self):
+        """
+        The output produced by this task 
+        """
+        yield luigi.LocalTarget(self.output_file)
+        yield luigi.LocalTarget(self.output_file_X)
+        yield luigi.LocalTarget(self.output_file_Y)
+        
+
+    def requires(self):
+        """
+        The dependency for this task is the CreateTargetFile task
+        if the appropriate flag is specified by the user
+        """
+
+        if self.create_targetfile == True:
+            yield [CreateTargetFile(self.bed_file,self.scratch),MyExtTask(self.bam)]
+        else:
+            yield MyExtTask(self.bam)
+        
+        
+    def work(self):
+        """
+        Run Picard CalculateHsMetrics or WgsMetrics
+        """
+        ## Run the command
+        os.system(self.cvg_cmd1)
+        subprocess.check_output(self.parser_cmd1,shell=True)
+        if self.x_y:
+            os.system(self.cvg_cmd2)
+            subprocess.check_output(self.parser_cmd2,shell=True)
+            os.system(self.cvg_cmd3)
+            subprocess.check_output(self.parser_cmd3,shell=True)
+
