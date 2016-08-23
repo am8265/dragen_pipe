@@ -43,6 +43,7 @@ def main(samples, debug, dontexecute, gvcf, database):
         while info is not None:
             dragen_id = info[4]
             sample = dragen_sample(info[0],info[1],info[2],info[3],curs)
+            print sample.metadata
             single_sample_setup(curs,sample,parameters,gvcf,debug)
             run_sample(curs,sample,dragen_id,dontexecute,debug)
             info = get_next_sample(curs,debug)
@@ -193,28 +194,15 @@ def get_first_read(sample,read_number,debug):
     #Using first fastq as template for all fastq.gz
     first_fastq_loc = sample.metadata['fastq_loc'][0]
     if debug:
-        print '{0}/*L00*_R{1}_001.fastq.gz'.format(first_fastq_loc,read_number)
-    read = glob('{0}/*L00*_R{1}_001.fastq.gz'.format(first_fastq_loc,read_number))
+        print '{}/*L00*_R{}_001.fastq.gz'.format(first_fastq_loc,read_number)
+    read = glob('{}/*L00*_R{}_001.fastq.gz'.format(first_fastq_loc,read_number))
     #The fastqs might still be on the quantum tapes
     if read == []:
-        stornext_loc =('/stornext/seqfinal/casava1.8/whole_{sample_type}/{sample_name}/{FCIllumID}/*L00{sample_lane}_R{read_number}_001.fastq.gz'
-            ).format(sample_type=sample.metadata['sample_type'].lower(),
-                sample_name=sample.metadata['sample_name'],
-                FCIllumID=sample.metadata['lane'][0][0][1],
-                sample_lane=sample.metadata['lane'][0][0][0],
-                read_number=read_number)
-        read = glob(stornext_loc)
-        if debug:
-            print stornext_loc
-        if read == []:
-            print sample.metadata['sample_name']
+        print sample.metadata['sample_name']
+        print sample.metadata['fastq_loc'][0]
 
-            raise Exception, "Fastq file not found!"
-        else:
-            """fastq_loc was based off of database so needs to be set to the
-                quantum location"""
-            sample.set('fastq_loc',glob(('/stornext/seqfinal/casava1.8/whole_exome/{0}/*XX'
-                ).format(sample.metadata['sample_name'])))
+        raise Exception, "Fastq file not found!"
+
     return sorted(read)[0]
 
 def get_next_sample(curs,debug):
