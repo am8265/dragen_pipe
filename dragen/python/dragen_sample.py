@@ -66,7 +66,8 @@ def get_fastq_loc(curs, sample):
             in the database.  The Flowcell.FCIllumID begins with 'X' always.
             Typically when processing the external sample each read group is
             enumerated 1,2,3...etc.  """
-            if flowcell[0][1][0] == 'X':
+
+            if seqsatalocs[0][1][0] == 'X':
                 if 'seqsata' in flowcell[0]:
                     fastq_loc = glob(('/nfs/{0}/seqfinal/whole_genome/{1}/[0-9]'
                             ).format(flowcell[0],sample['sample_name']))
