@@ -24,7 +24,7 @@ VALUE ({pseudo_prepid}, {pipeline_step_id})
 """
 UPDATE_PIPELINE_STEP_SUBMIT_TIME = """
 UPDATE dragen_pipeline_step
-SET submit_time = NOW()
+SET submit_time = NOW(), times_ran = times_ran + 1
 WHERE pseudo_prepid = {pseudo_prepid} AND pipeline_step_id = {pipeline_step_id}
 """
 UPDATE_PIPELINE_STEP_FINISH_TIME = """
