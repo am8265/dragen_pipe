@@ -79,7 +79,6 @@ class CopyBam(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(CopyBam, self).__init__(*args, **kwargs)
-
         self.bam = "{0}/{1}/{2}/{2}.bam".format(
             config().base_dir,self.sample_type.upper(),self.sample_name)
         self.bam_index = "{0}/{1}/{2}/{2}.bam.bai".format(
@@ -117,7 +116,8 @@ class CopyBam(SGEJobTask):
                            scratch_dir=self.scratch_dir)
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            subprocess.check_call(shlex.split(cmd))
+            DEVNULL = open(os.devnull, 'w')
+            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
@@ -147,12 +147,14 @@ class RealignerTargetCreator(SGEJobTask):
         super(RealignerTargetCreator, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}".format(
             config().scratch,self.sample_type.upper(),self.sample_name)
+        self.interval_list = "{0}/{1}.interval_list".format(
+            self.scratch_dir,self.sample_name)
+        self.log_file = "{0}/logs/{1}.{2}.log".format(
+            self.scratch_dir,self.sample_name,self.__class__.__name__)
         self.scratch_bam = "{0}/{1}.bam".format(
             self.scratch_dir,self.sample_name)
         self.script = "{0}/scripts/{1}.sh".format(
             self.scratch_dir,self.sample_name,self.__class__.__name__)
-        self.interval_list = "{0}/{1}.interval_list".format(
-            self.scratch_dir,self.sample_name)
 
         db = get_connection("seqdb")
         try:
@@ -176,6 +178,7 @@ class RealignerTargetCreator(SGEJobTask):
             "-o {interval_list} "
             "-known {Mills1000g} "
             "-known {dbSNP} "
+            "--log_to_file {log_file} "
             "-nt 4 ").format(java=config().java,
                 gatk=config().gatk,
                 max_mem=config().max_mem,
@@ -184,7 +187,8 @@ class RealignerTargetCreator(SGEJobTask):
                 scratch_bam=self.scratch_bam,
                 interval_list=self.interval_list,
                 Mills1000g=config().Mills1000g,
-                dbSNP=config().dbSNP)
+                dbSNP=config().dbSNP,
+                log_file=self.log_file)
 
         try:
             cur = db.cursor()
@@ -194,7 +198,8 @@ class RealignerTargetCreator(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            subprocess.check_call(shlex.split(cmd))
+            DEVNULL = open(os.devnull, 'w')
+            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
@@ -227,6 +232,8 @@ class IndelRealigner(SGEJobTask):
         super(IndelRealigner, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}".format(
             config().scratch,self.sample_type.upper(),self.sample_name)
+        self.log_file = "{0}/logs/{1}.{2}.log".format(
+            self.scratch_dir,self.sample_name,self.__class__.__name__)
         self.scratch_bam = "{0}/{1}.bam".format(
             self.scratch_dir,self.sample_name)
         self.script = "{0}/scripts/{1}.sh".format(
@@ -255,6 +262,7 @@ class IndelRealigner(SGEJobTask):
             "-L {interval} "
             "-I {scratch_bam} "
             "-o {realn_bam} "
+            "--log_to_file {log_file} "
             "-targetIntervals {interval_list} "
             "-maxReads 10000000 "
             "-maxInMemory 450000 "
@@ -268,6 +276,7 @@ class IndelRealigner(SGEJobTask):
                 realn_bam=self.realn_bam,
                 interval_list=self.interval_list,
                 Mills1000g=config().Mills1000g,
+                log_file=self.log_file,
                 dbSNP=config().dbSNP)
         try:
             cur = db.cursor()
@@ -277,7 +286,8 @@ class IndelRealigner(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-                subprocess.check_call(shlex.split(cmd))
+            DEVNULL = open(os.devnull, 'w')
+            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
@@ -308,9 +318,10 @@ class BaseRecalibrator(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(BaseRecalibrator, self).__init__(*args, **kwargs)
-
         self.scratch_dir = "{0}/{1}/{2}".format(
             config().scratch,self.sample_type.upper(),self.sample_name)
+        self.log_file = "{0}/logs/{1}.{2}.log".format(
+            self.scratch_dir,self.sample_name,self.__class__.__name__)
         self.script = "{0}/scripts/{1}.sh".format(
             self.scratch_dir,self.sample_name,self.__class__.__name__)
         self.realn_bam = "{0}/{1}.realn.bam".format(
@@ -336,11 +347,12 @@ class BaseRecalibrator(SGEJobTask):
             "-T BaseRecalibrator "
             "-L {interval} "
             "-I {realn_bam} "
-            "-nct 4 "
             "-o {recal_table} "
             "-L {capture_kit_bed} "
+            "--log_to_file {log_file} "
             "-knownSites {Mills1000g} "
-            "-knownSites {dbSNP}").format(java=config().java,
+            "-knownSites {dbSNP} "
+            "-nct 4").format(java=config().java,
                 gatk=config().gatk,
                 max_mem=config().max_mem,
                 ref=config().ref,
@@ -348,6 +360,7 @@ class BaseRecalibrator(SGEJobTask):
                 realn_bam=self.realn_bam,
                 recal_table=self.recal_table,
                 Mills1000g=config().Mills1000g,
+                log_file=self.log_file,
                 capture_kit_bed=self.capture_kit_bed,
                 dbSNP=config().dbSNP)
 
@@ -359,7 +372,8 @@ class BaseRecalibrator(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-                subprocess.check_call(shlex.split(cmd))
+            DEVNULL = open(os.devnull, 'w')
+            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
@@ -390,9 +404,10 @@ class PrintReads(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(PrintReads, self).__init__(*args, **kwargs)
-
         self.scratch_dir = "{0}/{1}/{2}".format(
             config().scratch,self.sample_type.upper(),self.sample_name)
+        self.log_file = "{0}/logs/{1}.{2}.log".format(
+            self.scratch_dir,self.sample_name,self.__class__.__name__)
         self.script = "{0}/scripts/{1}.sh".format(
             self.scratch_dir,self.sample_name,self.__class__.__name__)
         self.realn_bam = "{0}/{1}.realn.bam".format(
@@ -421,6 +436,7 @@ class PrintReads(SGEJobTask):
             "-T PrintReads "
             "-L {interval} "
             "-I {realn_bam} "
+            "--log_to_file {log_file} "
             "--disable_indel_quals "
             "-BQSR {recal_table} "
             "-o {recal_bam} "
@@ -429,6 +445,7 @@ class PrintReads(SGEJobTask):
                 max_mem=config().max_mem,
                 ref=config().ref,
                 interval=config().interval,
+                log_file=self.log_file,
                 realn_bam=self.realn_bam,
                 recal_table=self.recal_table,
                 recal_bam=self.recal_bam)
@@ -441,7 +458,8 @@ class PrintReads(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            subprocess.check_call(shlex.split(cmd))
+            DEVNULL = open(os.devnull, 'w')
+            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
@@ -474,6 +492,8 @@ class HaplotypeCaller(SGEJobTask):
         super(HaplotypeCaller, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}".format(
             config().scratch,self.sample_type.upper(),self.sample_name)
+        self.log_file = "{0}/logs/{1}.{2}.log".format(
+            self.scratch_dir,self.sample_name,self.__class__.__name__)
         self.realn_bam = "{0}/{1}.realn.bam".format(
             self.scratch_dir, self.sample_name)
         self.recal_table = "{0}/{1}.recal_table".format(
@@ -508,6 +528,7 @@ class HaplotypeCaller(SGEJobTask):
             "-L {interval} "
             "-I {recal_bam} "
             "-o {gvcf} "
+            "--log_to_file {log_file} "
             "-stand_call_conf 20 "
             "-stand_emit_conf 20 "
             "--emitRefConfidence GVCF "
@@ -520,6 +541,7 @@ class HaplotypeCaller(SGEJobTask):
                 max_mem=config().max_mem,
                 ref=config().ref,
                 interval=config().interval,
+                log_file=self.log_file,
                 recal_bam=self.recal_bam,
                 gvcf=self.gvcf,
                 dbSNP=config().dbSNP)
@@ -532,7 +554,8 @@ class HaplotypeCaller(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            subprocess.check_call(shlex.split(cmd))
+            DEVNULL = open(os.devnull, 'w')
+            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
@@ -567,6 +590,8 @@ class GenotypeGVCFs(SGEJobTask):
         super(GenotypeGVCFs, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}".format(
             config().scratch,self.sample_type.upper(),self.sample_name)
+        self.log_file = "{0}/logs/{1}.{2}.log".format(
+            self.scratch_dir,self.sample_name,self.__class__.__name__)
         self.recal_table = "{0}/{1}.recal_table".format(
             self.scratch_dir, self.sample_name)
         self.gvcf = "{0}/{1}.g.vcf.gz".format(
@@ -594,11 +619,13 @@ class GenotypeGVCFs(SGEJobTask):
             "-T GenotypeGVCFs "
             "-L {interval} "
             "-o {vcf} "
+            "--log_to_file {log_file} "
             "-stand_call_conf 20 "
             "-stand_emit_conf 20 "
             "-V {gvcf}").format(java=config().java,
                 gatk=config().gatk,
                 max_mem=config().max_mem,
+                log_file=self.log_file,
                 ref=config().ref,
                 interval=config().interval,
                 gvcf=self.gvcf,
@@ -612,7 +639,8 @@ class GenotypeGVCFs(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            subprocess.check_call(shlex.split(cmd))
+            DEVNULL = open(os.devnull, 'w')
+            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
@@ -643,6 +671,8 @@ class SelectVariantsSNP(SGEJobTask):
         super(SelectVariantsSNP, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}".format(
             config().scratch,self.sample_type.upper(),self.sample_name)
+        self.log_file = "{0}/logs/{1}.{2}.log".format(
+            self.scratch_dir,self.sample_name,self.__class__.__name__)
         self.recal_table = "{0}/{1}.recal_table".format(
             self.scratch_dir, self.sample_name)
         self.vcf = "{0}/{1}.raw.vcf".format(
@@ -670,10 +700,12 @@ class SelectVariantsSNP(SGEJobTask):
             "-T SelectVariants "
             "-L {interval} "
             "-V {vcf} "
+            "--log_to_file {log_file} "
             "-selectType SNP "
             "-o {snp_vcf}").format(java=config().java,
                 gatk=config().gatk,
                 max_mem=config().max_mem,
+                log_file=self.log_file,
                 ref=config().ref,
                 interval=config().interval,
                 snp_vcf=self.snp_vcf,
@@ -687,7 +719,8 @@ class SelectVariantsSNP(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-                subprocess.check_call(shlex.split(cmd))
+            DEVNULL = open(os.devnull, 'w')
+            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
@@ -719,6 +752,8 @@ class SelectVariantsINDEL(SGEJobTask):
         super(SelectVariantsINDEL, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}".format(
             config().scratch,self.sample_type.upper(),self.sample_name)
+        self.log_file = "{0}/logs/{1}.{2}.log".format(
+            self.scratch_dir,self.sample_name,self.__class__.__name__)
         self.recal_table = "{0}/{1}.recal_table".format(
             self.scratch_dir, self.sample_name)
         self.vcf = "{0}/{1}.raw.vcf".format(
@@ -746,10 +781,12 @@ class SelectVariantsINDEL(SGEJobTask):
             "-T SelectVariants "
             "-L {interval} "
             "-V {vcf} "
+            "--log_to_file {log_file} "
             "-selectType INDEL "
             "-o {indel_vcf}").format(java=config().java,
                 gatk=config().gatk,
                 max_mem=config().max_mem,
+                log_file=self.log_file,
                 ref=config().ref,
                 interval=config().interval,
                 indel_vcf=self.indel_vcf,
@@ -763,7 +800,8 @@ class SelectVariantsINDEL(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-                subprocess.check_call(shlex.split(cmd))
+            DEVNULL = open(os.devnull, 'w')
+            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
@@ -803,6 +841,8 @@ class VariantRecalibratorSNP(SGEJobTask):
         super(VariantRecalibratorSNP, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}".format(
             config().scratch,self.sample_type.upper(),self.sample_name)
+        self.log_file = "{0}/logs/{1}.{2}.log".format(
+            self.scratch_dir,self.sample_name,self.__class__.__name__)
         self.snp_vcf = "{0}/{1}.snp.vcf".format(
             self.scratch_dir, self.sample_name)
         self.snp_recal = "{0}/{1}.snp.recal".format(
@@ -831,6 +871,7 @@ class VariantRecalibratorSNP(SGEJobTask):
             "-R {ref} "
             "-T VariantRecalibrator "
             "-L {interval} "
+            "--log_to_file {log_file} "
             "--input {snp_vcf} "
             "-an DP -an QD -an FS -an SOR -an MQ -an MQRankSum -an ReadPosRankSum "
             "-mode SNP "
@@ -846,6 +887,7 @@ class VariantRecalibratorSNP(SGEJobTask):
             ).format(java=config().java,
                 gatk=config().gatk,
                 max_mem=config().max_mem,
+                log_file=self.log_file,
                 ref=config().ref,
                 interval=config().interval,
                 snp_vcf=self.snp_vcf,
@@ -865,7 +907,8 @@ class VariantRecalibratorSNP(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-                subprocess.check_call(shlex.split(cmd))
+            DEVNULL = open(os.devnull, 'w')
+            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
@@ -899,6 +942,8 @@ class VariantRecalibratorINDEL(SGEJobTask):
         super(VariantRecalibratorINDEL, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}".format(
             config().scratch,self.sample_type.upper(),self.sample_name)
+        self.log_file = "{0}/logs/{1}.{2}.log".format(
+            self.scratch_dir,self.sample_name,self.__class__.__name__)
         self.indel_vcf = "{0}/{1}.indel.vcf".format(
             self.scratch_dir, self.sample_name)
         self.indel_recal = "{0}/{1}.indel.recal".format(
@@ -927,6 +972,7 @@ class VariantRecalibratorINDEL(SGEJobTask):
             "-R {ref} "
             "-T VariantRecalibrator "
             "-L {interval} "
+            "--log_to_file {log_file} "
             "--input {indel_vcf} "
             "-an QD -an DP -an FS -an SOR -an MQRankSum -an ReadPosRankSum "
             "-mode INDEL "
@@ -938,6 +984,7 @@ class VariantRecalibratorINDEL(SGEJobTask):
             ).format(java=config().java,
                 gatk=config().gatk,
                 max_mem=config().max_mem,
+                log_file=self.log_file,
                 ref=config().ref,
                 interval=config().interval,
                 indel_vcf=self.indel_vcf,
@@ -954,7 +1001,8 @@ class VariantRecalibratorINDEL(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-                subprocess.check_call(shlex.split(cmd))
+            DEVNULL = open(os.devnull, 'w')
+            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
@@ -986,6 +1034,8 @@ class ApplyRecalibrationSNP(SGEJobTask):
         super(ApplyRecalibrationSNP, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}".format(
             config().scratch,self.sample_type.upper(),self.sample_name)
+        self.log_file = "{0}/logs/{1}.{2}.log".format(
+            self.scratch_dir,self.sample_name,self.__class__.__name__)
         self.vcf = "{0}/{1}.snp.vcf".format(
             self.scratch_dir, self.sample_name)
         self.snp_recal = "{0}/{1}.snp.recal".format(
@@ -1014,6 +1064,7 @@ class ApplyRecalibrationSNP(SGEJobTask):
             "-R {ref} "
             "-T ApplyRecalibration "
             "-L {interval} "
+            "--log_to_file {log_file} "
             "-input {vcf} "
             "-tranchesFile {snp_tranches} "
             "-recalFile {snp_recal} "
@@ -1023,6 +1074,7 @@ class ApplyRecalibrationSNP(SGEJobTask):
                 gatk=config().gatk,
                 max_mem=config().max_mem,
                 ref=config().ref,
+                log_file=self.log_file,
                 interval=config().interval,
                 vcf=self.vcf,
                 snp_tranches=self.snp_tranches,
@@ -1037,7 +1089,8 @@ class ApplyRecalibrationSNP(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-                subprocess.check_call(shlex.split(cmd))
+            DEVNULL = open(os.devnull, 'w')
+            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
@@ -1070,6 +1123,8 @@ class ApplyRecalibrationINDEL(SGEJobTask):
         super(ApplyRecalibrationINDEL, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}".format(
             config().scratch,self.sample_type.upper(),self.sample_name)
+        self.log_file = "{0}/logs/{1}.{2}.log".format(
+            self.scratch_dir,self.sample_name,self.__class__.__name__)
         self.indel_vcf = "{0}/{1}.indel.vcf".format(
             self.scratch_dir, self.sample_name)
         self.indel_recal = "{0}/{1}.indel.recal".format(
@@ -1098,6 +1153,7 @@ class ApplyRecalibrationINDEL(SGEJobTask):
             "-R {ref} "
             "-T ApplyRecalibration "
             "-L {interval} "
+            "--log_to_file {log_file} "
             "-input {indel_vcf} "
             "-tranchesFile {indel_tranches} "
             "-recalFile {indel_recal} "
@@ -1107,6 +1163,7 @@ class ApplyRecalibrationINDEL(SGEJobTask):
                 gatk=config().gatk,
                 max_mem=config().max_mem,
                 ref=config().ref,
+                log_file=self.log_file,
                 interval=config().interval,
                 indel_vcf=self.indel_vcf,
                 indel_recal=self.indel_recal,
@@ -1121,7 +1178,8 @@ class ApplyRecalibrationINDEL(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-                subprocess.check_call(shlex.split(cmd))
+            DEVNULL = open(os.devnull, 'w')
+            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
@@ -1154,6 +1212,8 @@ class VariantFiltrationSNP(SGEJobTask):
         super(VariantFiltrationSNP, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}".format(
             config().scratch,self.sample_type.upper(),self.sample_name)
+        self.log_file = "{0}/logs/{1}.{2}.log".format(
+            self.scratch_dir,self.sample_name,self.__class__.__name__)
         self.snp_vcf = "{0}/{1}.snp.vcf".format(
             self.scratch_dir, self.sample_name)
         self.snp_filtered = "{0}/{1}.snp.filtered.vcf".format(
@@ -1181,10 +1241,12 @@ class VariantFiltrationSNP(SGEJobTask):
             "-V {snp_vcf} "
             "--filterExpression \"QD < 2.0 || FS > 60.0 || MQ < 40.0 || MQRankSum < -12.5 || ReadPosRankSum < -8.0\" "
             "--filterName \"SNP_filter\" "
+            "--log_to_file {log_file} "
             "-o {snp_filtered} ").format(java=config().java,
                 gatk=config().gatk,
                 max_mem=config().max_mem,
                 ref=config().ref,
+                log_file=self.log_file,
                 interval=config().interval,
                 snp_vcf=self.snp_vcf,
                 snp_filtered=self.snp_filtered)
@@ -1197,7 +1259,8 @@ class VariantFiltrationSNP(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-                subprocess.check_call(shlex.split(cmd))
+            DEVNULL = open(os.devnull, 'w')
+            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
@@ -1230,6 +1293,8 @@ class VariantFiltrationINDEL(SGEJobTask):
         super(VariantFiltrationINDEL, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}".format(
             config().scratch,self.sample_type.upper(),self.sample_name)
+        self.log_file = "{0}/logs/{1}.{2}.log".format(
+            self.scratch_dir,self.sample_name,self.__class__.__name__)
         self.indel_vcf = "{0}/{1}.indel.vcf".format(
             self.scratch_dir, self.sample_name)
         self.indel_filtered = "{0}/{1}.indel.filtered.vcf".format(
@@ -1257,10 +1322,12 @@ class VariantFiltrationINDEL(SGEJobTask):
             "-V {indel_vcf} "
             "--filterExpression \"QD < 2.0 || FS > 200.0 || ReadPosRankSum < -20.0\" "
             "--filterName \"INDEL_filter\" "
+            "--log_to_file {log_file} "
             "-o {indel_filtered}").format(java=config().java,
                 gatk=config().gatk,
                 max_mem=config().max_mem,
                 ref=config().ref,
+                log_file=self.log_file,
                 interval=config().interval,
                 indel_vcf=self.indel_vcf,
                 indel_filtered=self.indel_filtered)
@@ -1273,7 +1340,8 @@ class VariantFiltrationINDEL(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-                subprocess.check_call(shlex.split(cmd))
+            DEVNULL = open(os.devnull, 'w')
+            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
@@ -1306,6 +1374,8 @@ class CombineVariants(SGEJobTask):
         super(CombineVariants, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}".format(
             config().scratch,self.sample_type.upper(),self.sample_name)
+        self.log_file = "{0}/logs/{1}.{2}.log".format(
+            self.scratch_dir,self.sample_name,self.__class__.__name__)
         self.snp_filtered = "{0}/{1}.snp.filtered.vcf".format(
             self.scratch_dir, self.sample_name)
         self.vcf = "{0}/{1}.raw.vcf".format(
@@ -1430,6 +1500,8 @@ class AnnotateVCF(SGEJobTask):
         super(AnnotateVCF, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}".format(
             config().scratch,self.sample_type.upper(),self.sample_name)
+        self.log_file = "{0}/logs/{1}.{2}.log".format(
+            self.scratch_dir,self.sample_name,self.__class__.__name__)
         self.snp_filtered = "{0}/{1}.snp.filtered.vcf".format(
             self.scratch_dir, self.sample_name)
         self.final_vcf = "{0}/{1}.analysisReady.vcf".format(
@@ -1466,8 +1538,11 @@ class AnnotateVCF(SGEJobTask):
                               snpEff_cfg=config().snpEff_cfg,
                               snpEff_interval=config().snpEff_interval,
                               final_vcf=self.final_vcf)
+        #In case of overwritting previous vcf.gz and vcf.gz.tbi files
+        if os.path.isfile(self.annotated_vcf_gz):
+            subprocess.check_call(['rm',self.annotated_vcf_gz])
         bgzip_cmd = ("{0} {1}").format(config().bgzip,self.annotated_vcf)
-        tabix_cmd = ("{0} {1}").format(config().tabix,self.annotated_vcf_gz)
+        tabix_cmd = ("{0} -f {1}").format(config().tabix,self.annotated_vcf_gz)
 
         try:
             cur = db.cursor()
@@ -1480,7 +1555,7 @@ class AnnotateVCF(SGEJobTask):
                 o.write(bgzip_cmd + "\n")
                 o.write(tabix_cmd + "\n")
             with open(self.annotated_vcf,'w') as vcf_out, \
-                open(self.annotated_vcf + ".log", "w") as log_fh:
+                open(self.log_file, "w") as log_fh:
                     p = subprocess.Popen(shlex.split(snpEff_cmd), stdout=vcf_out, stderr=log_fh)
                     p.wait()
             if p.returncode:
@@ -1520,6 +1595,8 @@ class ArchiveSample(SGEJobTask):
         super(ArchiveSample, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}".format(
             config().scratch,self.sample_type.upper(),self.sample_name)
+        self.log_file = "{0}/logs/{1}.{2}.log".format(
+            self.scratch_dir,self.sample_name,self.__class__.__name__)
         self.script = "{0}/scripts/{class_name}.sh".format(
             self.scratch_dir, self.sample_name,class_name=self.__class__.__name__)
         self.recal_bam = "{0}/{1}.realn.recal.bam".format(
@@ -1578,8 +1655,9 @@ class ArchiveSample(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-                subprocess.check_call(shlex.split(cmd))
-                subprocess.call(['touch',self.copy_complete])
+            DEVNULL = open(os.devnull, 'w')
+            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+            subprocess.check_call(['touch',self.copy_complete])
             # Original dragen BAM could be technically deleted earlier after the
             # realigned BAM has been created on scratch space but it is safer to 
             # delete after the final realigned, recalculated BAM has been archived
@@ -1593,7 +1671,6 @@ class ArchiveSample(SGEJobTask):
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
             db.commit()
-
         finally:
             if db.open:
                 db.close()
@@ -1606,7 +1683,6 @@ class ArchiveSample(SGEJobTask):
     def output(self):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
             pipeline_step_id=self.pipeline_step_id)
-
 
 class SQLTarget(luigi.Target):
     """Target describing verification of the entries in the database
