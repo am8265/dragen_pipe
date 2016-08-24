@@ -246,8 +246,8 @@ def main(args):
     sample_id = args.sample_id
     out_dir = args.output_dir
 
-    if not os.path.isdir(out_dir):
-        os.makedirs(out_dir)
+    #if not os.path.isdir(out_dir):
+        #os.makedirs(out_dir)
 
 
     IN = fh(input_file)
