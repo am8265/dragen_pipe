@@ -14,7 +14,6 @@ from dragen_sample import dragen_sample
 """Run samples through a luigized GATK pipeline after finishing the
 Dragen based alignment"""
 
-cfg = get_cfg()
 
 class config(luigi.Config):
     """config class for instantiating parameters for this pipeline
@@ -1603,8 +1602,8 @@ class ArchiveSample(SGEJobTask):
             self.scratch_dir, self.sample_name)
         self.recal_bam_index = "{0}/{1}.realn.recal.bai".format(
             self.scratch_dir, self.sample_name)
-        self.bam = "{0}/{1}/{1}.bam".format(
-            config().base_dir, self.sample_name.upper())
+        self.bam = "{0}/{1}/{2}.bam".format(
+            config().base_dir, self.sample_type.upper(),self.sample_name)
         self.annotated_vcf_gz = "{0}/{1}.analysisReady.annotated.vcf.gz".format(
             self.scratch_dir, self.sample_name)
         self.g_vcf_gz = "{0}/{1}.g.vcf.gz".format(
@@ -1613,8 +1612,8 @@ class ArchiveSample(SGEJobTask):
             self.scratch_dir, self.sample_name)
         self.annotated_vcf_gz_index = "{0}/{1}.analysisReady.annotated.vcf.gz.tbi".format(
             self.scratch_dir, self.sample_name)
-        self.copy_complete = "{0}/{1}/copy_complete".format(
-            config().base_dir, self.sample_name.upper())
+        self.copy_complete = "{0}/{1}/{2}/copy_complete".format(
+            config().base_dir, self.sample_type.upper(),self.sample_name)
         self.script_dir = "{0}/scripts".format(
             self.scratch_dir, self.sample_name)
         self.scratch_dir = "{0}/{1}".format(
@@ -1658,10 +1657,10 @@ class ArchiveSample(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
             subprocess.check_call(['touch',self.copy_complete])
-            # Original dragen BAM could be technically deleted earlier after the
-            # realigned BAM has been created on scratch space but it is safer to 
-            # delete after the final realigned, recalculated BAM has been archived
-            # since our scratch space has failed in the past.
+            """Original dragen BAM could be technically deleted earlier after the
+            realigned BAM has been created on scratch space but it is safer to
+            delete after the final realigned, recalculated BAM has been archived
+            since our scratch space has failed in the past."""
             rm_cmd = ['rm',self.bam]
             rm_folder_cmd = ['rm','-rf',self.scratch_dir]
             #subprocess.call(rm_cmd)
@@ -1685,8 +1684,7 @@ class ArchiveSample(SGEJobTask):
             pipeline_step_id=self.pipeline_step_id)
 
 class SQLTarget(luigi.Target):
-    """Target describing verification of the entries in the database
-    """
+    """Target describing verification of the entries in the database"""
     def __init__(self, pseudo_prepid, pipeline_step_id):
         self.pseudo_prepid = pseudo_prepid
         self.pipeline_step_id = pipeline_step_id
@@ -1753,7 +1751,7 @@ class CreateGenomeBed(SGEJobTask):
         self.genomecov_bed = os.path.join(self.sample_dir,self.sample_name+'.genomecvg.bed')
         self.recal_bam = os.path.join(self.sample_dir,self.sample_name+'.realn.recal.bam')
         self.genomecov_cmd = "{0} genomecov -bga -ibam {1} > {2}".format(
-                              config().bedtools_loc,self.recal_bam,
+                              config().bedtools,self.recal_bam,
                               self.genomecov_bed)
 
         self.gzip_cmd = "bgzip {0}".format(self.genomecov_bed)
