@@ -11,6 +11,7 @@ from luigi.util import inherits
 import logging
 import time
 import utils 
+import re
 
 
 class config(luigi.Config):
@@ -582,9 +583,9 @@ class DuplicateMetrics(SGEJobTask):
     Parse Duplicate Metrics from dragen logs
     """
     
-    dragen_log = luigi.Parameter()
-    sample_name = luigi.Parameter()
     
+    sample_name = luigi.Parameter()
+    scratch = luigi.Parameter()
 
     ## System Parameters 
     n_cpu = 1
@@ -592,12 +593,12 @@ class DuplicateMetrics(SGEJobTask):
     shared_tmp_dir = "/nfs/seqscratch11/rp2801/genome_cvg_temp"
 
     
-    def __init__(self):
+    def __init__(self,*args,**kwargs):
         super(DuplicateMetrics,self).__init__(*args,**kwargs)
-        if not os.path.isdir(self.scratch): ## Recursively create the directory if it doesnt exist
-            os.makedirs(self.scratch)
-
-        self.output_file = os.path.join(self.scratch,self.sample_name+'duplicates.txt')
+        self.sample_dir = os.path.join(self.scratch,self.sample_name)
+        self.log_dir = os.path.join(self.sample_dir,'logs')
+        self.dragen_log = os.path.join(self.log_dir,self.sample_name+'.dragen.log')
+        self.output_file = os.path.join(self.sample_dir,self.sample_name+'.duplicates.txt')
         self.cmd = "grep 'duplicates marked' {0}".format(self.dragen_log)
         
 
@@ -605,7 +606,7 @@ class DuplicateMetrics(SGEJobTask):
         """ 
         Dependencies for this task is the existence of the log file 
         """
-        return MyExtTask(self.bam)
+        return MyExtTask(self.dragen_log)
 
 
     def output(self):
@@ -620,7 +621,7 @@ class DuplicateMetrics(SGEJobTask):
         """
         ## The regular expression to catch the percentage duplicates in the grep string
         catch_dup = re.compile('.*\((.*)%\).*')
-
+        
         dragen_output = subprocess.check_output(self.cmd,shell=True)
         match = re.match(catch_dup,dragen_output)
         if match:
@@ -629,7 +630,7 @@ class DuplicateMetrics(SGEJobTask):
                 print >> OUT_HANDLE,perc_duplicates
                 
         else: ## Implement logging
-            print "Could not find duplicate metrics in dragen log!"
+            raise Exception("Could not find duplicate metrics in dragen log!")
 
         
 class VariantCallingMetrics(SGEJobTask):
@@ -653,10 +654,10 @@ class VariantCallingMetrics(SGEJobTask):
         if not os.path.isdir(self.scratch): ## Recursively create the directory if it doesnt exist
             os.makedirs(self.scratch)
 
-        self.output_file_raw = os.path.join(self.scratch,"{0}.variant_calling_summary_metrics.raw.txt".format(self.sample_name))
+        #self.output = os.path.join(self.scratch,self.sample_name)
         self.output_file = os.path.join(self.scratch,"{0}.variant_calling_summary_metrics.txt".format(self.sample_name))
-        self.cmd = "{0} -XX:ParallelGCThreads=12 -jar {1} CollectVariantCallingMetrics INPUT={2} OUTPUT={3} DBSNP={4}".format(config().java,config().picard,self.vcf,self.output_file_raw,config().dbsnp)
-        self.parser_cmd = """cat {0} | grep -v '^#'| awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1} """.format(self.output_file_raw,self.output_file)
+        self.cmd = "{0} -XX:ParallelGCThreads=4 -jar {1} CollectVariantCallingMetrics INPUT={2} OUTPUT={3}/{4} DBSNP={5}".format(config().java,config().picard,self.vcf,self.scratch,self.sample_name,config().dbsnp)
+        #self.parser_cmd = """cat {0} | grep -v '^#'| awk -f ../sh/transpose.awk > {1} """.format(self.output_file_raw,self.output_file)
 
         
     def requires(self):
@@ -672,7 +673,7 @@ class VariantCallingMetrics(SGEJobTask):
         The result from this task is the creation of the metrics file
         """
         
-        return luigi.LocalTarget("{0}.processed".format(self.output_file))
+        return luigi.LocalTarget(self.output_file)
 
     def work(self):
         """
@@ -680,8 +681,10 @@ class VariantCallingMetrics(SGEJobTask):
         """
     
         os.system(self.cmd)
-        os.system(self.parser_cmd) 
+        #os.system(self.parser_cmd) 
 
+        ## clear the raw files
+        #os.system('rm *raw*variant*calling*metrics*')
 
 class CheckUpdates(luigi.Target):
     """
