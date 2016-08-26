@@ -7,7 +7,9 @@ import os
 from ConfigParser import ConfigParser
 
 cfg = ConfigParser()
-cfg.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "luigi.cfg"))
+cfg.read("/home/jb3816/github/dragen_pipe/dragen/python/luigi.cfg")
+
+
 
 def get_connection(db):
     """return a connection to the database specified
@@ -25,5 +27,4 @@ def get_connection(db):
     else:
         raise ValueError("specified database group is invalid")
 
-def get_cfg():
-        return cfg
+

@@ -1,5 +1,6 @@
 #!/nfs/goldstein/software/python2.7.7/bin/python2.7
 
+import getpass
 import os
 import shlex
 import sys
@@ -14,6 +15,32 @@ from dragen_sample import dragen_sample
 """Run samples through a luigized GATK pipeline after finishing the
 Dragen based alignment"""
 
+def getDBIDMaxPrepID(pseudo_prepid):
+    db = get_connection("seqdb")
+    try:
+        cur = db.cursor()
+        cur.execute(GET_DBID_MAX_PREPID.format(
+            pseudo_prepid=pseudo_prepid))
+        results = cur.fetchone()
+        dbid,prepid = results
+    finally:
+        if db.open:
+            db.close()
+
+    return dbid,prepid
+
+def getUserID():
+    userName = getpass.getuser()
+    db = get_connection("seqdb")
+    try:
+        cur = db.cursor()
+        cur.execute(GET_USERID.format(
+            userName=userName))
+        userid = cur.fetchone()
+    finally:
+        if db.open:
+            db.close()
+    return userid[0]
 
 class config(luigi.Config):
     """config class for instantiating parameters for this pipeline
@@ -69,7 +96,6 @@ class CopyBam(SGEJobTask):
     sample_name = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-    pseudo_prepid = luigi.Parameter()
 
     n_cpu = 1
     parallel_env = "threaded"
@@ -118,6 +144,15 @@ class CopyBam(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -200,6 +235,15 @@ class RealignerTargetCreator(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -288,6 +332,15 @@ class IndelRealigner(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -374,6 +427,15 @@ class BaseRecalibrator(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -460,6 +522,15 @@ class PrintReads(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -556,6 +627,15 @@ class HaplotypeCaller(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -641,6 +721,15 @@ class GenotypeGVCFs(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -721,6 +810,15 @@ class SelectVariantsSNP(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -802,6 +900,15 @@ class SelectVariantsINDEL(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -909,6 +1016,15 @@ class VariantRecalibratorSNP(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -1003,6 +1119,15 @@ class VariantRecalibratorINDEL(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -1091,6 +1216,15 @@ class ApplyRecalibrationSNP(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -1180,6 +1314,15 @@ class ApplyRecalibrationINDEL(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -1261,6 +1404,15 @@ class VariantFiltrationSNP(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -1342,6 +1494,15 @@ class VariantFiltrationINDEL(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -1462,6 +1623,15 @@ class CombineVariants(SGEJobTask):
                 o.write(sort_cmd + "\n")
             subprocess.check_call(shlex.split(sort_cmd))
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -1563,6 +1733,15 @@ class AnnotateVCF(SGEJobTask):
             subprocess.check_call(shlex.split(bgzip_cmd))
             subprocess.check_call(shlex.split(tabix_cmd))
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -1616,8 +1795,28 @@ class ArchiveSample(SGEJobTask):
             config().base_dir, self.sample_type.upper(),self.sample_name)
         self.script_dir = "{0}/scripts".format(
             self.scratch_dir, self.sample_name)
-        self.scratch_dir = "{0}/{1}".format(
-            self.scratch_dir,self.sample_name)
+
+        """
+        self.cvg_binned = {0}/{1}.cvg_binned.format(
+            self.scratch_dir, self.sample_name)
+        self.gq_binned = {0}/{1}.gq_binned.format(
+            self.scratch_dir, self.sample_name)
+        self.align_metrics = {0}/{1}.alignment.metrics.txt.format(
+            self.scratch_dir, self.sample_name)
+        self.cvg_metrics = {0}/{1}.cvg_metrics.txt.format(
+            self.scratch_dir, self.sample_name)
+        self.cvg_metrics_ccds = {0}/{1}.cvg_metrics.ccds.txt.format(
+            self.scratch_dir, self.sample_name)
+        self.cvg_metrics_X = {0}/{1}.cvg_metrics.X.txt.format(
+            self.scratch_dir, self.sample_name)
+        self.cvg_metrics_Y = {0}/{1}.cvg_metrics.Y.txt.format(
+            self.scratch_dir, self.sample_name)
+        self.dup_metrics = {0}/{1}.duplicates.txt.format(
+            self.scratch_dir, self.sample_name)
+        self.variant_call_metrics = {0}/{1}.variant_calling_summary_metrics.format(
+            self.scratch_dir, self.sample_name)
+        self.concordance_metrics = {0}/{1}.genotype_concordance_metrics.format(
+        """
 
         db = get_connection("seqdb")
         try:
@@ -1631,6 +1830,18 @@ class ArchiveSample(SGEJobTask):
 
     def work(self):
         db = get_connection("seqdb")
+
+        """
+        cmd = ("rsync -a --timeout=25000 -r "
+              "{script_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
+              "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
+              "{cvg_binned} {gq_binned} {align_metrics} 'cvg_metrics} "
+              "{cvg_metrics_ccds} {cvg_metrics_X} {cvg_metrics_Y} {dup_metrics} "
+              "{variant_call_metrics} {concordance_metrics} "
+              "{base_dir}/{sample_type}/{sample_name}"
+              ).format(self.__dict__))
+        """
+
         cmd = ("rsync -a --timeout=25000 -r "
               "{script_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
               "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
@@ -1666,6 +1877,15 @@ class ArchiveSample(SGEJobTask):
             #subprocess.call(rm_cmd)
             #subprocess.call(rm_folder_cmd)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="GATK Pipeline Complete",
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
