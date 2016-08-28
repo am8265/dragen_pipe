@@ -11,17 +11,43 @@ from db_statements import *
 from dragen_globals import *
 from dragen_sample import dragen_sample
 import re
-
-
+import time 
 
 """
 Run samples through a luigized GATK pipeline after finishing the
 Dragen based alignment
 """
+def getDBIDMaxPrepID(pseudo_prepid):
+    db = get_connection("seqdb")
+    try:
+        cur = db.cursor()
+        cur.execute(GET_DBID_MAX_PREPID.format(
+            pseudo_prepid=pseudo_prepid))
+        results = cur.fetchone()
+        dbid,prepid = results
+    finally:
+        if db.open:
+            db.close()
+
+    return dbid,prepid
+
+def getUserID():
+    userName = getpass.getuser()
+    db = get_connection("seqdb")
+    try:
+        cur = db.cursor()
+        cur.execute(GET_USERID.format(
+            userName=userName))
+        userid = cur.fetchone()
+    finally:
+        if db.open:
+            db.close()
+    return userid[0]
 
 class config(luigi.Config):
     """config class for instantiating parameters for this pipeline
     the values are read from luigi.cfg in the current folder"""
+    
     #programs
     bedtools = luigi.Parameter()
     bgzip = luigi.Parameter()
@@ -36,6 +62,7 @@ class config(luigi.Config):
     bait_file = luigi.Parameter()
     bait_file_X = luigi.Parameter()
     bait_file_Y = luigi.Parameter()
+    bait_bed_file = luigi.Parameter()
     ccds_bed_file = luigi.Parameter()
     relatedness_markers = luigi.Parameter()
     relatedness_refs = luigi.Parameter()
@@ -43,6 +70,9 @@ class config(luigi.Config):
     snpEff_cfg = luigi.Parameter()
     snpEff_interval = luigi.Parameter()
     target_file = luigi.Parameter()
+    target_file_X = luigi.Parameter()
+    target_file_Y = luigi.Parameter()
+    transpose_awk = luigi.Parameter()
     #gatk resources
     ref = luigi.Parameter()
     seqdict_file = luigi.Parameter()
@@ -64,18 +94,16 @@ class config(luigi.Config):
 class db(luigi.Config):
     """Database config variable will be read from the
     db section of the config file"""
+    
     cnf = luigi.Parameter()
     seqdb_group = luigi.Parameter()
     dragen_group = luigi.Parameter()
-
-
-    
+   
 class CopyBam(SGEJobTask):
     """class for copying dragen aligned bam to a scratch location"""
     sample_name = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-    pseudo_prepid = luigi.Parameter()
 
     n_cpu = 1
     parallel_env = "threaded"
@@ -84,7 +112,6 @@ class CopyBam(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(CopyBam, self).__init__(*args, **kwargs)
-
         self.bam = "{0}/{1}/{2}/{2}.bam".format(
             config().base_dir,self.sample_type.upper(),self.sample_name)
         self.bam_index = "{0}/{1}/{2}/{2}.bam.bai".format(
@@ -96,7 +123,6 @@ class CopyBam(SGEJobTask):
         self.script = "{0}/scripts/{1}.sh".format(
             self.scratch_dir,self.sample_name,self.__class__.__name__)
 
-
         db = get_connection("seqdb")
         try:
             cur = db.cursor()
@@ -106,38 +132,14 @@ class CopyBam(SGEJobTask):
         finally:
             if db.open:
                 db.close()
-        
+
     def work(self):
-        
         db = get_connection("seqdb")
         try:
             cur = db.cursor()
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
-
-            db.commit()
-        finally:
-            if db.open:
-                db.close()
-        
-        os.system("mkdir -p {0}/scripts".format(self.scratch + self.sample_name))
-        os.system("mkdir -p {0}/logs".format(self.scratch + self.sample_name))
-        cmd = ("rsync -a --timeout=20000 -r {bam} {bam_index} {scratch}/{sample_name}/"
-              ).format(bam=self.bam,
-                       scratch_bam=self.scratch_bam,
-                       bam_index=self.bam_index,
-                       scratch=self.scratch,
-                       sample_name=self.sample_name)
-        with open(self.script,'w') as o:
-            o.write(cmd + "\n")
-        subprocess.check_call(shlex.split(cmd))
-
-        
-        db = get_connection("seqcb")
-        try:
-            cur = db.cursor()
-
 
             os.system("mkdir -p {0}/scripts".format(self.scratch_dir))
             os.system("mkdir -p {0}/logs".format(self.scratch_dir))
@@ -150,7 +152,15 @@ class CopyBam(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
-
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -158,18 +168,11 @@ class CopyBam(SGEJobTask):
         finally:
             if db.open:
                 db.close()
-        
-
-
 
 
     def output(self):
-        
-        return SQLTarget(pseud_prepid=self.pseudo_prepid,
+        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
             pipeline_step_id=self.pipeline_step_id)
-
-        
-       
 
 class RealignerTargetCreator(SGEJobTask):
     """class for creating targets for indel realignment BAMs from Dragen"""
@@ -240,6 +243,15 @@ class RealignerTargetCreator(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -328,6 +340,15 @@ class IndelRealigner(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -414,6 +435,15 @@ class BaseRecalibrator(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -500,6 +530,15 @@ class PrintReads(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -596,6 +635,15 @@ class HaplotypeCaller(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -616,7 +664,6 @@ class HaplotypeCaller(SGEJobTask):
 
 class GenotypeGVCFs(SGEJobTask):
     """class to perfrom variant calling from gVCFs"""
-
     sample_name = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
@@ -682,6 +729,15 @@ class GenotypeGVCFs(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -762,6 +818,15 @@ class SelectVariantsSNP(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -843,6 +908,15 @@ class SelectVariantsINDEL(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -950,6 +1024,15 @@ class VariantRecalibratorSNP(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -1044,6 +1127,15 @@ class VariantRecalibratorINDEL(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -1132,6 +1224,15 @@ class ApplyRecalibrationSNP(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -1221,6 +1322,15 @@ class ApplyRecalibrationINDEL(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -1302,6 +1412,15 @@ class VariantFiltrationSNP(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -1318,7 +1437,6 @@ class VariantFiltrationSNP(SGEJobTask):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
             pipeline_step_id=self.pipeline_step_id)
 
-    
 class VariantFiltrationINDEL(SGEJobTask):
 
     sample_name = luigi.Parameter()
@@ -1384,6 +1502,15 @@ class VariantFiltrationINDEL(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -1504,6 +1631,15 @@ class CombineVariants(SGEJobTask):
                 o.write(sort_cmd + "\n")
             subprocess.check_call(shlex.split(sort_cmd))
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -1525,7 +1661,6 @@ class CombineVariants(SGEJobTask):
     def output(self):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
             pipeline_step_id=self.pipeline_step_id)
-
 
 class AnnotateVCF(SGEJobTask):
 
@@ -1606,6 +1741,15 @@ class AnnotateVCF(SGEJobTask):
             subprocess.check_call(shlex.split(bgzip_cmd))
             subprocess.check_call(shlex.split(tabix_cmd))
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="Dragen "+self.__class__.__name__,
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -1614,14 +1758,12 @@ class AnnotateVCF(SGEJobTask):
             if db.open:
                 db.close()
 
-
     def requires(self):
         return self.clone(CombineVariants)
 
     def output(self):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
             pipeline_step_id=self.pipeline_step_id)
-
 
 class ArchiveSample(SGEJobTask):
     """Archive samples on Amplidata"""
@@ -1661,8 +1803,28 @@ class ArchiveSample(SGEJobTask):
             config().base_dir, self.sample_type.upper(),self.sample_name)
         self.script_dir = "{0}/scripts".format(
             self.scratch_dir, self.sample_name)
-        self.scratch_dir = "{0}/{1}".format(
-            self.scratch_dir,self.sample_name)
+
+        """
+        self.cvg_binned = {0}/{1}.cvg_binned.format(
+            self.scratch_dir, self.sample_name)
+        self.gq_binned = {0}/{1}.gq_binned.format(
+            self.scratch_dir, self.sample_name)
+        self.align_metrics = {0}/{1}.alignment.metrics.txt.format(
+            self.scratch_dir, self.sample_name)
+        self.cvg_metrics = {0}/{1}.cvg_metrics.txt.format(
+            self.scratch_dir, self.sample_name)
+        self.cvg_metrics_ccds = {0}/{1}.cvg_metrics.ccds.txt.format(
+            self.scratch_dir, self.sample_name)
+        self.cvg_metrics_X = {0}/{1}.cvg_metrics.X.txt.format(
+            self.scratch_dir, self.sample_name)
+        self.cvg_metrics_Y = {0}/{1}.cvg_metrics.Y.txt.format(
+            self.scratch_dir, self.sample_name)
+        self.dup_metrics = {0}/{1}.duplicates.txt.format(
+            self.scratch_dir, self.sample_name)
+        self.variant_call_metrics = {0}/{1}.variant_calling_summary_metrics.format(
+            self.scratch_dir, self.sample_name)
+        self.concordance_metrics = {0}/{1}.genotype_concordance_metrics.format(
+        """
 
         db = get_connection("seqdb")
         try:
@@ -1676,6 +1838,18 @@ class ArchiveSample(SGEJobTask):
 
     def work(self):
         db = get_connection("seqdb")
+
+        """
+        cmd = ("rsync -a --timeout=25000 -r "
+              "{script_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
+              "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
+              "{cvg_binned} {gq_binned} {align_metrics} 'cvg_metrics} "
+              "{cvg_metrics_ccds} {cvg_metrics_X} {cvg_metrics_Y} {dup_metrics} "
+              "{variant_call_metrics} {concordance_metrics} "
+              "{base_dir}/{sample_type}/{sample_name}"
+              ).format(self.__dict__))
+        """
+
         cmd = ("rsync -a --timeout=25000 -r "
               "{script_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
               "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
@@ -1711,6 +1885,15 @@ class ArchiveSample(SGEJobTask):
             #subprocess.call(rm_cmd)
             #subprocess.call(rm_folder_cmd)
 
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="GATK Pipeline Complete",
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
@@ -1721,24 +1904,15 @@ class ArchiveSample(SGEJobTask):
 
     def requires(self):
         yield self.clone(AnnotateVCF)
-
-        yield self.clone(CvgBinning)
-        yield self.clone(GQBinning)
-        yield self.clone(AlignmentMetrics)
-        yield self.clone(RunCvgMetrics)
-        yield self.clone(VariantCallingMetrics)
-        yield self.clone(DuplicateMetrics)        
-        
-
+        #yield self.clone(CvgBinning)
+        #yield self.clone(GQBinning)
 
     def output(self):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
             pipeline_step_id=self.pipeline_step_id)
 
-    
 class SQLTarget(luigi.Target):
     """Target describing verification of the entries in the database"""
-
     def __init__(self, pseudo_prepid, pipeline_step_id):
         self.pseudo_prepid = pseudo_prepid
         self.pipeline_step_id = pipeline_step_id
@@ -1765,6 +1939,7 @@ class SQLTarget(luigi.Target):
         finally:
             if db.open:
                 db.close()
+                
 ############################################ POST GATK MODULES ##############################################
 #########       
 #########                              ADD COMMENTS HERE ........                                              
@@ -1772,7 +1947,178 @@ class SQLTarget(luigi.Target):
 ######### 
 #############################################################################################################
 
+def get_pipeline_step_id(step_name,db_name):
+    """
+    Get the pipeline stepid from seqdb, will try 4 more
+    times to execute the query at set intervals incase 
+    the first attempt fails. Raises an approriate error
+    if all the attempts failed.
 
+    Args : 
+         step_name : String ; name of the luigi Task Class name
+         db_name : String ; Name of the database to query, either seqdb or
+                   testdb
+
+    Returns :
+         The pipeline stepid.
+    """
+
+    tries = 5
+    for i in range(tries):
+        try:
+            db = get_connection(db_name)
+            cur = db.cursor()
+            cur.execute(GET_PIPELINE_STEP_ID.format(
+                step_name=self.__class__.__name__))
+            pipeline_step_id = cur.fetchone()[0]
+        except MySQLdb.Error, e:
+            if i < tries - 1:
+                raise "ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1])
+            else:
+                time.sleep(60) ## Wait a minute before trying again
+                continue 
+        finally:
+            if db.open:
+                db.close()
+                
+    return pipeline_step_id
+
+
+def run_shellcmd(db_name,pipeline_step_id,pseudo_prepid,cmd,sample_name,
+                 task_name):
+    """
+    Runs a shell command, is flanked by database update calls
+    to ensure logging the time and to check for task completion.
+    If the database connection fails, will try a few more attempts
+
+    Args : 
+         db_name : String ; Name of the database to query, either seqdb 
+                   or testdb
+         pipeline_step_id : String; Id for the luigi task in the database
+         pseudo_prepid : Int; An indentifier for the sample in the database
+         cmd : List; The command(s) to be run 
+         sample_name : String; CHGVID
+         task_name : The luigi task name
+
+    Returns :
+         Does not return anything
+    """
+    
+    tries = 5
+    for i in range(tries):
+    try:
+        db = get_connection(db_name)
+        cur = db.cursor()
+        cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
+                    pseudo_prepid=pseudo_prepid,
+                    pipeline_step_id=pipeline_step_id))
+
+        for cmd_j in cmd:
+            proc = subprocess.Popen(cmd_j,shell=True)
+            proc.wait()
+            if proc.returncode: ## Non zero return code
+                raise subprocess.CalledProcessError(proc.returncode,cmd_j)
+
+        update_dragen_status(pseudo_prepid,sample_name,task_name,cur)
+        
+        cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
+                    pseudo_prepid=pseudo_prepid,
+                    pipeline_step_id=pipeline_step_id))
+        db.commit()
+    except MySQLdb.Error, e:
+            if i < tries - 1:
+                raise "ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1])
+            else:
+                time.sleep(60) ## Wait a minute before trying again
+                continue 
+    finally:
+        if db.open:
+            db.close()
+
+
+def update_dragen_status(pseudo_prepid,sample_name,task_name,cur):
+    """
+    Updates dragen_statusT table with the pipeline step name 
+    Note : This function calls getDBIDMaxPrepID and getUserID
+    to get the DBID,prepID and userID 
+    
+    Args : 
+         pseudo_prepid : Int; An indentifier for the sample in the database
+         sample_name : String; CHGVID, a string identifier for the sequecing sample
+         task_name : String; Luigi task name, will be used to update the status field
+         cur : A MySQLdb cursor instance  
+    Returns :
+         Does not return anything
+    """
+
+    DBID,prepID = getDBIDMaxPrepID(pseudo_prepid)
+    userID = getUserID()
+    cur.execute(INSERT_DRAGEN_STATUS.format(
+        sample_name=sample_name,status="Dragen "+task_name,DBID=DBID,
+        prepID=prepID,pseudoPrepID=pseudo_prepid,userID=userID))
+
+def get_productionvcf(pseudo_prepid,sample_name,sample_type):
+    """
+    Query seqdbClone to get AlignSeqFileLoc
+    Extend that to search for the production vcf
+    file, tabix index it, if not already.
+
+    Args :    pseudo_prepid; Int; An identifier for the sample in the database
+              sample_name : String; CHGVID, a string identifier for the 
+                            sequencing sample
+              sample_type : String; The sequencing type i.e. Exome,Genomee,etc.
+
+    Returns : String; Path to the production vcf file
+              None if vcf was not found or if the sample
+              was not run through the production pipeline
+              before
+    """
+
+    DBID,prepID = getDBIDMaxPrepID(pseudo_prepid)    
+    query_statement = (
+                       """ SELECT AlignSeqFileLoc FROM seqdbClone WHERE"""
+                       """ CHGVID = {0} AND seqType = {1} AND """
+                       """ prepid = {2}""".format(
+                           sample_name,sample_type,prepid)
+                      )
+    tries = 5
+    for i in range(tries):
+        try:
+            db = get_connection("seqdb")
+            cur = db.cursor()
+            cur.execute(query_statement))
+            db_val = cur.fetchall()
+            if len(db_val) = 0: ## If the query returned no results
+                return None 
+            if len(db_val > 1):
+                warnings.warn("More than 1 entry , warning : 
+                duplicate prepids !")
+            alignseqfileloc = db_val[-1][0] ## Get the last result
+            vcf_loc = os.path.join(alignseqfileloc,'combined')
+            vcf = glob.glob(os.path.join(vcf_loc,
+                                         '*analysisReady.annotated*'))
+            tabix_file = vcf+'.tbi'
+            if not os.path.isfile(tabix_file):
+                ## Tabix index the production vcf
+                cmd = "tabix {0}".format(vcf)
+                proc = subprocess.Popen(cmd,shell=True)
+                proc.wait()
+                if proc.returncode: ## Non zero return code
+                    raise subprocess.CalledProcessError(proc.returncode,
+                                                        cmd)
+        except MySQLdb.Error, e:
+            if i < tries - 1:
+                raise "ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1])
+            else:
+                time.sleep(60) ## Wait a minute before trying again
+                continue 
+        finally:
+            if db.open:
+                db.close()
+
+        return vcf 
+
+    
 class MyExtTask(luigi.ExternalTask):
     """
     Checks whether the file specified exists on disk
@@ -1782,74 +2128,62 @@ class MyExtTask(luigi.ExternalTask):
     def output(self):
         return luigi.LocalTarget(self.file_loc)
 
-
+    
 class CreateGenomeBed(SGEJobTask):
     """
     Use bedtools to create the input bed file for the coverage binning script
     """
-
-    base_directory = luigi.Parameter()
+    
     sample_name = luigi.Parameter()
-    scratch = luigi.Parameter()
+    pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-    interval = luigi.Parameter()
 
 
     ## System Parameters
     n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/nfs/seqscratch11/rp2801/genome_cvg_temp/"
-
-    
-
+   
 
     def __init__(self,*args,**kwargs):
         super(CreateGenomeBed,self).__init__(*args,**kwargs)
-
-        if not os.path.isdir(self.scratch): ## Recursively create the directory if it doesnt exist
-            os.makedirs(self.scratch)
-
-        self.sample_dir = os.path.join(self.scratch,self.sample_name)
+        self.sample_dir = os.path.join(config().scratch,self.sample_name)
         self.output_dir = os.path.join(self.sample_dir,'cvg_binned')
         self.genomecov_bed = os.path.join(self.sample_dir,self.sample_name+'.genomecvg.bed')
         self.recal_bam = os.path.join(self.sample_dir,self.sample_name+'.realn.recal.bam')
         self.genomecov_cmd = "{0} genomecov -bga -ibam {1} > {2}".format(
                               config().bedtools,self.recal_bam,
                               self.genomecov_bed)
-
-        self.gzip_cmd = "bgzip {0}".format(self.genomecov_bed)
-        self.gzipped_genomecov_bed = self.genomecov_bed+'.gz'
-        self.tabix_cmd = "/nfs/goldstein/software/bin/tabix -p bed {0}".format(self.gzipped_genomecov_bed)
-        self.tbi_file = self.gzipped_genomecov_bed+'.tbi'
-
-        self.human_chromosomes = []
-        self.human_chromosomes.extend(range(1, 23))
-        self.human_chromosomes = [str(x) for x in self.human_chromosomes]
-        self.human_chromosomes.extend(['X', 'Y','MT'])
+        self.pipeline_step_id = get_pipeline_step_id(
+            self.__class__.__name__,"seqdb")  
 
     def requires(self):
         """
-        The dependency is the presence of the bam file
+        The dependency is the completion of the HaplotypeCaller task
+        Note : Can use PrintReads here to speed things up, but may
+        face IO bottle necks --> Future test
         """
 
-        return self.clone(PrintReads)
+        return self.clone(HaplotypeCaller)
 
     def output(self):
         """
         Output is the genomecov bed file
         """
-
-        return self.genomecov_bed
+        
+        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
+            pipeline_step_id=self.pipeline_step_id)
+    
+        #return luigi.LocalTarget(self.genomecov_bed)
 
     def work(self):
         """
         Run the bedtools cmd
         """
-        os.system(self.genomecov_cmd)
-        #os.system(self.gzip_cmd)
-        #os.system(self.tabix_cmd)
-
+        
+        run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
+                     [self.genomecov_cmd])
 
 
 class CvgBinning(SGEJobTask):
@@ -1857,14 +2191,11 @@ class CvgBinning(SGEJobTask):
     Task to run the binning script for Coverage
     """
 
-    base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
-    scratch = luigi.Parameter()
+    pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-    interval = luigi.Parameter(default=interval)
-        
-    
+   
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
@@ -1874,25 +2205,24 @@ class CvgBinning(SGEJobTask):
     def __init__(self,*args,**kwargs):
 
         super(CvgBinning,self).__init__(*args,**kwargs)
-        
-        self.sample_dir = os.path.join(self.scratch,self.sample_name)
-        
+        self.sample_dir = os.path.join(config().scratch,self.sample_name)
         self.output_dir = os.path.join(self.sample_dir,'cvg_binned')
         self.genomecov_bed = os.path.join(self.sample_dir,self.sample_name+'.genomecvg.bed')
         
         if not os.path.isdir(self.output_dir): ## Recursively create the directory if it doesnt exist
             os.makedirs(self.output_dir)
+            
         self.human_chromosomes = []
         self.human_chromosomes.extend(range(1, 23))
         self.human_chromosomes = [str(x) for x in self.human_chromosomes]
         self.human_chromosomes.extend(['X', 'Y','MT'])
 
-        
         self.binning_cmd = "{0} {1} --sample_id {2} --block_size {3} --output_dir {4} {5} --mode coverage".format(
             config().pypy_loc,config().binner_loc,self.sample_name,config().block_size,self.output_dir,
-            self.genomecov_bed)        
-
+            self.genomecov_bed)
         
+        self.pipeline_step_id = get_pipeline_step_id(
+            self.__class__.__name__,"seqdb")  
 
     def requires(self):
         """
@@ -1900,45 +2230,46 @@ class CvgBinning(SGEJobTask):
         """
 
         return self.clone(CreateGenomeBed)
-
-        
     
     def output(self):
         """
         Output from this task are 23 files for each chromosome
+        Also check for deletion of the genomecov file 
         """
-        
+
+        """
         for chrom in self.human_chromosomes:
             file_loc = os.path.join(self.output_dir,self.sample_name+'_coverage_binned_'+config().block_size
-                                +'_chr%s.txt'%chrom)
-                
+                                +'_chr%s.txt'%chrom)                
             yield luigi.LocalTarget(file_loc)
-                
-
+        
+        yield not luigi.LocalTarget(self.genomecov_bed)
+        """
+        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
+                         pipeline_step_id=self.pipeline_step_id)
+        
     def work(self):
         """ Run the binning script
         """
 
-        os.system(self.binning_cmd)
+        self.remove_cmd = "rm {0}".format(self.genomecov_bed)
+        run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
+                     [self.binning_cmd,self.remove_cmd])
+        #os.system(self.binning_cmd)
         ## Delete the genomecvg bed file
-        os.system('rm {0}'.format(self.genomecov_bed))
-
-
-        
-
+        #os.system('rm {0}'.format(self.genomecov_bed))
+ 
         
 class GQBinning(SGEJobTask):
     """
     Task to run the binning script for GQ
     """
-
-    base_directory = luigi.Parameter()
+    
     sample_name = luigi.Parameter()
-    scratch = luigi.Parameter()
+    pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-    interval = luigi.Parameter(default=interval)
-    
+   
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
@@ -1947,17 +2278,14 @@ class GQBinning(SGEJobTask):
     
     def __init__(self,*args,**kwargs):
 
-        super(GQBinning,self).__init__(*args,**kwargs)
-       
-        self.sample_dir = os.path.join(self.scratch,self.sample_name)
+        super(GQBinning,self).__init__(*args,**kwargs)      
+        self.sample_dir = os.path.join(config().scratch,self.sample_name)
         self.output_dir = os.path.join(self.sample_dir,'gq_binned')
         self.gvcf = os.path.join(self.sample_dir,self.sample_name+'.g.vcf.gz') 
 
         if not os.path.isdir(self.output_dir): ## Recursively create the directory if it doesnt exist
             os.makedirs(self.output_dir)
-
-        
-        
+    
         self.human_chromosomes = []
         self.human_chromosomes.extend(range(1, 23))
         self.human_chromosomes = [str(x) for x in self.human_chromosomes]
@@ -1966,40 +2294,37 @@ class GQBinning(SGEJobTask):
         self.binning_cmd = "{0} {1} --sample_id {2} --block_size {3} --output_dir {4} {5} --mode gq".format(
             config().pypy_loc,config().binner_loc,self.sample_name,config().block_size,self.output_dir,
             self.gvcf)
-
+        self.pipeline_step_id = get_pipeline_step_id(
+            self.__class__.__name__,"seqdb")
         
     def requires(self):
         """
         Dependency is the completion of the HaplotypeCaller Task
-        """            
-            
+        """
+        
         return self.clone(HaplotypeCaller)
         
-    
     def output(self):
         """
         Output from this task are 23 files, one for each chromosome
         """
-        
 
+        """
         for chrom in self.human_chromosomes:
             file_loc = os.path.join(self.output_dir,self.sample_name+'_gq_binned_'+config().block_size
-
-        self.human_chromosomes = []
-        self.human_chromosomes.extend(range(1, 23))
-        self.human_chromosomes = [str(x) for x in self.human_chromosomes]
-        self.human_chromosomes.extend(['X', 'Y','MT'])
-                       
-        self.binning_cmd = "{0} {1} --sample_id {2} --block_size {3} --output_dir {4} {5} --mode gq".format(
-            config().pypy_loc,config().coverage_binner_loc,self.sample_name,config().block_size,self.scratch,
-            self.gvcf)
-                
+                                +'_chr%s.txt'%chrom)                
+            yield luigi.LocalTarget(file_loc)
+        """
+        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
+                         pipeline_step_id=self.pipeline_step_id)
 
     def work(self):
         """ Run the binning script
         """
-
-        os.system(self.binning_cmd)
+        
+        run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
+                     [self.binning_cmd])
+        #os.system(self.binning_cmd)
 
         
 class AlignmentMetrics(SGEJobTask):
@@ -2007,14 +2332,11 @@ class AlignmentMetrics(SGEJobTask):
     Run Picard AlignmentSummaryMetrics
     """
 
-    base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
-    scratch = luigi.Parameter()
+    pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-    interval = luigi.Parameter(default=interval)
-    
-    
+        
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
@@ -2022,103 +2344,54 @@ class AlignmentMetrics(SGEJobTask):
 
     def __init__(self,*args,**kwargs):
         super(AlignmentMetrics,self).__init__(*args,**kwargs)
-       
-        self.sample_dir = os.path.join(self.scratch,self.sample_name)
-
+        self.sample_dir = os.path.join(config().scratch,self.sample_name)
         self.recal_bam = os.path.join(self.sample_dir,self.sample_name+'.realn.recal.bam')
         self.output_file_raw = os.path.join(self.sample_dir,self.sample_name+'.alignment.metrics.raw.txt')
         self.output_file = os.path.join(self.sample_dir,self.sample_name+'.alignment.metrics.txt')
         self.log_dir = os.path.join(self.sample_dir,'logs')
         self.log_file = os.path.join(self.log_dir,self.sample_name+'.alignment.metrics.log')
-        self.cmd = "{0} -XX:ParallelGCThreads=12 -jar {1} CollectAlignmentSummaryMetrics TMP_DIR={2} VALIDATION_STRINGENCY=SILENT REFERENCE_SEQUENCE={3} INPUT={4} OUTPUT={5} &> {6}".format(config().java,config().picard,self.sample_dir,config().ref,self.recal_bam,self.output_file_raw,self.log_file)               
-        self.parser_cmd = """cat {0} | grep -v "^#" | awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1}""".format(self.output_file_raw,self.output_file)
-
-               
+        self.cmd = "{0} -XX:ParallelGCThreads=4 -jar {1} CollectAlignmentSummaryMetrics TMP_DIR={2} VALIDATION_STRINGENCY=SILENT REFERENCE_SEQUENCE={3} INPUT={4} OUTPUT={5} &> {6}".format(config().java,config().picard,self.sample_dir,config().ref,self.recal_bam,self.output_file_raw,self.log_file)               
+        self.parser_cmd = """cat {0} | grep -v "^#" | awk -f {1} > {2}""".format(self.output_file_raw,config().transpose_awk,self.output_file)
+        self.pipeline_step_id = get_pipeline_step_id(
+            self.__class__.__name__,"seqdb")
         
     def output(self):
         """
         Check whether the output file is present
         """
        
-        return luigi.LocalTarget(self.output_file)
-
-
+        #return luigi.LocalTarget(self.output_file)
+        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
+                         pipeline_step_id=self.pipeline_step_id)
+    
     def requires(self):
         """
         The dependencies for this task is simply the existence of the bam file
         from dragen with duplicates removed
         """
+        
         return self.clone(PrintReads)
            
-
     def work(self):
         """
         Execute the command for this task 
         """
-
-        os.system(self.cmd)
-        os.system(self.parser_cmd)
+        self.remove_cmd = "rm {0}".format(self.output_file_raw)
+        run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
+                     [self.cmd,self.parser_cmd,self.remove_cmd])
 
         
-class CreateTargetFile(SGEJobTask):
-    """ 
-    Task for creating a new target file(the format used by Picard)
-    from a bed file 
-    """
-
-    ## System Parameters 
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/rp2801/genome_cvg_temp"
-
-    def __init__(self,*args,**kwargs):
-        super(CreateTargetFile,self).__init__(*args,**kwargs)
-        
-        self.bed_file = args[0]
-        self.scratch = args[1]
-        
-        if not os.path.isdir(self.scratch): ## Recursively create the directory if it doesnt exist
-            os.makedirs(self.scratch)
-
-        self.bed_stem = utils.get_filename_from_fullpath(self.bed_file) + ".list"
-        self.output_file = os.path.join(self.scratch,self.bed_stem)
-        
-        self.bedtointerval_cmd = ("{0} -jar {1} BedToIntervalList I={2} SD={3} OUTPUT={4}".format(config().java,config().picard,self.bed_file,config().seqdict_file,self.output_file))    
-
-    
-    
-    def requires(self):
-        """ 
-        Dependency for this task is the existence of the bedfile
-        and the human build37 sequence dictionary file
-        """
-        
-        return [MyExtTask(config().bed_file),MyExtTask(config().seqdict_file)]
-
-
-
 class RunCvgMetrics(SGEJobTask):
     """ 
     A luigi task
     """
 
-    ## Task Specific Parameters
-    
-    base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
-    scratch = luigi.Parameter()
+    pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
-    sample_type = luigi.Parameter()
-    interval = luigi.Parameter(default=interval)
-
-    wgsinterval = luigi.BooleanParameter(default=False)
-    bed_file = luigi.Parameter(default='/nfs/seqscratch11/rp2801/backup/coverage_statistics/ccds_r14.bed')
-    
-    create_targetfile = luigi.BooleanParameter(default=False)
-
-    
+    sample_type = luigi.Parameter()    
     ## System Parameters 
-    n_cpu = 2
+    n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/nfs/seqscratch11/rp2801/genome_cvg_temp"
 
@@ -2130,194 +2403,199 @@ class RunCvgMetrics(SGEJobTask):
         """
 
         super(RunCvgMetrics,self).__init__(*args,**kwargs)
-           
-
-        self.x_y = True 
         ## Define on the fly parameters
-        self.sample_dir = os.path.join(self.scratch,self.sample_name)
+        self.sample_dir = os.path.join(config().scratch,self.sample_name)
         self.recal_bam = os.path.join(self.sample_dir,self.sample_name+'.realn.recal.bam') 
-        ## Define on the fly parameters
-        self.sample_dir = os.path.join(self.scratch,self.sample_name)
 
         self.output_file = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.txt")
         self.raw_output_file = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.raw.txt")
-        if self.x_y:
-            self.output_file_X = os.path.join(self.sample_dir,self.sample_name+ ".cvg.metrics.X.txt")
-            self.raw_output_file_X = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.X.raw.txt")
-            self.output_file_Y = os.path.join(self.sample_dir,self.sample_name+ ".cvg.metrics.Y.txt")
-            self.raw_output_file_Y = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.Y.raw.txt")
-
-        if self.create_targetfile:
-            self.bed_stem = utils.get_filename_from_fullpath(config().bed_file)
-            self.target_file = os.path.join(self.sample_dir,self.bed_stem)
-
-        else:
-            self.target_file = config().target_file 
-
-
+        self.output_file_ccds = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.ccds.txt")
+        self.raw_output_file_ccds = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.ccds.raw.txt")
+        self.output_file_X = os.path.join(self.sample_dir,self.sample_name+ ".cvg.metrics.X.txt")
+        self.raw_output_file_X = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.X.raw.txt")
+        self.output_file_Y = os.path.join(self.sample_dir,self.sample_name+ ".cvg.metrics.Y.txt")
+        self.raw_output_file_Y = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.Y.raw.txt")
+        self.target_file = config().target_file ## Targets here refers to ccds 
         self.log_dir = os.path.join(self.sample_dir,'logs')
-        self.log_file = os.path.join(self.log_dir,self.sample_name+'.alignment.metrics.log')
+        self.log_file = os.path.join(self.log_dir,self.sample_name+'.cvg.metrics.log')
         
         ## Define shell commands to be run
         if self.sample_type.upper() == 'GENOME': ## If it is a genome sample
-            if self.wgsinterval == True: ## Restrict wgs metrics to an interval
-                self.cvg_cmd1 = """{0} -Xmx{1}g -XX:ParallelGCThreads=24 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={3} I={4} INTERVALS={5} O={6}MQ=20 Q=10 &> {6}""".format(config().java,config().max_mem,config().picard,config().ref,self.recal_bam,self.target_file,self.raw_output_file,self.log_file)
-                
-            else: ## Run wgs metrics across the genome
-                self.cvg_cmd1 = """{0} -Xmx{1}g -XX:ParallelGCThreads=24 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={3} I={4} O={5} MQ=20 Q=10 &> {6}""".format(config().java,config().max_mem,config().picard,config().ref,self.recal_bam,self.raw_output_file,self.log_file)
-               
-                ## Run the cvg metrics on X and Y Chromosomes only
-                self.cvg_sex1= """{0} -Xmx{1}g -XX:ParallelGCThreads=24 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={3} I={4} INTERVALS={5} O={6} MQ=20 Q=10 &> {7}"""
-                self.cvg_cmd2 = self.cvg_sex1.format(config().java,config().max_mem,config().picard,config().ref,self.recal_bam,config().bait_file_X,self.raw_output_file,self.log_file)              
-                self.cvg_cmd3 = self.cvg_sex2.format(config().java,config().max_mem,config().picard,config().ref,self.recal_bam,config().bait_file_Y,self.raw_output_file_X,self.log_file)              
+            ## Run on the ccds regions only  
+            self.cvg_cmd = """{0} -Xmx{1}g -XX:ParallelGCThreads=4 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={3} I={4} INTERVALS={5} O={6}MQ=20 Q=10 &> {6}"""
+            self.cvg_cmd1 = self.cvg_cmd.format(config().java,config().max_mem,config().picard,config().ref,self.recal_bam,config().target_file,self.raw_output_file_ccds,self.log_file)
+            ## Run across the genome 
+            self.cvg_cmd2 = """{0} -Xmx{1}g -XX:ParallelGCThreads=4 -jar {2} CollectWgsMetrics R={3} I={4} O={5} MQ=20 Q=10 &> {6}""".format(config().java,config().max_mem,config().picard,config().ref,self.recal_bam,self.raw_output_file,self.log_file)   
+            ## Run on X and Y Chromosomes only (across all regions there not just ccds) 
+            self.cvg_cmd3 = self.cvg_cmd.format(config().java,config().max_mem,config().picard,config().ref,self.recal_bam,config().target_file_X,self.raw_output_file_X,self.log_file)              
+            self.cvg_cmd4 = self.cvg_cmd.format(config().java,config().max_mem,config().picard,config().ref,self.recal_bam,config().target_file_Y,self.raw_output_file_Y,self.log_file)              
                              
         else: ## Anything other than genome i.e. Exome or Custom Capture( maybe have an elif here to check further ?)
-            self.cvg_cmd1 = """{0} -XX:ParallelGCThreads=24 -jar {1} CollectHsMetrics BI={2} TI={3} VALIDATION_STRINGENCY=LENIENT METRIC_ACCUMULATION_LEVEL=ALL_READS I={4} O={5} MQ=20 Q=10 &> {6}""".format(config().java,config().picard,config().bait_file,self.target_file,self.recal_bam,self.raw_output_file,self.log_file)
+            self.cvg_cmd = """{0} -XX:ParallelGCThreads=4 -jar {1} CollectHsMetrics BI={2} TI={3} VALIDATION_STRINGENCY=LENIENT METRIC_ACCUMULATION_LEVEL=ALL_READS I={4} O={5} MQ=20 Q=10 &> {6}"""
+            ## Run across ccds regions
+            self.cvg_cmd1 = self.cvg_cmd.format(config().java,config().picard,config().bait_file,config().target_file,self.recal_bam,self.raw_output_file_ccds,self.log_file) 
+            ## Run across the baits i.e. capture kit regions
+            self.cvg_cmd2 = self.cvg_cmd.format(config().java,config().picard,config().bait_file,config().bait_file,self.recal_bam,self.raw_output_file,self.log_file)
+            ## Run the Metrics cvg metrics on X and Y Chromosomes only, note using the bait regions not ccds
+            self.cvg_cmd3 =self.cvg_cmd.format(config().java,config().picard,config().bait_file_X,config().bait_file_X,self.recal_bam,self.raw_output_file_X,self.log_file)
+            self.cvg_cmd4 = self.cvg_sex.format(config().java,config().picard,config().bait_file_Y,config().bait_file_Y,self.recal_bam,self.raw_output_file_Y,self.log_file)
 
-            ## Run the Metrics cvg metrics on X and Y Chromosomes only
-            self.cvg_sex2 =  """{0} -XX:ParallelGCThreads=24 -jar {1} CollectHsMetrics BI={2} TI={3} VALIDATION_STRINGENCY=LENIENT METRIC_ACCUMULATION_LEVEL=ALL_READS I={4} O={5} MQ=20 Q=10 &> {6}"""
-            self.cvg_cmd2 =self.cvg_sex2.format(config().java,config().picard,config().bait_file,config().bait_file_X,self.recal_bam,self.raw_output_file_X,self.log_file)
-            self.cvg_cmd3 = self.cvg_sex2.format(config().java,config().picard,config().bait_file,config().bait_file_Y,self.recal_bam,self.raw_output_file_Y,self.log_file)
 
-
-        self.parser_cmd = """cat {0} | grep -v "^#" | awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1}"""
-        self.parser_cmd1 = self.parser_cmd.format(self.raw_output_file,self.output_file)
-        self.parser_cmd2 = self.parser_cmd.format(self.raw_output_file_X,self.output_file_X)
-        self.parser_cmd3 = self.parser_cmd.format(self.raw_output_file_Y,self.output_file_Y)
+        self.parser_cmd = """cat {0} | grep -v "^#" | awk -f {1} > {2}"""
+        self.parser_cmd1 = self.parser_cmd.format(self.raw_output_file,config().transpose_awk,self.output_file)
+        self.parser_cmd2 = self.parser_cmd.format(self.raw_output_file_ccds,config().transpose_awk,self.output_file_ccds)
+        self.parser_cmd3 = self.parser_cmd.format(self.raw_output_file_X,config().transpose_awk,self.output_file_X)
+        self.parser_cmd4 = self.parser_cmd.format(self.raw_output_file_Y,config().transpose_awk,self.output_file_Y)
+        self.pipeline_step_id = get_pipeline_step_id(
+            self.__class__.__name__,"seqdb")
         
-
     def output(self):
         """
         The output produced by this task 
         """
+
+        """
         yield luigi.LocalTarget(self.output_file)
+        yield luigi.LocalTarget(self.output_file_ccds)
         yield luigi.LocalTarget(self.output_file_X)
         yield luigi.LocalTarget(self.output_file_Y)
+        """
         
+        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
+                         pipeline_step_id=self.pipeline_step_id)
 
     def requires(self):
         """
-        The dependency for this task is the CreateTargetFile task
-        if the appropriate flag is specified by the user
+        The dependency for this task is the PrintReads task
         """
-
-        if self.create_targetfile == True:
-            yield CreateTargetFile(self.bed_file,self.scratch)
-            yield self.clone(PrintReads)
-        else:
-            yield self.clone(PrintReads)
         
+        yield self.clone(PrintReads)
         
     def work(self):
         """
         Run Picard CalculateHsMetrics or WgsMetrics
         """
-        ## Run the command
-        os.system(self.cvg_cmd1)
-        subprocess.check_output(self.parser_cmd1,shell=True)
-        if self.x_y:
-            os.system(self.cvg_cmd2)
-            subprocess.check_output(self.parser_cmd2,shell=True)
-            os.system(self.cvg_cmd3)
-            subprocess.check_output(self.parser_cmd3,shell=True)
 
-        ## Remove raw files
-        os.system('rm {0}/*.cvg.metrics*.raw*'.format(sample_dir))
-        
+        self.remove_cmd = "rm {0}/*.cvg.metrics.raw*".format(self.sample_dir)
+        run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
+                     [self.cvg_cmd1,self.parser_cmd1,self.cvg_cmd2,
+                      self.parser_cmd2,self.cvg_cmd3,self.parser_cmd3,
+                      self.cvg_cmd4,self.parser_cmd4,self.remove_cmd])
+
+       
 class DuplicateMetrics(SGEJobTask):
     """
     Parse Duplicate Metrics from dragen logs
     """
     
-    base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
-    scratch = luigi.Parameter()
+    pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
-    sample_type = luigi.Parameter()
-    interval = luigi.Parameter(default=interval)
-    
-
+    sample_type = luigi.Parameter()    
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/nfs/seqscratch11/rp2801/genome_cvg_temp"
-
     
     def __init__(self,*args,**kwargs):
         super(DuplicateMetrics,self).__init__(*args,**kwargs)
-        self.sample_dir = os.path.join(self.base_directory,self.sample_name)
-        self.sample_dir_seqscratch = os.path.join(self.scratch,self.sample_name)
+        self.sample_dir = os.path.join(config().base_directory,self.sample_name)
+        self.sample_dir_seqscratch = os.path.join(config().scratch,self.sample_name)
         self.log_dir = os.path.join(self.sample_dir,'logs')
         self.dragen_log = os.path.join(self.log_dir,self.sample_name+'.dragen.log')
         self.output_file = os.path.join(self.sample_dir_seqscratch,self.sample_name+'.duplicates.txt')
         self.cmd = "grep 'duplicates marked' {0}".format(self.dragen_log)
+        self.pipeline_step_id = get_pipeline_step_id(
+            self.__class__.__name__,"seqdb")
         
-
     def requires(self):
         """ 
         Dependencies for this task is the existence of the log file 
         """
         return MyExtTask(self.dragen_log)
 
-
     def output(self):
         """
         """
-        return luigi.LocalTarget(self.output_file)
-
+        #return luigi.LocalTarget(self.output_file)
+        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
+                         pipeline_step_id=self.pipeline_step_id)
 
     def work(self):
         """
         Execute this task
         """
         ## The regular expression to catch the percentage duplicates in the grep string
-        catch_dup = re.compile('.*\((.*)%\).*')
-        
-        dragen_output = subprocess.check_output(self.cmd,shell=True)
-        match = re.match(catch_dup,dragen_output)
-        if match:
-            perc_duplicates = match.group(1)
-            with open(self.output_file,'w') as OUT_HANDLE:
-                print >> OUT_HANDLE,perc_duplicates
-                
-        else: ## Implement logging
-            raise Exception("Could not find duplicate metrics in dragen log!")
+        catch_dup = re.compile('.*\((.*)%\).*')       
 
-        
+        ## Try to find a more elegant way to do this
+        tries = 5
+        for i in range(tries):
+            try:
+                db = get_connection("seqdb")
+                cur = db.cursor()
+                cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
+                    pseudo_prepid=self.pseudo_prepid,
+                    pipeline_step_id=self.pipeline_step_id))
+
+                proc=subprocess.Popen(self.cmd,shell=True,stdout=dragen_output)
+                proc.wait()
+                if proc.returncode: ## Non zero return code
+                    raise subprocess.CalledProcessError(proc.returncode,self.cmd)
+                               
+                match = re.match(catch_dup,dragen_output)
+                if match:
+                    perc_duplicates = match.group(1)
+                    with open(self.output_file,'w') as OUT_HANDLE:
+                        print >> OUT_HANDLE,perc_duplicates
+
+                else: 
+                    raise Exception("Could not find duplicate metrics in dragen log!") 
+                cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
+                    pseudo_prepid=self.pseudo_prepid,
+                    pipeline_step_id=self.pipeline_step_id))
+                db.commit()
+                
+            except MySQLdb.Error, e:
+                if i < tries - 1:
+                    raise "ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1])
+                else:
+                    time.sleep(60) ## Wait a minute before trying again
+                    continue 
+                finally:
+                    if db.open:
+                        db.close()
+
 class VariantCallingMetrics(SGEJobTask):
     """
     Run the picard tool for qc evaluation of the variant calls 
     """
-
-    base_directory = luigi.Parameter()
+    
     sample_name = luigi.Parameter()
-    scratch = luigi.Parameter()
+    pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
-    sample_type = luigi.Parameter()
-    interval = luigi.Parameter(default=interval)
-
+    sample_type = luigi.Parameter()    
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/home/rp2801/git"
       
-    
     def __init__(self,*args,**kwargs):
         super(VariantCallingMetrics,self).__init__(*args,**kwargs)
-
-        #self.output = os.path.join(self.scratch,self.sample_name)
-        self.sample_dir = os.path.join(self.scratch,self.sample_name)
+        #self.output = os.path.join(config().scratch,self.sample_name)
+        self.sample_dir = os.path.join(config().scratch,self.sample_name)
         self.output_file_raw = os.path.join(self.sample_dir,self.sample_name+'.raw')
         self.output_file_raw1 = os.path.join(self.sample_dir,self.sample_name+".raw.variant_calling_summary_metrics")
         self.output_file_raw2 = os.path.join(self.sample_dir,self.sample_name+".raw.variant_calling_detail_metrics")
         self.output_file = os.path.join(self.sample_dir,"{0}.variant_calling_summary_metrics".format(self.sample_name))
-        self.annotated_vcf_gz = "{scratch}/{sample_name}/{sample_name}.analysisReady.annotated.vcf.gz".format(scratch=self.scratch, sample_name=self.sample_name)
+        self.annotated_vcf_gz = "{scratch}/{sample_name}/{sample_name}.analysisReady.annotated.vcf.gz".format(scratch=config().scratch, sample_name=self.sample_name)
         self.log_dir = os.path.join(self.sample_dir,'logs')
-        self.log_file = os.path.join(self.log_dir,self.sample_name+'.alignment.metrics.log')
+        self.log_file = os.path.join(self.log_dir,self.sample_name+'.variantcalling.metrics.log')
 
         self.cmd = "{0} -XX:ParallelGCThreads=4 -jar {1} CollectVariantCallingMetrics INPUT={2} OUTPUT={3} DBSNP={4} &> {5}".format(config().java,config().picard,self.annotated_vcf_gz,self.output_file_raw,config().dbsnp,self.log_file)
-        self.parser_cmd = """cat {0} | grep -v "^#" | awk -f /home/rp2801/git/dragen_pipe/dragen/python/transpose.awk > {1}""".format(self.output_file_raw1,self.output_file)
-
+        self.parser_cmd = """cat {0} | grep -v "^#" | awk -f {1}  > {2}""".format(self.output_file_raw1,config().transpose_awk,self.output_file)
+        self.pipeline_step_id = get_pipeline_step_id(
+            self.__class__.__name__,"seqdb")
         
     def requires(self):
         """
@@ -2332,19 +2610,27 @@ class VariantCallingMetrics(SGEJobTask):
         The result from this task is the creation of the metrics file
         """
         
-        return luigi.LocalTarget(self.output_file)
+        #return luigi.LocalTarget(self.output_file)
+        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
+                         pipeline_step_id=self.pipeline_step_id)
 
     def work(self):
         """
         Run this task
         """
-    
-        os.system(self.cmd)
-        os.system(self.parser_cmd)
-        ## Remove raw files
-        os.system('rm {0}'.format(self.output_file_raw1))
-        os.system('rm {0}'.format(self.output_file_raw2))
 
+        self.remove_cmd1 = "rm {0}".format(self.output_file_raw1)
+        self.remove_cmd2 = "rm {0}".format(self.output_file_raw2)
+        
+        run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
+                     [self.cmd,self.parser_cmd,self.remove_cmd1,
+                      self.remove_cmd2])
+        
+        #os.system(self.cmd)
+        #os.system(self.parser_cmd)
+        ## Remove raw files
+        #os.system('rm {0}'.format(self.output_file_raw1))
+        #os.system('rm {0}'.format(self.output_file_raw2))
         
 class GenotypeConcordance(SGEJobTask):
     """
@@ -2352,30 +2638,38 @@ class GenotypeConcordance(SGEJobTask):
     with older production pipeline variant calls
     """
 
-    base_directory = luigi.Parameter()
     sample_name = luigi.Parameter()
-    scratch = luigi.Parameter()
+    pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
-    sample_type = luigi.Parameter()
-    interval = luigi.Parameter(default=interval)
-
+    sample_type = luigi.Parameter()    
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/home/rp2801/git"
 
-    
     def __init__(self,*args,**kwargs):
         super(GenotypeConcordance,self).__init__(*args,**kwargs)
-
-        #self.output = os.path.join(self.scratch,self.sample_name)
-        self.sample_dir = os.path.join(self.base_directory,self.sample_name)
-        self.output_file = os.path.join(self.sample_dir,"{0}.variant_calling_summary_metrics".format(self.sample_name))
-        self.annotated_vcf_gz = "{scratch}/{sample_name}/{sample_name}.analysisReady.annotated.vcf.gz".format(scratch=self.scratch, sample_name=self.sample_name)
+        #self.output = os.path.join(config().scratch,self.sample_name)
+        self.sample_dir = os.path.join(config().base_directory,self.sample_name)
+        self.output_file = os.path.join(self.sample_dir,
+                                        "{0}.genotype_concordance_metrics"
+                                        .format(self.sample_name))
+        self.annotated_vcf_gz = "{scratch}/{sample_name}/{sample_name}
+        .analysisReady.annotated.vcf.gz".format(
+            scratch=config().scratch, sample_name=self.sample_name)
         self.log_dir = os.path.join(self.sample_dir,'logs')
-        self.log_file = os.path.join(self.log_dir,self.sample_name+'.alignment.metrics.log')
-
-        self.cmd = "{0} -XX:ParallelGCThreads=4 -jar {1} CollectVariantCallingMetrics INPUT={2} OUTPUT={3} DBSNP={4} &> {5}".format(config().java,config().picard,self.annotated_vcf_gz,self.output_file_raw,config().dbsnp,self.log_file)
+        self.log_file = os.path.join(self.log_dir,
+                                     self.sample_name+
+                                     '.genotypeconcoradance.metrics.log')
+        self.truth_vcf = 'truth.vcf' ## The final subsetted truth vcf
+        self.eval_vcf = 'eval.vcf' ## The final subsetted eval vcf 
+        self.concordance_cmd = "{0} -XX:ParallelGCThreads=4 -jar {1} -T 
+        GenotypeConcordance -R {2} -eval {3} -comp {4} -o {5} 
+        -U ALLOW_SEQ_DICT_INCOMPATIBILITY &> {6}".format(
+            config().java,config().gatk,config().ref,self.eval_vcf,
+            self.truth_vcf,self.output_file,self.log_file)
+        self.pipeline_step_id = get_pipeline_step_id(
+            self.__class__.__name__,"seqdb")
         
     def requires(self):
         """
@@ -2390,43 +2684,89 @@ class GenotypeConcordance(SGEJobTask):
         The result from this task is the creation of the metrics file
         """
         
-        return luigi.LocalTarget(self.output_file)
-
+        #return luigi.LocalTarget(self.output_file)
+        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
+                         pipeline_step_id=self.pipeline_step_id)
+    
     def work(self):
         """
         Run this task
         """
+        
+        ## Try to find a more elegant way to do this later
+        tries = 5
+        for i in range(tries):
+            try:
+                db = get_connection("seqdb")
+                cur = db.cursor()
+                cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
+                    pseudo_prepid=self.pseudo_prepid,
+                    pipeline_step_id=self.pipeline_step_id))
+
+                ## The actual task commands to be run
+                production_vcf = get_productionvcf(pseudo_prepid,
+                                                   sample_name,sample_type)
+                if production_vcf == None:
+                    ## Note this should not happen since the task is only
+                    ## yielded upstream if the return is valid
+                    raise Exception("Production vcf missing,bug in dependency 
+                          resolution cannot run genotype concordance!!")
+                
+                subset_vcf(production_vcf,self.annotated_vcf_gz)
+                proc = subprocess.Popen(self.concordance_cmd,shell=True)
+                proc.wait()
+                if proc.returncode: ## Non zero return code
+                    raise subprocess.CalledProcessError(proc.returncode,
+                                                            cmd)
+                remove_cmd = "rm temp.vcf {0} {1}"
+                cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
+                    pseudo_prepid=self.pseudo_prepid,
+                    pipeline_step_id=self.pipeline_step_id))
+                db.commit()                
+            except MySQLdb.Error, e:
+                if i < tries - 1:
+                    raise "ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1])
+                else:
+                    time.sleep(60) ## Wait a minute before trying again
+                    continue 
+                finally:
+                    if db.open:
+                        db.close()
     
-        os.system(self.cmd)
-
-    def get_productionvcf_loc(self):
+    def subset_vcf(self,vcfs):
+        """ 
+        Subset vcf(s) down to SeqCap regions and
+        Get only PASS variants based on the FILTER field
         """
-        Query seqdbClone to get AlignSeqFileLoc
-        Extend that to search for the production vcf
-        file, tabix index it, if not already.
-        """
-        query_statement = (
-                           """ SELECT AlignSeqFileLoc FROM seqdbClone WHERE"""
-                           """ CHGVID = {0} AND seqType = {1} AND """
-                           """ prepid = {2}"""
-                          )
         
-        db = MySQLdb.connect(read_default_group='clientseqdb',
-                             db='sequenceDB',read_default_file=self.cnf_file)
-        db_curosr = db.cursor()
-        db_cursor.execute(query_statement)
-        db_val = db_cursor.fetchall()
-        if len(db_val > 1):
-            warnings.warn("More than 1 entry , warning : duplicate prepids !")
-        alignseqfileloc = db_val[0][-1]
-
-        
+        tabix_cmd = """ {0} -h {1} -B {2} -p vcf > {3} &> {4}"""
+        get_pass_cmd = (
+                        """ awk -F '\t' '{if($0 ~ /\#/) print;"""
+                        """ else if($7 == "PASS") print}' {0} > {1} """
+                        )    
+        out_vcf = [self.truth_vcf,self.eval_vcf]
+        i=0
+        for vcf in vcfs:
+            cmd = tabix_cmd.format(config().tabix,vcf,config().bait_bed_file
+                                   'temp.vcf',self.log_file)
+            proc = subprocess.Popen(cmd,shell=True)
+            proc.wait()
+            if proc.returncode: ## Non zero return code
+                raise subprocess.CalledProcessError(proc.returncode,cmd)
+            cmd = get_pass_cmd.format('temp.vcf',out_vcf[i])
+            proc = subprocess.Popen(cmd,shell=True)
+            proc.wait()
+            if proc.returncode: ## Non zero return code
+                raise subprocess.CalledProcessError(proc.returncode,cmd)
+            i+=1
+            
+            
 class CheckUpdates(luigi.Target):
     """
     Checks whether the database entry was updated
     correctly
     """
-    
+
     def __init__(self,*args,**kwargs):
         super(CheckUpdates,self).__init__(*args,**kwargs)
         cnf_file = kwargs['cnf_file']
@@ -2436,8 +2776,7 @@ class CheckUpdates(luigi.Target):
         prep_id = kwargs['prep_id']
         chgvid = kwargs['chgvid']
         testmode = kwargs['testmode']
-        
-        
+               
         if self.testmode:
             db = MySQLdb.connect(read_default_group='clienttestdb',db='sequenceDB',read_default_file=self.cnf_file)
             db_cursor = db.cursor()
@@ -2446,8 +2785,7 @@ class CheckUpdates(luigi.Target):
         db_cursor.execute(query_statement)
         self.db_val = db_cursor.fetchall()
         
-        
-    
+         
     def exists(self):
         if len(db_val > 1):
             warnings.warn( "More than 1 entry , warning : duplicate prepids !")
@@ -2455,30 +2793,24 @@ class CheckUpdates(luigi.Target):
             return True
         else:
             return False
-        
+"""
+class CheckQC(SGEJobTask):
+    """
+    Check qc metrics before updating seqdb
+    """
     
-class UpdateSeqdbMetrics(SGEJobTask):
-    """
-    Populate database with output files
-    """
+    sample_name = luigi.Parameter()
+    pseudo_prepid = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()    
+    ## System Parameters 
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git"    
 
-    output_file = luigi.Parameter()
-    ## A dict parameter containing the field names to be used for update
-    ## from the output file and the corresponding field in the database 
-    fields = luigi.DictParameter() 
-    cnf_file = luigi.Parameter()
-    testmode = luigi.BoolParameter()
-    seqtype = luigi.Parameter()
-    prepid = luigi.Parameter()
-    chgvid = luigi.Parameter()  
-        
-    
     def __init__(self,*args,**kwargs):
-        super(UpdateDatabase,self).__init__(*args,**kwargs)
-        if self.testmode:
-            db = MySQLdb.connect(read_default_group='clienttestdb',db='sequenceDB',read_default_file=self.cnf_file)
-            db_cursor = db.cursor()
-
+        super(CheckQC,self).__init__(*args,**kwargs)
+        
         self.query_statement = """ UPDATE seqdbClone SET {0} = {1} WHERE CHGVID = {2} AND seqType = {3} AND prepid = {4}"""
         
         self.out_hash = {}
@@ -2487,7 +2819,37 @@ class UpdateSeqdbMetrics(SGEJobTask):
                 line = line.strip('\n')
                 contents = line.split(' ')
                 self.out_hash[contents[0]] = contents[1]
-
+        self.pipeline_step_id = get_pipeline_step_id(
+            self.__class__.__name__,"seqdb")
+"""
+    
+class UpdateSeqdbMetrics(SGEJobTask):
+    """
+    Populate database with output files
+    """
+    
+    sample_name = luigi.Parameter()
+    pseudo_prepid = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()    
+    ## System Parameters 
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/home/rp2801/git"    
+       
+    def __init__(self,*args,**kwargs):
+        super(UpdateSeqdbMetrics,self).__init__(*args,**kwargs)
+        
+        self.query_statement = """ UPDATE seqdbClone SET {0} = {1} WHERE CHGVID = {2} AND seqType = {3} AND prepid = {4}"""
+        
+        self.out_hash = {}
+        with open(self.output_file,'w') as OUT:
+            for line in OUT:
+                line = line.strip('\n')
+                contents = line.split(' ')
+                self.out_hash[contents[0]] = contents[1]
+        self.pipeline_step_id = get_pipeline_step_id(
+            self.__class__.__name__,"seqdb")
 
     def requires(self):
         """
@@ -2495,15 +2857,15 @@ class UpdateSeqdbMetrics(SGEJobTask):
         the outputfile from different tasks should
         be present
         """
-        
+
         return [MyExtTask(self.output_file)]
     
-
     def output(self):
         """
         The output from this task
         """
 
+        """
         check_args = {'cnf_file':self.cnf_file,'seq_type':self.seq_type,
                       'prep_id':self.prep_id,'chgvid':self.chgvid,
                       'testmode':self.testmode}
@@ -2511,6 +2873,9 @@ class UpdateSeqdbMetrics(SGEJobTask):
             check_args['db_field'] = self.fields[key]
             check_args['value'] = self.out_hash[key]
             return CheckUpdates(check_args)
+        """
+        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
+                         pipeline_step_id=self.pipeline_step_id)
  
     def work(self):
         """
