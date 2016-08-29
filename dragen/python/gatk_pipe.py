@@ -82,7 +82,7 @@ class config(luigi.Config):
     #locations
     python_path = luigi.Parameter()
     scratch = luigi.Parameter()
-    base_dir = luigi.Parameter()
+    base = luigi.Parameter()
 
 class db(luigi.Config):
     """Database config variable will be read from the
@@ -96,6 +96,7 @@ class CopyBam(SGEJobTask):
     sample_name = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    pseudo_prepid = luigi.Parameter()
 
     n_cpu = 1
     parallel_env = "threaded"
@@ -104,16 +105,16 @@ class CopyBam(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(CopyBam, self).__init__(*args, **kwargs)
-        self.bam = "{0}/{1}/{2}/{2}.bam".format(
-            config().base_dir,self.sample_type.upper(),self.sample_name)
-        self.bam_index = "{0}/{1}/{2}/{2}.bam.bai".format(
-            config().base_dir,self.sample_type.upper(),self.sample_name)
-        self.scratch_dir = "{0}/{1}/{2}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name)
-        self.scratch_bam = "{0}/{1}.bam".format(
-            self.scratch_dir,self.sample_name)
-        self.script = "{0}/scripts/{1}.sh".format(
-            self.scratch_dir,self.sample_name,self.__class__.__name__)
+        self.scratch_dir = "{0}/{1}/{2}.{3}".format(
+            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        self.base_dir = "{0}/{1}/{2}.{3}".format(
+            config().base,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        self.bam = "{0}/{1}.{2}.bam".format(
+            self.base_dir,self.sample_name,self.pseudo_prepid)
+        self.bam_index = "{0}/{1}.{2}.bam.bai".format(
+            self.base_dir,self.sample_name,self.pseudo_prepid)
+        self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
         db = get_connection("seqdb")
         try:
@@ -179,16 +180,16 @@ class RealignerTargetCreator(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(RealignerTargetCreator, self).__init__(*args, **kwargs)
-        self.scratch_dir = "{0}/{1}/{2}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name)
-        self.interval_list = "{0}/{1}.interval_list".format(
-            self.scratch_dir,self.sample_name)
-        self.log_file = "{0}/logs/{1}.{2}.log".format(
-            self.scratch_dir,self.sample_name,self.__class__.__name__)
-        self.scratch_bam = "{0}/{1}.bam".format(
-            self.scratch_dir,self.sample_name)
-        self.script = "{0}/scripts/{1}.sh".format(
-            self.scratch_dir,self.sample_name,self.__class__.__name__)
+        self.scratch_dir = "{0}/{1}/{2}.{3}".format(
+            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        self.interval_list = "{0}/{1}.{2}.interval_list".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.scratch_bam = "{0}/{1}.{2}.bam".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
         db = get_connection("seqdb")
         try:
@@ -273,18 +274,18 @@ class IndelRealigner(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(IndelRealigner, self).__init__(*args, **kwargs)
-        self.scratch_dir = "{0}/{1}/{2}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name)
-        self.log_file = "{0}/logs/{1}.{2}.log".format(
-            self.scratch_dir,self.sample_name,self.__class__.__name__)
-        self.scratch_bam = "{0}/{1}.bam".format(
-            self.scratch_dir,self.sample_name)
-        self.script = "{0}/scripts/{1}.sh".format(
-            self.scratch_dir,self.sample_name,self.__class__.__name__)
-        self.interval_list = "{0}/{1}.interval_list".format(
-            self.scratch_dir,self.sample_name)
-        self.realn_bam = "{0}/{1}.realn.bam".format(
-            self.scratch_dir,self.sample_name)
+        self.scratch_dir = "{0}/{1}/{2}.{3}".format(
+            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.scratch_bam = "{0}/{1}.{2}.bam".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.interval_list = "{0}/{1}.{2}.interval_list".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.realn_bam = "{0}/{1}.{2}.realn.bam".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
 
         db = get_connection("seqdb")
         try:
@@ -370,16 +371,16 @@ class BaseRecalibrator(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(BaseRecalibrator, self).__init__(*args, **kwargs)
-        self.scratch_dir = "{0}/{1}/{2}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name)
-        self.log_file = "{0}/logs/{1}.{2}.log".format(
-            self.scratch_dir,self.sample_name,self.__class__.__name__)
-        self.script = "{0}/scripts/{1}.sh".format(
-            self.scratch_dir,self.sample_name,self.__class__.__name__)
-        self.realn_bam = "{0}/{1}.realn.bam".format(
-            self.scratch_dir,self.sample_name)
-        self.recal_table = "{0}/{1}.recal_table".format(
-            self.scratch_dir,self.sample_name)
+        self.scratch_dir = "{0}/{1}/{2}.{3}".format(
+            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.realn_bam = "{0}/{1}.{2}.realn.bam".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.recal_table = "{0}/{1}.{2}.recal_table".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
 
         db = get_connection("seqdb")
         try:
@@ -465,18 +466,18 @@ class PrintReads(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(PrintReads, self).__init__(*args, **kwargs)
-        self.scratch_dir = "{0}/{1}/{2}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name)
-        self.log_file = "{0}/logs/{1}.{2}.log".format(
-            self.scratch_dir,self.sample_name,self.__class__.__name__)
-        self.script = "{0}/scripts/{1}.sh".format(
-            self.scratch_dir,self.sample_name,self.__class__.__name__)
-        self.realn_bam = "{0}/{1}.realn.bam".format(
-            self.scratch_dir,self.sample_name)
-        self.recal_table = "{0}/{1}.recal_table".format(
-            self.scratch_dir, self.sample_name)
-        self.recal_bam = "{0}/{1}.realn.recal.bam".format(
-            self.scratch_dir, self.sample_name)
+        self.scratch_dir = "{0}/{1}/{2}.{3}".format(
+            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.realn_bam = "{0}/{1}.{2}.realn.bam".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.recal_table = "{0}/{1}.{2}.recal_table".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.recal_bam = "{0}/{1}.{2}.realn.recal.bam".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
 
         db = get_connection("seqdb")
         try:
@@ -560,24 +561,24 @@ class HaplotypeCaller(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(HaplotypeCaller, self).__init__(*args, **kwargs)
-        self.scratch_dir = "{0}/{1}/{2}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name)
-        self.log_file = "{0}/logs/{1}.{2}.log".format(
-            self.scratch_dir,self.sample_name,self.__class__.__name__)
-        self.realn_bam = "{0}/{1}.realn.bam".format(
-            self.scratch_dir, self.sample_name)
-        self.recal_table = "{0}/{1}.recal_table".format(
-            self.scratch_dir, self.sample_name)
-        self.scratch_bam = "{0}/{1}.bam".format(
-            self.scratch_dir,self.sample_name)
-        self.recal_bam = "{0}/{1}.realn.recal.bam".format(
-            self.scratch_dir, self.sample_name)
-        self.gvcf = "{0}/{1}.g.vcf.gz".format(
-            self.scratch_dir, self.sample_name)
-        self.gvcf_index = "{0}/{1}.g.vcf.gz.tbi".format(
-            self.scratch_dir, self.sample_name)
-        self.script = "{0}/scripts/{class_name}.sh".format(
-            self.scratch_dir, self.sample_name,class_name=self.__class__.__name__)
+        self.scratch_dir = "{0}/{1}/{2}.{3}".format(
+            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.realn_bam = "{0}/{1}.{2}.realn.bam".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.recal_table = "{0}/{1}.{2}.recal_table".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.scratch_bam = "{0}/{1}.{2}.bam".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.recal_bam = "{0}/{1}.{2}.realn.recal.bam".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.gvcf = "{0}/{1}.{2}.g.vcf.gz".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.gvcf_index = "{0}/{1}.{2}.g.vcf.gz.tbi".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
         db = get_connection("seqdb")
         try:
@@ -667,18 +668,18 @@ class GenotypeGVCFs(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(GenotypeGVCFs, self).__init__(*args, **kwargs)
-        self.scratch_dir = "{0}/{1}/{2}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name)
-        self.log_file = "{0}/logs/{1}.{2}.log".format(
-            self.scratch_dir,self.sample_name,self.__class__.__name__)
-        self.recal_table = "{0}/{1}.recal_table".format(
-            self.scratch_dir, self.sample_name)
-        self.gvcf = "{0}/{1}.g.vcf.gz".format(
-            self.scratch_dir, self.sample_name)
-        self.vcf = "{0}/{1}.raw.vcf".format(
-            self.scratch_dir, self.sample_name)
-        self.script = "{0}/scripts/{class_name}.sh".format(
-            self.scratch_dir, self.sample_name,class_name=self.__class__.__name__)
+        self.scratch_dir = "{0}/{1}/{2}.{3}".format(
+            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.recal_table = "{0}/{1}.{2}.recal_table".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.gvcf = "{0}/{1}.{2}.g.vcf.gz".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.vcf = "{0}/{1}.{2}.raw.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
         db = get_connection("seqdb")
         try:
@@ -757,18 +758,18 @@ class SelectVariantsSNP(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(SelectVariantsSNP, self).__init__(*args, **kwargs)
-        self.scratch_dir = "{0}/{1}/{2}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name)
-        self.log_file = "{0}/logs/{1}.{2}.log".format(
-            self.scratch_dir,self.sample_name,self.__class__.__name__)
-        self.recal_table = "{0}/{1}.recal_table".format(
-            self.scratch_dir, self.sample_name)
-        self.vcf = "{0}/{1}.raw.vcf".format(
-            self.scratch_dir, self.sample_name)
-        self.snp_vcf = "{0}/{1}.snp.vcf".format(
-            self.scratch_dir, self.sample_name)
-        self.script = "{0}/scripts/{class_name}.sh".format(
-            self.scratch_dir, self.sample_name,class_name=self.__class__.__name__)
+        self.scratch_dir = "{0}/{1}/{2}.{3}".format(
+            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.recal_table = "{0}/{1}.{2}.recal_table".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.vcf = "{0}/{1}.{2}.raw.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.snp_vcf = "{0}/{1}.{2}.snp.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
         db = get_connection("seqdb")
         try:
@@ -847,18 +848,18 @@ class SelectVariantsINDEL(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(SelectVariantsINDEL, self).__init__(*args, **kwargs)
-        self.scratch_dir = "{0}/{1}/{2}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name)
-        self.log_file = "{0}/logs/{1}.{2}.log".format(
-            self.scratch_dir,self.sample_name,self.__class__.__name__)
-        self.recal_table = "{0}/{1}.recal_table".format(
-            self.scratch_dir, self.sample_name)
-        self.vcf = "{0}/{1}.raw.vcf".format(
-            self.scratch_dir, self.sample_name)
-        self.indel_vcf = "{0}/{1}.indel.vcf".format(
-            self.scratch_dir, self.sample_name)
-        self.script = "{0}/scripts/{class_name}.sh".format(
-            self.scratch_dir, self.sample_name,class_name=self.__class__.__name__)
+        self.scratch_dir = "{0}/{1}/{2}.{3}".format(
+            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.recal_table = "{0}/{1}.{2}.recal_table".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.vcf = "{0}/{1}.{2}.raw.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.indel_vcf = "{0}/{1}.{2}.indel.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
         db = get_connection("seqdb")
         try:
@@ -945,20 +946,20 @@ class VariantRecalibratorSNP(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(VariantRecalibratorSNP, self).__init__(*args, **kwargs)
-        self.scratch_dir = "{0}/{1}/{2}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name)
-        self.log_file = "{0}/logs/{1}.{2}.log".format(
-            self.scratch_dir,self.sample_name,self.__class__.__name__)
-        self.snp_vcf = "{0}/{1}.snp.vcf".format(
-            self.scratch_dir, self.sample_name)
-        self.snp_recal = "{0}/{1}.snp.recal".format(
-            self.scratch_dir, self.sample_name)
-        self.snp_tranches = "{0}/{1}.snp.tranches".format(
-            self.scratch_dir, self.sample_name)
-        self.snp_rscript = "{0}/{1}.snp.rscript".format(
-            self.scratch_dir, self.sample_name)
-        self.script = "{0}/scripts/{class_name}.sh".format(
-            self.scratch_dir, self.sample_name,class_name=self.__class__.__name__)
+        self.scratch_dir = "{0}/{1}/{2}.{3}".format(
+            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.snp_vcf = "{0}/{1}.{2}.snp.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.snp_recal = "{0}/{1}.{2}.snp.recal".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.snp_tranches = "{0}/{1}.{2}.snp.tranches".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.snp_rscript = "{0}/{1}.{2}.snp.rscript".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
         db = get_connection("seqdb")
         try:
@@ -1055,20 +1056,20 @@ class VariantRecalibratorINDEL(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(VariantRecalibratorINDEL, self).__init__(*args, **kwargs)
-        self.scratch_dir = "{0}/{1}/{2}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name)
-        self.log_file = "{0}/logs/{1}.{2}.log".format(
-            self.scratch_dir,self.sample_name,self.__class__.__name__)
-        self.indel_vcf = "{0}/{1}.indel.vcf".format(
-            self.scratch_dir, self.sample_name)
-        self.indel_recal = "{0}/{1}.indel.recal".format(
-            self.scratch_dir, self.sample_name)
-        self.indel_rscript = "{0}/{1}.indel.rscript".format(
-            self.scratch_dir, self.sample_name)
-        self.indel_tranches = "{0}/{1}.indel.tranches".format(
-            self.scratch_dir, self.sample_name)
-        self.script = "{0}/scripts/{class_name}.sh".format(
-            self.scratch_dir, self.sample_name,class_name=self.__class__.__name__)
+        self.scratch_dir = "{0}/{1}/{2}.{3}".format(
+            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.indel_vcf = "{0}/{1}.{2}.indel.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.indel_recal = "{0}/{1}.{2}.indel.recal".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.indel_rscript = "{0}/{1}.{2}.indel.rscript".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.indel_tranches = "{0}/{1}.{2}.indel.tranches".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
         db = get_connection("seqdb")
         try:
@@ -1156,20 +1157,20 @@ class ApplyRecalibrationSNP(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(ApplyRecalibrationSNP, self).__init__(*args, **kwargs)
-        self.scratch_dir = "{0}/{1}/{2}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name)
-        self.log_file = "{0}/logs/{1}.{2}.log".format(
-            self.scratch_dir,self.sample_name,self.__class__.__name__)
-        self.vcf = "{0}/{1}.snp.vcf".format(
-            self.scratch_dir, self.sample_name)
-        self.snp_recal = "{0}/{1}.snp.recal".format(
-            self.scratch_dir, self.sample_name)
-        self.snp_tranches = "{0}/{1}.snp.tranches".format(
-            self.scratch_dir, self.sample_name)
-        self.snp_filtered = "{0}/{1}.snp.filtered.vcf".format(
-            self.scratch_dir, self.sample_name)
-        self.script = "{0}/scripts/{class_name}.sh".format(
-            self.scratch_dir, self.sample_name,class_name=self.__class__.__name__)
+        self.scratch_dir = "{0}/{1}/{2}.{3}".format(
+            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.vcf = "{0}/{1}.{2}.snp.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.snp_recal = "{0}/{1}.{2}.snp.recal".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.snp_tranches = "{0}/{1}.{2}.snp.tranches".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.snp_filtered = "{0}/{1}.{2}.snp.filtered.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
         db = get_connection("seqdb")
         try:
@@ -1254,20 +1255,20 @@ class ApplyRecalibrationINDEL(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(ApplyRecalibrationINDEL, self).__init__(*args, **kwargs)
-        self.scratch_dir = "{0}/{1}/{2}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name)
-        self.log_file = "{0}/logs/{1}.{2}.log".format(
-            self.scratch_dir,self.sample_name,self.__class__.__name__)
-        self.indel_vcf = "{0}/{1}.indel.vcf".format(
-            self.scratch_dir, self.sample_name)
-        self.indel_recal = "{0}/{1}.indel.recal".format(
-            self.scratch_dir, self.sample_name)
-        self.indel_tranches = "{0}/{1}.indel.tranches".format(
-            self.scratch_dir, self.sample_name)
-        self.indel_filtered = "{0}/{1}.indel.filtered.vcf".format(
-            self.scratch_dir, self.sample_name)
-        self.script = "{0}/scripts/{class_name}.sh".format(
-            self.scratch_dir, self.sample_name,class_name=self.__class__.__name__)
+        self.scratch_dir = "{0}/{1}/{2}.{3}".format(
+            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.indel_vcf = "{0}/{1}.{2}.indel.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.indel_recal = "{0}/{1}.{2}.indel.recal".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.indel_tranches = "{0}/{1}.{2}.indel.tranches".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.indel_filtered = "{0}/{1}.{2}.indel.filtered.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
         db = get_connection("seqdb")
         try:
@@ -1352,16 +1353,16 @@ class VariantFiltrationSNP(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(VariantFiltrationSNP, self).__init__(*args, **kwargs)
-        self.scratch_dir = "{0}/{1}/{2}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name)
-        self.log_file = "{0}/logs/{1}.{2}.log".format(
-            self.scratch_dir,self.sample_name,self.__class__.__name__)
-        self.snp_vcf = "{0}/{1}.snp.vcf".format(
-            self.scratch_dir, self.sample_name)
-        self.snp_filtered = "{0}/{1}.snp.filtered.vcf".format(
-            self.scratch_dir, self.sample_name)
-        self.script = "{0}/scripts/{class_name}.sh".format(
-            self.scratch_dir, self.sample_name,class_name=self.__class__.__name__)
+        self.scratch_dir = "{0}/{1}/{2}.{3}".format(
+            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.snp_vcf = "{0}/{1}.{2}.snp.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.snp_filtered = "{0}/{1}.{2}.snp.filtered.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
         db = get_connection("seqdb")
         try:
@@ -1442,16 +1443,16 @@ class VariantFiltrationINDEL(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(VariantFiltrationINDEL, self).__init__(*args, **kwargs)
-        self.scratch_dir = "{0}/{1}/{2}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name)
-        self.log_file = "{0}/logs/{1}.{2}.log".format(
-            self.scratch_dir,self.sample_name,self.__class__.__name__)
-        self.indel_vcf = "{0}/{1}.indel.vcf".format(
-            self.scratch_dir, self.sample_name)
-        self.indel_filtered = "{0}/{1}.indel.filtered.vcf".format(
-            self.scratch_dir, self.sample_name)
-        self.script = "{0}/scripts/{class_name}.sh".format(
-            self.scratch_dir, self.sample_name,class_name=self.__class__.__name__)
+        self.scratch_dir = "{0}/{1}/{2}.{3}".format(
+            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.indel_vcf = "{0}/{1}.{2}.indel.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.indel_filtered = "{0}/{1}.{2}.indel.filtered.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
         db = get_connection("seqdb")
         try:
@@ -1532,22 +1533,22 @@ class CombineVariants(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(CombineVariants, self).__init__(*args, **kwargs)
-        self.scratch_dir = "{0}/{1}/{2}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name)
-        self.log_file = "{0}/logs/{1}.{2}.log".format(
-            self.scratch_dir,self.sample_name,self.__class__.__name__)
-        self.snp_filtered = "{0}/{1}.snp.filtered.vcf".format(
-            self.scratch_dir, self.sample_name)
-        self.vcf = "{0}/{1}.raw.vcf".format(
-            self.scratch_dir, self.sample_name)
-        self.indel_filtered = "{0}/{1}.indel.filtered.vcf".format(
-            self.scratch_dir, self.sample_name)
-        self.final_vcf = "{0}/{1}.analysisReady.vcf".format(
-            self.scratch_dir, self.sample_name)
-        self.tmp_vcf = "{0}/{1}.tmp.vcf".format(
-            self.scratch_dir, self.sample_name)
-        self.script = "{0}/scripts/{class_name}.sh".format(
-            self.scratch_dir, self.sample_name,class_name=self.__class__.__name__)
+        self.scratch_dir = "{0}/{1}/{2}.{3}".format(
+            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.snp_filtered = "{0}/{1}.{2}.snp.filtered.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.vcf = "{0}/{1}.{2}.raw.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.indel_filtered = "{0}/{1}.{2}.indel.filtered.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.final_vcf = "{0}/{1}.{2}.analysisReady.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.tmp_vcf = "{0}/{1}.{2}.tmp.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
         db = get_connection("seqdb")
         try:
@@ -1667,22 +1668,22 @@ class AnnotateVCF(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(AnnotateVCF, self).__init__(*args, **kwargs)
-        self.scratch_dir = "{0}/{1}/{2}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name)
-        self.log_file = "{0}/logs/{1}.{2}.log".format(
-            self.scratch_dir,self.sample_name,self.__class__.__name__)
-        self.snp_filtered = "{0}/{1}.snp.filtered.vcf".format(
-            self.scratch_dir, self.sample_name)
-        self.final_vcf = "{0}/{1}.analysisReady.vcf".format(
-            self.scratch_dir, self.sample_name)
-        self.annotated_vcf = "{0}/{1}.analysisReady.annotated.vcf".format(
-            self.scratch_dir, self.sample_name)
-        self.annotated_vcf_gz = "{0}/{1}.analysisReady.annotated.vcf.gz".format(
-            self.scratch_dir, self.sample_name)
-        self.annotated_vcf_gz_index = "{0}/{1}.analysisReady.annotated.vcf.gz.tbi".format(
-            self.scratch_dir, self.sample_name)
-        self.script = "{0}/scripts/{class_name}.sh".format(
-            self.scratch_dir, self.sample_name,class_name=self.__class__.__name__)
+        self.scratch_dir = "{0}/{1}/{2}.{3}".format(
+            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.snp_filtered = "{0}/{1}.{2}.snp.filtered.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.final_vcf = "{0}/{1}.{2}.analysisReady.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.annotated_vcf = "{0}/{1}.{2}.analysisReady.annotated.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.annotated_vcf_gz = "{0}/{1}.{2}.analysisReady.annotated.vcf.gz".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.annotated_vcf_gz_index = "{0}/{1}.{2}.analysisReady.annotated.vcf.gz.tbi".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
         db = get_connection("seqdb")
         try:
@@ -1771,51 +1772,55 @@ class ArchiveSample(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(ArchiveSample, self).__init__(*args, **kwargs)
-        self.scratch_dir = "{0}/{1}/{2}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name)
-        self.log_file = "{0}/logs/{1}.{2}.log".format(
-            self.scratch_dir,self.sample_name,self.__class__.__name__)
-        self.script = "{0}/scripts/{class_name}.sh".format(
-            self.scratch_dir, self.sample_name,class_name=self.__class__.__name__)
-        self.recal_bam = "{0}/{1}.realn.recal.bam".format(
-            self.scratch_dir, self.sample_name)
-        self.recal_bam_index = "{0}/{1}.realn.recal.bai".format(
-            self.scratch_dir, self.sample_name)
-        self.bam = "{0}/{1}/{2}.bam".format(
-            config().base_dir, self.sample_type.upper(),self.sample_name)
-        self.annotated_vcf_gz = "{0}/{1}.analysisReady.annotated.vcf.gz".format(
-            self.scratch_dir, self.sample_name)
-        self.g_vcf_gz = "{0}/{1}.g.vcf.gz".format(
-            self.scratch_dir, self.sample_name)
-        self.g_vcf_gz_index = "{0}/{1}.g.vcf.gz.tbi".format(
-            self.scratch_dir, self.sample_name)
-        self.annotated_vcf_gz_index = "{0}/{1}.analysisReady.annotated.vcf.gz.tbi".format(
-            self.scratch_dir, self.sample_name)
-        self.copy_complete = "{0}/{1}/{2}/copy_complete".format(
-            config().base_dir, self.sample_type.upper(),self.sample_name)
+        self.scratch_dir = "{0}/{1}/{2}.{3}".format(
+            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        self.base_dir = "{0}/{1}/{2}.{3}".format(
+            config().base,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.recal_bam = "{0}/{1}.{2}.realn.recal.bam".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.recal_bam_index = "{0}/{1}.{2}.realn.recal.bai".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.bam = "{0}/{1}.{2}.bam".format(
+            self.base_dir,self.sample_name,self.pseudo_prepid)
+        self.bam_index = "{0}/{1}.{2}.bam.bai".format(
+            self.base_dir,self.sample_name,self.pseudo_prepid)
+        self.annotated_vcf_gz = "{0}/{1}.{2}.analysisReady.annotated.vcf.gz".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.g_vcf_gz = "{0}/{1}.{2}.g.vcf.gz".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.g_vcf_gz_index = "{0}/{1}.{2}.g.vcf.gz.tbi".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.annotated_vcf_gz_index = "{0}/{1}.{2}.analysisReady.annotated.vcf.gz.tbi".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.copy_complete = "{0}/copy_complete".format(
+            config().base)
         self.script_dir = "{0}/scripts".format(
-            self.scratch_dir, self.sample_name)
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
 
         """
-        self.cvg_binned = {0}/{1}.cvg_binned.format(
-            self.scratch_dir, self.sample_name)
-        self.gq_binned = {0}/{1}.gq_binned.format(
-            self.scratch_dir, self.sample_name)
-        self.align_metrics = {0}/{1}.alignment.metrics.txt.format(
-            self.scratch_dir, self.sample_name)
-        self.cvg_metrics = {0}/{1}.cvg_metrics.txt.format(
-            self.scratch_dir, self.sample_name)
-        self.cvg_metrics_ccds = {0}/{1}.cvg_metrics.ccds.txt.format(
-            self.scratch_dir, self.sample_name)
-        self.cvg_metrics_X = {0}/{1}.cvg_metrics.X.txt.format(
-            self.scratch_dir, self.sample_name)
-        self.cvg_metrics_Y = {0}/{1}.cvg_metrics.Y.txt.format(
-            self.scratch_dir, self.sample_name)
-        self.dup_metrics = {0}/{1}.duplicates.txt.format(
-            self.scratch_dir, self.sample_name)
-        self.variant_call_metrics = {0}/{1}.variant_calling_summary_metrics.format(
-            self.scratch_dir, self.sample_name)
-        self.concordance_metrics = {0}/{1}.genotype_concordance_metrics.format(
+        self.cvg_binned = {0}/{1}.{2}.cvg_binned.format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.gq_binned = {0}/{1}.{2}.gq_binned.format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.align_metrics = {0}/{1}.{2}.alignment.metrics.txt.format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.cvg_metrics = {0}/{1}.{2}.cvg_metrics.txt.format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.cvg_metrics_ccds = {0}/{1}.{2}.cvg_metrics.ccds.txt.format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.cvg_metrics_X = {0}/{1}.{2}.cvg_metrics.X.txt.format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.cvg_metrics_Y = {0}/{1}.{2}.cvg_metrics.Y.txt.format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.dup_metrics = {0}/{1}.{2}.duplicates.txt.format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.variant_call_metrics = {0}/{1}.{2}.variant_calling_summary_metrics.format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.concordance_metrics = {0}/{1}.{2}.genotype_concordance_metrics.format(
         """
 
         db = get_connection("seqdb")
@@ -1838,20 +1843,20 @@ class ArchiveSample(SGEJobTask):
               "{cvg_binned} {gq_binned} {align_metrics} 'cvg_metrics} "
               "{cvg_metrics_ccds} {cvg_metrics_X} {cvg_metrics_Y} {dup_metrics} "
               "{variant_call_metrics} {concordance_metrics} "
-              "{base_dir}/{sample_type}/{sample_name}"
+              "{base_dir}"
               ).format(self.__dict__))
         """
 
         cmd = ("rsync -a --timeout=25000 -r "
               "{script_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
               "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
-              "{base_dir}/{sample_type}/{sample_name}"
+              "{base_dir}"
               ).format(recal_bam=self.recal_bam,
                       recal_bam_index=self.recal_bam_index,
                       script_dir=self.script_dir,
                       annotated_vcf_gz=self.annotated_vcf_gz,
                       annotated_vcf_gz_index=self.annotated_vcf_gz_index,
-                      base_dir=config().base_dir,
+                      base_dir=self.base_dir,
                       g_vcf_gz=self.g_vcf_gz,
                       g_vcf_gz_index=self.g_vcf_gz_index,
                       sample_name=self.sample_name,
@@ -1872,7 +1877,7 @@ class ArchiveSample(SGEJobTask):
             realigned BAM has been created on scratch space but it is safer to
             delete after the final realigned, recalculated BAM has been archived
             since our scratch space has failed in the past."""
-            rm_cmd = ['rm',self.bam]
+            rm_cmd = ['rm',self.bam,self.bam_index]
             rm_folder_cmd = ['rm','-rf',self.scratch_dir]
             #subprocess.call(rm_cmd)
             #subprocess.call(rm_folder_cmd)
