@@ -7,6 +7,7 @@ VARIANT_EXISTS_QUERY = """
 SELECT variant_id
 FROM variant_chr{CHROM}
 WHERE POS = {POS} AND REF = "{REF}" AND ALT = "{ALT}"
+    AND indel_length = {indel_length}
 LIMIT 1
 """
 # insert a novel variant
@@ -36,7 +37,7 @@ LOAD_TABLE = """
 LOAD DATA INFILE '{table_file}' INTO TABLE {table_name}
 """
 GET_ALL_INDELS = """
-SELECT DISTINCT variant_id, POS, REF, ALT
+SELECT DISTINCT variant_id, POS, REF, ALT, indel_length
 FROM variant_chr{CHROM}
 WHERE indel = 1
 """
