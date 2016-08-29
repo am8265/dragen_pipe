@@ -1,7 +1,7 @@
 #!/nfs/goldstein/software/python2.7.7/bin/python
 """
-Parse a single sample's VCF and gVCF for a single chromosome,
-create output tables to load into the database, and finally load those tables
+Parse a single sample's VCF for a single chromosome and
+create output tables to load into the database
 """
 
 import zlib
@@ -14,16 +14,10 @@ from collections import defaultdict
 from functools import partial
 from time import time
 import tabix
+from pprint import pprint
 
 cfg = get_cfg()
-MATCHED_INDEL_OUTPUT_FORMAT = (
-    "{CHROM}\t{variant_id}\t{POS}\t{REF}\t{ALT}")
 HGVS_P_REGEX = re.compile(HGVS_P_PATTERN)
-NOVEL_VARIANT_OUTPUT_FORMAT = (
-    "{" + "}\t{".join(
-        ["variant_id", "POS", "REF", "ALT", "rs_number", "transcript_stable_id",
-         "effect_id", "HGVS_c", "HGVS_p", "polyphen_humdiv",
-         "polyphen_humvar", "gene", "indel"]) + "}")
 
 def format_NULL_value(value):
     """convert the specified value to \N for NULL where appropriate for
@@ -103,21 +97,26 @@ def get_variant_id(novel_fh, matched_indels_fh, cur, CHROM, POS,
     # can safely overwrite REF, but need original ALT in order to match up with
     # SnpEff annotations
     REF, alt, offset = simplify_REF_ALT_alleles(REF, ALT)
+    indel_length = len(alt) - len(REF)
+    if len(REF) > 255:
+        REF = REF[:255]
+    if len(alt) > 255:
+        alt = alt[:255]
     POS += offset
     block_id = POS / BLOCK_SIZE
     cur.execute(VARIANT_EXISTS_QUERY.format(
-        CHROM=CHROM, POS=POS, REF=REF, ALT=alt))
+        CHROM=CHROM, POS=POS, REF=REF, ALT=alt, indel_length=indel_length))
     row = cur.fetchone()
     if row:
         variant_id = row[0]
     else:
         novel = True
-        if len(REF) != len(alt):
+        if indel_length:
             # don't treat as an indel if the length of both is the same, i.e.
             # it's an MNV
             # perform indel matching
             matched_indel_id, matched_block_id = match_indels_chromosome.match_indel(
-                cur, CHROM, POS, REF, alt)
+                cur, CHROM, POS, REF, alt, indel_length)
             if matched_indel_id is not None:
                 matched_indels_fh.write(MATCHED_INDEL_OUTPUT_FORMAT.format(
                     CHROM=CHROM, variant_id=matched_indel_id, REF=REF, ALT=ALT))
@@ -127,14 +126,14 @@ def get_variant_id(novel_fh, matched_indels_fh, cur, CHROM, POS,
         if novel:
             variant_id = novel_variant_id
             output_novel_variant(
-                novel_fh, cur, variant_id, CHROM, POS, REF, alt,
+                novel_fh, cur, variant_id, CHROM, POS, REF, alt, indel_length,
                 ALT, rs_number, ANNs, effect_rankings,
                 polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore)
             novel_variant_id += 1
     return variant_id, block_id, novel_variant_id
 
 def output_novel_variant(
-    novel_fh, cur, variant_id, CHROM, POS, REF, ALT,
+    novel_fh, cur, variant_id, CHROM, POS, REF, ALT, indel_length,
     original_ALT, rs_number, ANNs, effect_rankings,
     polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore,
     impact_ordering=["HIGH", "MODERATE", "LOW", "MODIFIER"]):
@@ -144,7 +143,7 @@ def output_novel_variant(
     VariantID = "{CHROM}-{POS}-{REF}-{ALT}".format(
         CHROM=CHROM, POS=POS, REF=REF, ALT=ALT)
     rs_number = "" if rs_number == "." else rs_number
-    indel = 1 if len(REF) != len(ALT) else 0
+    indel = 0 if indel_length else 1
     anns = []
     for ann in ANNs.split(","):
         alt_allele, values = ann.split("|", 1)
@@ -158,6 +157,16 @@ def output_novel_variant(
         for (effects, impact, gene, gene_id, feature_type, feature_id,
              transcript_biotype, rank_total, HGVS_c, HGVS_p, cDNA_position,
              CDS_position, protein_position, distance, errors) in anns:
+            # there appears to be a bug such that
+            # 3_prime_UTR_truncation+exon_loss appears as
+            # 3_prime_UTR_truncation&exon_loss and
+            # 5_prime_UTR_truncation+exon_loss_variant appears as
+            # 5_prime_UTR_truncation&exon_loss_variant
+            if "prime_UTR_truncation" in effects:
+                effects = (effects.replace("3_prime_UTR_truncation&exon_loss",
+                                           "3_prime_UTR_truncation+exon_loss").
+                           replace("5_prime_UTR_truncation&exon_loss_variant",
+                                   "5_prime_UTR_truncation+exon_loss_variant"))
             for effect in effects.split("&"):
                 if effect == "custom":
                     effect = "exon_intron_boundary"
@@ -181,6 +190,10 @@ def output_novel_variant(
                             "failed to find a valid (impact, effect) to match "
                             "({impact}, {effect})".format(
                                 impact=impact, effect=effect))
+                # sometimes SnpEff can annotate the same effect in transcripts
+                # and treat different case differently, but this will cause
+                # integrity errors, so they're converted to upper-case always
+                feature_id = feature_id.upper()
                 annotations_key = (feature_id, effect)
                 effect_id = effect_rankings[effect][impact]
                 if annotations_key in annotations:
@@ -199,6 +212,10 @@ def output_novel_variant(
                             "transcript_stable_id":feature_id,
                             "effect_id":effect_id, "HGVS_c":HGVS_c,
                             "HGVS_p":HGVS_p, "gene":gene}
+                    elif effect == "exon_intron_boundary":
+                        # this can be repeated for unkown reason(s)
+                        # will just skip any after the first
+                        continue
                 else:
                     annotations[annotations_key] = {
                         "transcript_stable_id":feature_id,
@@ -214,14 +231,14 @@ def output_novel_variant(
         for annotation_values in annotations.itervalues():
             output_novel_variant_entry(
                 novel_fh, variant_id, POS, REF, ALT, rs_number, indel,
-                **annotation_values)
+                indel_length, **annotation_values)
     else:
         raise ValueError(
             "error: {VariantID} has no SnpEff annotation(s)".
             format(VariantID=VariantID))
 
 def output_novel_variant_entry(
-    novel_fh, variant_id, POS, REF, ALT, rs_number, indel,
+    novel_fh, variant_id, POS, REF, ALT, rs_number, indel, indel_length,
     transcript_stable_id="", effect_id=None, HGVS_c=None, HGVS_p=None,
     polyphen_humdiv=None, polyphen_humvar=None, gene=None):
     """output a specific novel variant entry to novel_fh
@@ -235,40 +252,15 @@ def output_novel_variant_entry(
         HGVS_p=format_NULL_value(HGVS_p),
         polyphen_humdiv=format_NULL_value(polyphen_humdiv),
         polyphen_humvar=format_NULL_value(polyphen_humvar),
-        gene=format_NULL_value(gene), indel=indel) + "\n")
+        gene=format_NULL_value(gene), indel=indel,
+        indel_length=indel_length) + "\n")
 
-def parse_vcf(
-    vcf, gvcf, pileup, CHROM, sample_id, output_base, debug=False):
+def parse_vcf(vcf, CHROM, sample_id, output_base, debug=False):
     if debug:
         import sys
         sys.stderr.write("starting CHROM {}\n".format(CHROM))
     line_count = 0
     start_time = time()
-    gvcf_tabix = tabix.open(gvcf)
-    gvcf_iter = gvcf_tabix.querys(CHROM)
-    overlaps = []
-    try:
-        gvcf_line = VCF_fields_dict(gvcf_iter.next())
-        gvcf_start = int(gvcf_line["POS"])
-        if gvcf_line["FORMAT"].startswith("END="):
-            gvcf_end = int(gvcf_line["FORMAT"].split(";", 1)[0].split("=")[1])
-        else:
-            gvcf_end = gvcf_start + len(gvcf_line["REF"]) - 1
-        gvcf_gq = int(create_call_dict(
-            gvcf_line["FORMAT"], gvcf_line["call"])["GQ"])
-        gvcf_done = False
-    except StopIteration:
-        gvcf_done = True
-    pileup_tabix = tabix.open(pileup)
-    pileup_iter = pileup_tabix.querys(CHROM)
-    try:
-        pileup_line = pileup_iter.next()
-        pileup_start = int(pileup_line[1]) + 1
-        pileup_end = int(pileup_line[2])
-        pileup_dp = int(pileup_line[3])
-        pileup_done = False
-    except StopIteration:
-        pileup_done = True
     cfg = get_cfg()
     db = get_connection("dragen")
     try:
@@ -322,48 +314,6 @@ def parse_vcf(
                 call_stats = create_call_dict(fields["FORMAT"], fields["call"])
                 call = {"sample_id":sample_id, "GQ":call_stats["GQ"],
                         "QUAL":fields["QUAL"]}
-                noverlaps = len(overlaps)
-                pos = int(fields["POS"])
-                for x in xrange(noverlaps - 1, -1, -1):
-                    interval_start, interval_end, interval_gq = overlaps[x]
-                    if not (interval_start <= pos <= interval_end):
-                        del overlaps[x]
-                if gvcf_start <= pos <= gvcf_end:
-                    overlaps.append((gvcf_start, gvcf_end, gvcf_gq))
-                while not gvcf_done and pos >= gvcf_start:
-                    try:
-                        gvcf_line = VCF_fields_dict(gvcf_iter.next())
-                        gvcf_start = int(gvcf_line["POS"])
-                        if gvcf_line["FORMAT"].startswith("END="):
-                            gvcf_end = int(gvcf_line["FORMAT"].split(";", 1)[0].
-                                           split("=")[1])
-                        else:
-                            gvcf_end = gvcf_start + len(gvcf_line["REF"]) - 1
-                        gvcf_gq = int(create_call_dict(
-                            gvcf_line["FORMAT"], gvcf_line["call"])["GQ"])
-                        if gvcf_start <= pos <= gvcf_end:
-                            overlaps.append((gvcf_start, gvcf_end, gvcf_gq))
-                    except StopIteration:
-                        gvcf_done = True
-                if overlaps:
-                    gq_gvcf = min([interval[2] for interval in overlaps])
-                else:
-                    gq_gvcf = 0
-                while not pileup_done and pos > pileup_end:
-                    try:
-                        pileup_line = pileup_iter.next()
-                        pileup_start = int(pileup_line[1]) + 1
-                        pileup_end = int(pileup_line[2])
-                        pileup_dp = int(pileup_line[3])
-                        pileup_done = False
-                    except StopIteration:
-                        pileup_done = True
-                if pileup_start <= pos <= pileup_end:
-                    dp_pileup = pileup_dp
-                else:
-                    dp_pileup = 0
-                call["GQ_gVCF"] = gq_gvcf
-                call["DP_pileup"] = dp_pileup
                 if nalleles == 1:
                     call["variant_id"] = variant_ids[0][0]
                     call["block_id"] = variant_ids[0][1]
@@ -413,15 +363,6 @@ def parse_vcf(
                         str(variant_id[0]) for variant_id in variant_ids) +
                     ";" + fields["INFO"])
                 vcf_out.write("\t".join(line_fields) + "\n")
-        ## if we've reached here, go ahead and load, and only commit if all
-        ## succeed
-        #for table_name, table_file in (
-        #    ("variant_chr" + CHROM, novel_variants),
-        #    ("called_variant_chr" + CHROM, calls),
-        #    ("matched_indels", matched_indels)):
-        #    cur.execute(LOAD_TABLE.format(
-        #        table_name=table_name, table_file=table_file))
-        #db.commit()
     finally:
         if debug:
             sys.stderr.write("elapsed time: {} seconds\n".format(
@@ -435,10 +376,6 @@ if __name__ == "__main__":
         formatter_class=CustomFormatter, description=__doc__)
     parser.add_argument("VCF", type=file_exists,
                         help="the chromosome VCF to parse")
-    parser.add_argument("GVCF", type=file_exists,
-                        help="the chromosome gVCF to parse")
-    parser.add_argument("PILEUP", type=file_exists,
-                        help="the chromosome pileup file to parse")
     parser.add_argument("CHROMOSOME", choices=cfg.get("ref", "CHROMs").split(","),
                         help="the chromosome that is being processed")
     parser.add_argument("SAMPLE_ID",
@@ -451,5 +388,5 @@ if __name__ == "__main__":
     output_base_rp = os.path.realpath(args.OUTPUT_BASE)
     if not os.path.isdir(os.path.dirname(output_base_rp)):
         os.makedirs(os.path.dirname(output_base_rp))
-    parse_vcf_and_load(args.VCF, args.GVCF, args.PILEUP, args.CHROMOSOME,
-                       args.SAMPLE_ID, output_base_rp, args.debug)
+    parse_vcf(
+        args.VCF, args.CHROMOSOME, args.SAMPLE_ID, output_base_rp, args.debug)
