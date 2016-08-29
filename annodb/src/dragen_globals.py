@@ -20,9 +20,17 @@ BLOCK_SIZE = 10000 # the bases in a block of variant calls (for indexing)
 VALID_GTS = set(["0", "1"]) # valid values in GT field, i.e. REF/ALT
 # the table format to output for calls
 VARIANT_CALL_FORMAT = ("{" + "}\t{".join(
-    ["sample_id", "variant_id", "block_id", "GT", "DP", "DP_pileup", "AD_REF",
-     "AD_ALT", "GQ", "GQ_gVCF", "FS", "MQ", "QD", "QUAL", "ReadPosRankSum",
+    ["sample_id", "variant_id", "block_id", "GT", "DP", "AD_REF",
+     "AD_ALT", "GQ",# "VQSLOD",
+     "FS", "MQ", "QD", "QUAL", "ReadPosRankSum",
      "MQRankSum", "PASS"]) + "}")
+NOVEL_VARIANT_OUTPUT_FORMAT = (
+    "{" + "}\t{".join(
+        ["variant_id", "POS", "REF", "ALT", "rs_number", "transcript_stable_id",
+         "effect_id", "HGVS_c", "HGVS_p", "polyphen_humdiv",
+         "polyphen_humvar", "gene", "indel", "indel_length"]) + "}")
+MATCHED_INDEL_OUTPUT_FORMAT = (
+    "{CHROM}\t{variant_id}\t{POS}\t{REF}\t{ALT}")
 POLYPHEN_ATTRIB_ID = {"humvar":268, "humdiv":269}
 # PolyPhen scores are packed by sorted one-letter codes
 AMINO_ACIDS = dict(
@@ -190,3 +198,11 @@ def merge_dicts(*dict_list):
         for d in dict_list[1:]:
             new_dict.update(d)
         return new_dict
+
+def get_data_directory(sample_name, sample_type, capture_kit, prep_id):
+    """Return the directory to the sample's data; currently hardcoded as the
+    information is not stored in the database
+    """
+    return ("/nfs/fastq16/ALIGNMENT/BUILD37/DRAGEN/{sample_type}/{sample_name}"
+            ".{prep_id}".format(sample_type=sample_type.upper(),
+                                sample_name=sample_name, prep_id=prep_id))
