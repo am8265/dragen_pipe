@@ -1,7 +1,7 @@
 #!/nfs/goldstein/software/python2.7.7/bin/python
 """
 Run pipeline to:
-    1. Copy VCF, gVCF, and pileup to scratch space
+    1. Copy the VCF and its index to scratch space
     2. Parse and import data for each chromosome
     3. Archive appropriate data for sample
 """
@@ -70,12 +70,9 @@ class CopyDataTarget(luigi.Target):
         return self.targets
 
 class CopyDataToScratch(luigi.Task):
-    """Copy the VCF, gVCF, pileup, and their indexes to scratch space for
-    processing
+    """Copy the VCF and its index to scratch space for processing
     """
     vcf = luigi.InputFileParameter(description="the VCF to copy")
-    gvcf = luigi.InputFileParameter(description="the gVCF to copy")
-    pileup = luigi.InputFileParameter(description="the pileup to copy")
     seqscratch = luigi.ChoiceParameter(
         choices=["09", "10", "11"], default="09",
         description="the seqscratch to use for temporary file creation")
@@ -87,15 +84,12 @@ class CopyDataToScratch(luigi.Task):
     def __init__(self, *args, **kwargs):
         super(CopyDataToScratch, self).__init__(*args, **kwargs)
         self.vcf_idx = self.vcf + ".tbi"
-        self.gvcf_idx = self.gvcf + ".tbi"
-        self.pileup_idx = self.pileup + ".tbi"
         self.output_directory = cfg.get("pipeline", "scratch_area").format(
             seqscratch=self.seqscratch, sample_name=self.sample_name,
             sequencing_type=self.sequencing_type.upper())
         self.targets = {}
         self.originals = {}
-        for file_type in (
-            "vcf", "gvcf", "pileup", "vcf_idx", "gvcf_idx", "pileup_idx"):
+        for file_type in ("vcf", "vcf_idx"):
             self.targets[file_type] = (
                 self.output_directory + os.path.basename(self.__dict__[file_type]))
             self.originals[file_type] = self.__dict__[file_type]
@@ -138,12 +132,10 @@ class SQLTarget(luigi.Target):
                 db.close()
 
 class ParseVCF(SGEJobTask):
-    """parse the specified VCF and gVCF, output text files for the data, and
+    """parse the specified VCF, output text files for the data, and
     import to the database
     """
     vcf = luigi.InputFileParameter(description="the VCF to parse")
-    gvcf = luigi.InputFileParameter(description="the gVCF to parse")
-    pileup = luigi.InputFileParameter(description="the pileup to parse")
     chromosome = luigi.Parameter(description="the chromosome to process")
     sample_id = luigi.NumericalParameter(
         left_op=operator.le, description="the sample_id for this sample")
@@ -172,7 +164,8 @@ class ParseVCF(SGEJobTask):
             if not os.path.isdir(os.path.dirname(self.output_base)):
                 os.makedirs(os.path.dirname(self.output_base))
         else:
-            self.output_base = os.path.splitext(self.vcf)[0]
+            kwargs["output_base"] = os.path.splitext(self.vcf)[0]
+            super(ParseVCF, self).__init__(*args, **kwargs)
         self.copied_files_dict = self.input().get_targets()
         self.novel_variants = self.output_base + ".novel_variants.txt"
         self.called_variants = self.output_base + ".calls.txt"
@@ -204,8 +197,6 @@ class ParseVCF(SGEJobTask):
                 db.close()
         parse_vcf(
             vcf=self.copied_files_dict["vcf"],
-            gvcf=self.copied_files_dict["gvcf"],
-            pileup=self.copied_files_dict["pileup"],
             CHROM=self.chromosome, sample_id=self.sample_id,
             output_base=self.output_base, debug=self.debug)
         for fn in (self.novel_variants, self.called_variants,
@@ -263,12 +254,6 @@ class ImportSample(luigi.Task):
     vcf = luigi.InputFileParameter(
         default=None,
         description="the VCF to parse (optional - only sample_id is required)")
-    gvcf = luigi.InputFileParameter(
-        default=None,
-        description="the gVCF to parse (optional - only sample_id is required)")
-    pileup = luigi.InputFileParameter(
-        default=None,
-        description="the pileup to parse (optional - only sample_id is required)")
     sample_id = luigi.NumericalParameter(
         left_op=operator.le, description="the sample_id for this sample")
     seqscratch = luigi.ChoiceParameter(
@@ -318,28 +303,18 @@ class ImportSample(luigi.Task):
         finally:
             if db.open:
                 db.close()
-        for fn in (self.vcf, self.gvcf, self.pileup):
-            if not fn:
-                self.vcf = os.path.join(
-                    self.data_directory, "{sample_name}.hard-filtered.ann."
-                    "vcf.gz".format(sample_name=self.sample_name))
-                self.gvcf = os.path.join(
-                    self.data_directory, "{sample_name}.hard-filtered.gvcf."
-                    "gz".format(sample_name=self.sample_name))
-                self.pileup = os.path.join(
-                    self.data_directory, "{sample_name}.genomecvg.bed.gz".
-                    format(sample_name=self.sample_name))
-                for file_type in ("vcf", "gvcf", "pileup"):
-                    if not os.path.isfile(self.__dict__[file_type]):
-                        raise OSError(
-                            "could not find {file_type}: {fn}".format(
-                                file_type=file_type,
-                                fn=self.__dict__[file_type]))
+        if not self.vcf:
+            kwargs["vcf"] = os.path.join(
+                self.data_directory, "{sample_name}.hard-filtered.ann."
+                "vcf.gz".format(sample_name=self.sample_name))
+            super(ImportSample, self).__init__(*args, **kwargs)
+        if not os.path.isfile(self.vcf):
+            raise OSError(
+                "could not find the VCF: {vcf}".format(vcf=self.vcf))
 
     def requires(self):
         return [ParseVCF(
-            vcf=self.vcf, gvcf=self.gvcf, pileup=self.pileup,
-            sample_id=self.sample_id,
+            vcf=self.vcf, sample_id=self.sample_id,
             chromosome=CHROM, sample_name=self.sample_name,
             sequencing_type=self.sequencing_type,
             output_base=self.output_directory + CHROM)
@@ -410,7 +385,6 @@ class ImportSample(luigi.Task):
     def output(self):
         return SQLTarget(sample_id=self.sample_id,
                          pipeline_step_id=self.pipeline_step_id)
-
 
 if __name__ == "__main__":
     luigi.run()
