@@ -18,6 +18,7 @@ from collections import OrderedDict
 from parse_vcf import parse_vcf
 from dragen_globals import *
 from db_statements import *
+from sys import maxsize
 
 cfg = get_cfg()
 CHROMs = OrderedDict([CHROM, x] for x, CHROM in enumerate(
@@ -138,7 +139,8 @@ class ParseVCF(SGEJobTask):
     vcf = luigi.InputFileParameter(description="the VCF to parse")
     chromosome = luigi.Parameter(description="the chromosome to process")
     sample_id = luigi.NumericalParameter(
-        left_op=operator.le, description="the sample_id for this sample")
+        min_value=1, max_value=maxsize, var_type=int,
+        description="the sample_id for this sample")
     output_base = luigi.Parameter(
         default=None, description="specify a custom output file name")
     seqscratch = luigi.ChoiceParameter(
@@ -206,7 +208,7 @@ class ParseVCF(SGEJobTask):
                     fn=fn))
         vcf_lines = 0
         vcf_extra_calls = 0
-        vcf_tabix = tabix.open(self.vcf)
+        vcf_tabix = tabix.open(self.copied_files_dict["vcf"])
         for vcf_fields in vcf_tabix.querys(self.chromosome):
             vcf_lines += 1
             vcf_extra_calls += vcf_fields[VCF_COLUMNS_DICT["ALT"]].count(",")
@@ -255,7 +257,8 @@ class ImportSample(luigi.Task):
         default=None,
         description="the VCF to parse (optional - only sample_id is required)")
     sample_id = luigi.NumericalParameter(
-        left_op=operator.le, description="the sample_id for this sample")
+        min_value=1, max_value=maxsize, var_type=int,
+        description="the sample_id for this sample")
     seqscratch = luigi.ChoiceParameter(
         choices=["09", "10", "11"], default="09",
         description="the seqscratch to use for temporary file creation")
@@ -279,22 +282,13 @@ class ImportSample(luigi.Task):
         self.output_directory = cfg.get("pipeline", "scratch_area").format(
             seqscratch=self.seqscratch, sample_name=self.sample_name,
             sequencing_type=self.sequencing_type.upper())
-        db = get_connection("seqdb")
-        try:
-            cur = db.cursor()
-            cur.execute(GET_DATA_DIRECTORY_FOR_SAMPLE.format(
-                sample_name=self.sample_name,
-                sample_type=self.sequencing_type,
-                capture_kit=self.capture_kit, prep_id=self.prep_id))
-            row = cur.fetchone()
-            if row:
-                self.data_directory = row[0]
-            else:
-                raise ValueError(
-                    "could not find data directory for sample")
-        finally:
-            if db.open:
-                db.close()
+        data_directory = get_data_directory(
+            self.sample_name, self.sequencing_type,
+            self.capture_kit, self.prep_id)
+        if not os.path.isdir(data_directory):
+            raise ValueError(
+                "the data directory for the sample does not exist")
+        self.data_directory = data_directory
         db = get_connection("dragen")
         try:
             cur = db.cursor()
@@ -305,8 +299,9 @@ class ImportSample(luigi.Task):
                 db.close()
         if not self.vcf:
             kwargs["vcf"] = os.path.join(
-                self.data_directory, "{sample_name}.hard-filtered.ann."
-                "vcf.gz".format(sample_name=self.sample_name))
+                self.data_directory, "{sample_name}.{prep_id}.analysisReady."
+                "annotated.vcf.gz".format(
+                    sample_name=self.sample_name, prep_id=self.prep_id))
             super(ImportSample, self).__init__(*args, **kwargs)
         if not os.path.isfile(self.vcf):
             raise OSError(
