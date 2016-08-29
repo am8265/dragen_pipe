@@ -16,7 +16,7 @@ ALL_INDELS = defaultdict(lambda: defaultdict(list))
 indels_queried = False
 #nskipped = 0
 
-def match_indel(cur, CHROM, POS, REF, ALT):
+def match_indel(cur, CHROM, POS, REF, ALT, indel_length):
     """return the variant_id and block_id  of a match against the indels
     currently in the database if present, otherwise None, None
     """
@@ -29,15 +29,14 @@ def match_indel(cur, CHROM, POS, REF, ALT):
         # end of the chromosome
         return None, None
     len_REF = len(REF)
-    len_indel = len(ALT) - len_REF
     indel_sequence = "".join([
         sequence[POS - FLANKING_SIZE - 1:POS - 1], ALT,
-        sequence[POS + len_REF - 1:POS + FLANKING_SIZE - len_indel - 1]])
+        sequence[POS + len_REF - 1:POS + FLANKING_SIZE - indel_length - 1]])
     for block in xrange(block_id - 1, block_id + 2):
-        if block and block in ALL_INDELS and len_indel in ALL_INDELS[block]:
+        if block and block in ALL_INDELS and indel_length in ALL_INDELS[block]:
             # only look in the three surrounding blocks where the length of the
             # indel is the same as the candidate novel indel
-            for variant_id, db_POS, db_REF, db_ALT in ALL_INDELS[block][len_indel]:
+            for variant_id, db_POS, db_REF, db_ALT in ALL_INDELS[block][indel_length]:
                 #if (db_POS == POS and db_REF == REF and db_ALT == ALT):
                 #    # debug code to test whether indels match each other in one
                 #    # sample
@@ -49,7 +48,7 @@ def match_indel(cur, CHROM, POS, REF, ALT):
                     db_sequence = "".join([
                         db_head, db_ALT,
                         sequence[db_POS + len(db_REF) - 1:db_POS + 2 *
-                                 FLANKING_SIZE - len(db_head) - len_indel - 1]])
+                                 FLANKING_SIZE - len(db_head) - indel_length - 1]])
                     if indel_sequence == db_sequence:
                         return variant_id, db_POS / BLOCK_SIZE
     return None, None
@@ -68,9 +67,8 @@ def get_all_indels(cur, CHROM):
     chromosome_length = len(sequence)
     genome.close()
     cur.execute(GET_ALL_INDELS.format(CHROM=CHROM))
-    for variant_id, POS, REF, ALT in cur.fetchall():
-        len_indel = len(ALT) - len(REF)
-        ALL_INDELS[POS / FLANKING_SIZE][len_indel].append(
+    for variant_id, POS, REF, ALT, indel_length in cur.fetchall():
+        ALL_INDELS[POS / FLANKING_SIZE][indel_length].append(
             (variant_id, POS, REF, ALT))
     global indels_queried
     indels_queried = True
