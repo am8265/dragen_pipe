@@ -14,24 +14,29 @@ from glob import glob
 
 def get_prepid(curs, sample):
     """Retrieve qualifying prepids"""
-    query = ("SELECT p.prepid "
-            "FROM prepT p "
-            "JOIN SeqType st on p.prepID = st.prepID "
-            "WHERE CHGVID='{sample_name}' AND "
-            "failedPrep=0 AND "
-            "seqtype='{sample_type}' AND "
-            "exomeKit='{capture_kit}'"
-            ).format(sample_name=sample['sample_name'],
-                    sample_type=sample['sample_type'],
-                    capture_kit=sample['capture_kit'])
-
-    #query = ("SELECT prepid FROM pseudo_prepid where pseudo_prepid={0}"
-    #        ).format(sample["pseudo_prepid"])
+    query = ("SELECT prepid FROM pseudo_prepid WHERE pseudo_prepid={0}"
+            ).format(sample["pseudo_prepid"])
 
     curs.execute(query)
     prepids = curs.fetchall()
     prepids = [x[0] for x in prepids]
     return prepids
+
+def get_pseudo_prepid(curs,sample):
+    query = ("SELECT DISTINCT pseudo_prepid "
+            "FROM pseudo_prepid pp "
+            "JOIN prepT p ON pp.prepid=p.prepid "
+            "JOIN SeqType s ON s.prepid=p.prepid "
+            "WHERE CHGVID='{sample_name}' "
+            "AND seqtype='{sample_type}' "
+            "AND exomekit='{capture_kit}' "
+            "AND failedprep=0"
+            ).format(sample_name=sample['sample_name'],
+                    sample_type=sample['sample_type'],
+                    capture_kit=sample['capture_kit'])
+    curs.execute(query)
+    pseudo_prepid = curs.fetchone()
+    return pseudo_prepid[0]
 
 def get_bed_file_loc(curs,capture_kit):
     """Retrieve the bed file location for a given capture_kit name"""
@@ -144,16 +149,11 @@ def check_fastq_locs(locs):
 def get_output_dir(sample):
     """Generate ouput directory for Dragen results.  Dependent on seqtype"""
 
-    # Custom capture samples need to be partitioned by capture_kit since they 
-    # are often sequenced with multiple capture kits.  Example: EpiMIR and 
-    # SchizoEpi
-    if sample['sample_type'] == 'custom_capture':
-        output_dir = ('/nfs/fastq16/ALIGNMENT/BUILD37/DRAGEN/{0}/{1}/{2}/'
-            ).format(sample['sample_type'].upper(),
-                    sample['capture_kit'],sample['sample_name'])
-    else:
-        output_dir = ('/nfs/fastq16/ALIGNMENT/BUILD37/DRAGEN/{0}/{1}/'
-            ).format(sample['sample_type'].upper(),sample['sample_name'])
+    # Custom capture samples need to be partitioned by capture_kit or 
+    # pseudo_prepid since they are often sequenced with multiple capture kits.
+    # Example: EpiMIR and SchizoEpi
+    output_dir = ('/nfs/qumulo/ALIGNMENT/BUILD37/DRAGEN/{0}/{1}.{2}/'
+        ).format(sample['sample_type'].upper(),sample['sample_name'],sample['pseudo_prepid'])
 
     return output_dir
 
@@ -196,7 +196,6 @@ def get_lanes(curs,sample):
 
 class dragen_sample:
     # store all relevant information about a sample in a dictionary
-
     def __init__(self, sample_name, sample_type, pseudo_prepid, capture_kit, curs):
         self.metadata = {}
         self.metadata['sample_name'] = sample_name
@@ -204,31 +203,24 @@ class dragen_sample:
         self.metadata['pseudo_prepid'] = pseudo_prepid
         if sample_type.lower() != 'genome':
             self.metadata['capture_kit'] = capture_kit
+            self.metadata['bed_file_loc'] = get_bed_file_loc(curs,self.metadata['capture_kit'])
         else:
             self.metadata['capture_kit'] = ''
-        if self.metadata['sample_type'] == 'genome':
             #Genome samples are set using the most current capture kit for any case which requires a target region.
             self.metadata['bed_file_loc'] = '/nfs/goldsteindata/refDB/captured_regions/Build37/65MB_build37/SeqCap_EZ_Exome_v3_capture.bed'
-        else:
-            self.metadata['bed_file_loc'] = get_bed_file_loc(curs,self.metadata['capture_kit'])
-
         self.metadata['prepid'] = get_prepid(curs, self.metadata)
+        self.metadata['lane'] = get_lanes(curs,self.metadata)
         self.metadata['fastq_loc'] = get_fastq_loc(curs, self.metadata)
         self.metadata['output_dir'] = get_output_dir(self.metadata)
-        self.metadata['script_dir'] = self.metadata['output_dir']+'/scripts'
-        self.metadata['conf_file'] = "{script_dir}/{sample_name}.dragen.conf".format(**self.metadata)
-        self.metadata['gvcf_conf_file'] = "{script_dir}/{sample_name}.dragen.gVCF.conf".format(**self.metadata)
-
-        self.metadata['fastq_dir'] = self.metadata['output_dir']+'/fastq'
-        self.metadata['log_dir'] = self.metadata['output_dir']+'/logs'
-        self.metadata['dragen_stdout'] = "{log_dir}/{sample_name}.dragen.out".format(**self.metadata)
-        self.metadata['dragen_stderr'] = "{log_dir}/{sample_name}.dragen.err".format(**self.metadata)
-
-        self.metadata['lane'] = get_lanes(curs,self.metadata)
+        self.metadata['script_dir'] = self.metadata['output_dir']+'scripts'
+        self.metadata['fastq_dir'] = self.metadata['output_dir']+'fastq'
+        self.metadata['log_dir'] = self.metadata['output_dir']+'logs'
+        self.metadata['conf_file'] = "{script_dir}/{sample_name}.{pseudo_prepid}.dragen.conf".format(**self.metadata)
+        self.metadata['dragen_stdout'] = "{log_dir}/{sample_name}.{pseudo_prepid}.dragen.out".format(**self.metadata)
+        self.metadata['dragen_stderr'] = "{log_dir}/{sample_name}.{pseudo_prepid}.dragen.err".format(**self.metadata)
 
     def get_attribute(self, attribute):
-        """return the value requested if present, otherwise raise a TypeError
-        """
+        """return the value requested if present, otherwise raise a TypeError"""
         if attribute in self.metadata:
             return self.metadata[attribute]
         else:
@@ -236,12 +228,9 @@ class dragen_sample:
                 attribute=attribute, CHGVID=self.CHGVID))
 
     def get_dict(self):
-        """return a dict of the values of this sample
-        """
+        """return a dict of the values of this sample"""
         return self.metadata
 
     def set(self, attribute, value):
-        """set the specified attribute to the given value
-        """
+        """set the specified attribute to the given value"""
         self.metadata[attribute] = value
-
