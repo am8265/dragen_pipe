@@ -203,24 +203,21 @@ class dragen_sample:
         self.metadata['pseudo_prepid'] = pseudo_prepid
         if sample_type.lower() != 'genome':
             self.metadata['capture_kit'] = capture_kit
+            self.metadata['bed_file_loc'] = get_bed_file_loc(curs,self.metadata['capture_kit'])
         else:
             self.metadata['capture_kit'] = ''
-        if self.metadata['sample_type'] == 'genome':
             #Genome samples are set using the most current capture kit for any case which requires a target region.
             self.metadata['bed_file_loc'] = '/nfs/goldsteindata/refDB/captured_regions/Build37/65MB_build37/SeqCap_EZ_Exome_v3_capture.bed'
-        else:
-            self.metadata['bed_file_loc'] = get_bed_file_loc(curs,self.metadata['capture_kit'])
         self.metadata['prepid'] = get_prepid(curs, self.metadata)
-        #self.metadata['pseudo_prepid'] = get_pseudo_prepid(curs, self.metadata)
+        self.metadata['lane'] = get_lanes(curs,self.metadata)
         self.metadata['fastq_loc'] = get_fastq_loc(curs, self.metadata)
         self.metadata['output_dir'] = get_output_dir(self.metadata)
         self.metadata['script_dir'] = self.metadata['output_dir']+'scripts'
-        self.metadata['conf_file'] = "{script_dir}/{sample_name}.{pseudo_prepid}.dragen.conf".format(**self.metadata)
         self.metadata['fastq_dir'] = self.metadata['output_dir']+'fastq'
         self.metadata['log_dir'] = self.metadata['output_dir']+'logs'
+        self.metadata['conf_file'] = "{script_dir}/{sample_name}.{pseudo_prepid}.dragen.conf".format(**self.metadata)
         self.metadata['dragen_stdout'] = "{log_dir}/{sample_name}.{pseudo_prepid}.dragen.out".format(**self.metadata)
         self.metadata['dragen_stderr'] = "{log_dir}/{sample_name}.{pseudo_prepid}.dragen.err".format(**self.metadata)
-        self.metadata['lane'] = get_lanes(curs,self.metadata)
 
     def get_attribute(self, attribute):
         """return the value requested if present, otherwise raise a TypeError"""

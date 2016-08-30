@@ -213,7 +213,6 @@ def get_first_read(sample,read_number,debug):
     return sorted(read)[0]
 
 def get_next_sample(curs,debug):
-
     #remove any symlinked fastq.gz files 
     query = ("SELECT sample_name,sample_type,pseudo_prepid,capture_kit,dragen_id "
         "FROM dragen_queue "
