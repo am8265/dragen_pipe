@@ -12,6 +12,7 @@ from dragen_globals import *
 from dragen_sample import dragen_sample
 import re
 import time 
+import glob
 
 """
 Run samples through a luigized GATK pipeline after finishing the
@@ -32,7 +33,8 @@ def getDBIDMaxPrepID(pseudo_prepid):
     return dbid,prepid
 
 def getUserID():
-    userName = getpass.getuser()
+    #userName = getpass.getuser()
+    userName = "rp2801"
     db = get_connection("seqdb")
     try:
         cur = db.cursor()
@@ -55,9 +57,10 @@ class config(luigi.Config):
     gatk = luigi.Parameter()
     java = luigi.Parameter()
     picard = luigi.Parameter()
-    pypy_loc = luigi.Parameter()
+    pypy = luigi.Parameter()
     snpEff = luigi.Parameter()
     tabix = luigi.Parameter()
+    verifybamid = luigi.Parameter()
     #files
     bait_file = luigi.Parameter()
     bait_file_X = luigi.Parameter()
@@ -66,6 +69,7 @@ class config(luigi.Config):
     ccds_bed_file = luigi.Parameter()
     relatedness_markers = luigi.Parameter()
     relatedness_refs = luigi.Parameter()
+    binner_loc = luigi.Parameter()
     sampleped_loc = luigi.Parameter()
     snpEff_cfg = luigi.Parameter()
     snpEff_interval = luigi.Parameter()
@@ -98,13 +102,48 @@ class db(luigi.Config):
     cnf = luigi.Parameter()
     seqdb_group = luigi.Parameter()
     dragen_group = luigi.Parameter()
-   
+
+class qcmetrics(luigi.Config):
+    """
+    Parse in database field names for qc metrics
+    from the qcmetrics section of the config file
+    """
+    
+    total_reads = luigi.Parameter()
+    pct_reads_aligned = luigi.Parameter()
+    pct_mismatch_rate = luigi.Parameter()
+    capture_specificity = luigi.Parameter()
+    mean_cvg = luigi.Parameter()
+    pct_bases5X = luigi.Parameter()
+    pct_bases10X = luigi.Parameter()
+    pct_bases15X = luigi.Parameter()
+    pct_bases20X = luigi.Parameter()
+    mean_ccds_cvg = luigi.Parameter()
+    pct_ccds_bases5X = luigi.Parameter()
+    pct_ccds_bases10X = luigi.Parameter()
+    pct_ccds_bases15X = luigi.Parameter()
+    pct_ccds_bases20X = luigi.Parameter()
+    mean_X_cvg = luigi.Parameter()
+    mean_Y_cvg = luigi.Parameter()
+    perc_duplicate_reads = luigi.Parameter()
+    total_snps = luigi.Parameter()
+    pct_dbsnp_snps = luigi.Parameter()
+    total_indels = luigi.Parameter()
+    pct_dbsnp_indels = luigi.Parameter()
+    titv = luigi.Parameter()
+    alt_hom_X = luigi.Parameter()
+    num_hetX = luigi.Parameter()
+    num_homX = luigi.Parameter()
+    het_hom_X_ratio = luigi.Parameter()
+    contamination_value = luigi.Parameter()
+    
 class CopyBam(SGEJobTask):
     """class for copying dragen aligned bam to a scratch location"""
     sample_name = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-
+    pseudo_prepid = luigi.Parameter()
+    
     n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
@@ -169,7 +208,6 @@ class CopyBam(SGEJobTask):
             if db.open:
                 db.close()
 
-
     def output(self):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
             pipeline_step_id=self.pipeline_step_id)
@@ -210,7 +248,7 @@ class RealignerTargetCreator(SGEJobTask):
 
     def work(self):
         db = get_connection("seqdb")
-        print config()
+        #print config()
         cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk} "
             "-R {ref} "
@@ -1026,6 +1064,7 @@ class VariantRecalibratorSNP(SGEJobTask):
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
+            
             cur.execute(INSERT_DRAGEN_STATUS.format(
                         sample_name=self.sample_name,
                         status="Dragen "+self.__class__.__name__,
@@ -1036,6 +1075,7 @@ class VariantRecalibratorSNP(SGEJobTask):
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
+            
             db.commit()
 
         finally:
@@ -1837,8 +1877,8 @@ class ArchiveSample(SGEJobTask):
                 db.close()
 
     def work(self):
-        db = get_connection("seqdb")
-
+        #db = get_connection("seqdb")
+        print "Ready to archive !"
         """
         cmd = ("rsync -a --timeout=25000 -r "
               "{script_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
@@ -1850,6 +1890,7 @@ class ArchiveSample(SGEJobTask):
               ).format(self.__dict__))
         """
 
+        """
         cmd = ("rsync -a --timeout=25000 -r "
               "{script_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
               "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
@@ -1876,10 +1917,10 @@ class ArchiveSample(SGEJobTask):
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
             subprocess.check_call(['touch',self.copy_complete])
-            """Original dragen BAM could be technically deleted earlier after the
+            Original dragen BAM could be technically deleted earlier after the
             realigned BAM has been created on scratch space but it is safer to
             delete after the final realigned, recalculated BAM has been archived
-            since our scratch space has failed in the past."""
+            since our scratch space has failed in the past.
             rm_cmd = ['rm',self.bam]
             rm_folder_cmd = ['rm','-rf',self.scratch_dir]
             #subprocess.call(rm_cmd)
@@ -1898,15 +1939,23 @@ class ArchiveSample(SGEJobTask):
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
             db.commit()
-        finally:
-            if db.open:
-                db.close()
+            """   
+        #finally:
+            #if db.open:
+                #db.close()
 
     def requires(self):
         yield self.clone(AnnotateVCF)
-        #yield self.clone(CvgBinning)
-        #yield self.clone(GQBinning)
-
+        yield self.clone(CvgBinning)
+        yield self.clone(GQBinning)
+        yield self.clone(AlignmentMetrics)
+        yield self.clone(RunCvgMetrics)
+        yield self.clone(DuplicateMetrics)
+        yield self.clone(VariantCallingMetrics)
+        yield self.clone(ContaminationCheck)
+        if get_productionvcf(self.pseudo_prepid,self.sample_name,self.sample_type) != None:
+            yield self.clone(GenotypeConcordance)
+        
     def output(self):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
             pipeline_step_id=self.pipeline_step_id)
@@ -1969,7 +2018,7 @@ def get_pipeline_step_id(step_name,db_name):
             db = get_connection(db_name)
             cur = db.cursor()
             cur.execute(GET_PIPELINE_STEP_ID.format(
-                step_name=self.__class__.__name__))
+                step_name=step_name))
             pipeline_step_id = cur.fetchone()[0]
         except MySQLdb.Error, e:
             if i < tries - 1:
@@ -2006,34 +2055,34 @@ def run_shellcmd(db_name,pipeline_step_id,pseudo_prepid,cmd,sample_name,
     
     tries = 5
     for i in range(tries):
-    try:
-        db = get_connection(db_name)
-        cur = db.cursor()
-        cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
-                    pseudo_prepid=pseudo_prepid,
-                    pipeline_step_id=pipeline_step_id))
+        try:
+            db = get_connection(db_name)
+            cur = db.cursor()
+            cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
+                        pseudo_prepid=pseudo_prepid,
+                        pipeline_step_id=pipeline_step_id))
 
-        for cmd_j in cmd:
-            proc = subprocess.Popen(cmd_j,shell=True)
-            proc.wait()
-            if proc.returncode: ## Non zero return code
-                raise subprocess.CalledProcessError(proc.returncode,cmd_j)
+            for cmd_j in cmd:
+                proc = subprocess.Popen(cmd_j,shell=True)
+                proc.wait()
+                if proc.returncode: ## Non zero return code
+                    raise subprocess.CalledProcessError(proc.returncode,cmd_j)
 
-        update_dragen_status(pseudo_prepid,sample_name,task_name,cur)
-        
-        cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
-                    pseudo_prepid=pseudo_prepid,
-                    pipeline_step_id=pipeline_step_id))
-        db.commit()
-    except MySQLdb.Error, e:
-            if i < tries - 1:
-                raise "ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1])
-            else:
-                time.sleep(60) ## Wait a minute before trying again
-                continue 
-    finally:
-        if db.open:
-            db.close()
+            update_dragen_status(pseudo_prepid,sample_name,task_name,cur)
+
+            cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
+                        pseudo_prepid=pseudo_prepid,
+                        pipeline_step_id=pipeline_step_id))
+            db.commit()
+        except MySQLdb.Error, e:
+                if i < tries - 1:
+                    raise Exception("ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1]))
+                else:
+                    time.sleep(60) ## Wait a minute before trying again
+                    continue 
+        finally:
+            if db.open:
+                db.close()
 
 
 def update_dragen_status(pseudo_prepid,sample_name,task_name,cur):
@@ -2077,38 +2126,48 @@ def get_productionvcf(pseudo_prepid,sample_name,sample_type):
     DBID,prepID = getDBIDMaxPrepID(pseudo_prepid)    
     query_statement = (
                        """ SELECT AlignSeqFileLoc FROM seqdbClone WHERE"""
-                       """ CHGVID = {0} AND seqType = {1} AND """
-                       """ prepid = {2}""".format(
-                           sample_name,sample_type,prepid)
+                       """ CHGVID = '{0}' AND seqType = '{1}' AND """
+                       """ prepid = '{2}'""".format(
+                           sample_name,sample_type,prepID)
                       )
+    print query_statement
     tries = 5
     for i in range(tries):
         try:
             db = get_connection("seqdb")
             cur = db.cursor()
-            cur.execute(query_statement))
+            cur.execute(query_statement)
             db_val = cur.fetchall()
-            if len(db_val) = 0: ## If the query returned no results
+            if len(db_val) == 0: ## If the query returned no results
                 return None 
-            if len(db_val > 1):
-                warnings.warn("More than 1 entry , warning : 
-                duplicate prepids !")
+            if len(db_val) > 1:
+                warnings.warn("More than 1 entry , warning :" 
+                              "duplicate prepids !")
             alignseqfileloc = db_val[-1][0] ## Get the last result
             vcf_loc = os.path.join(alignseqfileloc,'combined')
-            vcf = glob.glob(os.path.join(vcf_loc,
+            temp_vcf = glob.glob(os.path.join(vcf_loc,
                                          '*analysisReady.annotated*'))
+            print temp_vcf
+            vcf = temp_vcf[0]
+            print vcf
+            if not os.path.isfile(vcf):
+                return None
             tabix_file = vcf+'.tbi'
             if not os.path.isfile(tabix_file):
                 ## Tabix index the production vcf
-                cmd = "tabix {0}".format(vcf)
+                cmd = "{0} {1}".format(config().tabix,vcf)
                 proc = subprocess.Popen(cmd,shell=True)
                 proc.wait()
                 if proc.returncode: ## Non zero return code
-                    raise subprocess.CalledProcessError(proc.returncode,
-                                                        cmd)
-        except MySQLdb.Error, e:
-            if i < tries - 1:
-                raise "ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1])
+                    print Exception(subprocess.CalledProcessError(
+                        proc.returncode,cmd))
+                    return None
+                    #raise subprocess.CalledProcessError(proc.returncode,
+                                                        #cmd)            
+        except MySQLdb.Error:
+            if i > tries - 1:
+                #raise Exception("ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1]))
+                raise Exception("ERROR IN mySQL connection !")
             else:
                 time.sleep(60) ## Wait a minute before trying again
                 continue 
@@ -2148,7 +2207,8 @@ class CreateGenomeBed(SGEJobTask):
 
     def __init__(self,*args,**kwargs):
         super(CreateGenomeBed,self).__init__(*args,**kwargs)
-        self.sample_dir = os.path.join(config().scratch,self.sample_name)
+        self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
+        self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name)
         self.output_dir = os.path.join(self.sample_dir,'cvg_binned')
         self.genomecov_bed = os.path.join(self.sample_dir,self.sample_name+'.genomecvg.bed')
         self.recal_bam = os.path.join(self.sample_dir,self.sample_name+'.realn.recal.bam')
@@ -2183,7 +2243,7 @@ class CreateGenomeBed(SGEJobTask):
         """
         
         run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
-                     [self.genomecov_cmd])
+                     [self.genomecov_cmd],self.sample_name,self.__class__.__name__)
 
 
 class CvgBinning(SGEJobTask):
@@ -2205,7 +2265,8 @@ class CvgBinning(SGEJobTask):
     def __init__(self,*args,**kwargs):
 
         super(CvgBinning,self).__init__(*args,**kwargs)
-        self.sample_dir = os.path.join(config().scratch,self.sample_name)
+        self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
+        self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name)
         self.output_dir = os.path.join(self.sample_dir,'cvg_binned')
         self.genomecov_bed = os.path.join(self.sample_dir,self.sample_name+'.genomecvg.bed')
         
@@ -2218,7 +2279,7 @@ class CvgBinning(SGEJobTask):
         self.human_chromosomes.extend(['X', 'Y','MT'])
 
         self.binning_cmd = "{0} {1} --sample_id {2} --block_size {3} --output_dir {4} {5} --mode coverage".format(
-            config().pypy_loc,config().binner_loc,self.sample_name,config().block_size,self.output_dir,
+            config().pypy,config().binner_loc,self.sample_name,config().block_size,self.output_dir,
             self.genomecov_bed)
         
         self.pipeline_step_id = get_pipeline_step_id(
@@ -2254,7 +2315,8 @@ class CvgBinning(SGEJobTask):
 
         self.remove_cmd = "rm {0}".format(self.genomecov_bed)
         run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
-                     [self.binning_cmd,self.remove_cmd])
+                     [self.binning_cmd,self.remove_cmd],self.sample_name,
+                     self.__class__.__name__)
         #os.system(self.binning_cmd)
         ## Delete the genomecvg bed file
         #os.system('rm {0}'.format(self.genomecov_bed))
@@ -2278,8 +2340,9 @@ class GQBinning(SGEJobTask):
     
     def __init__(self,*args,**kwargs):
 
-        super(GQBinning,self).__init__(*args,**kwargs)      
-        self.sample_dir = os.path.join(config().scratch,self.sample_name)
+        super(GQBinning,self).__init__(*args,**kwargs)
+        self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
+        self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name)
         self.output_dir = os.path.join(self.sample_dir,'gq_binned')
         self.gvcf = os.path.join(self.sample_dir,self.sample_name+'.g.vcf.gz') 
 
@@ -2292,7 +2355,7 @@ class GQBinning(SGEJobTask):
         self.human_chromosomes.extend(['X', 'Y','MT'])
                        
         self.binning_cmd = "{0} {1} --sample_id {2} --block_size {3} --output_dir {4} {5} --mode gq".format(
-            config().pypy_loc,config().binner_loc,self.sample_name,config().block_size,self.output_dir,
+            config().pypy,config().binner_loc,self.sample_name,config().block_size,self.output_dir,
             self.gvcf)
         self.pipeline_step_id = get_pipeline_step_id(
             self.__class__.__name__,"seqdb")
@@ -2323,7 +2386,7 @@ class GQBinning(SGEJobTask):
         """
         
         run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
-                     [self.binning_cmd])
+                     [self.binning_cmd],self.sample_name,self.__class__.__name__)
         #os.system(self.binning_cmd)
 
         
@@ -2344,7 +2407,8 @@ class AlignmentMetrics(SGEJobTask):
 
     def __init__(self,*args,**kwargs):
         super(AlignmentMetrics,self).__init__(*args,**kwargs)
-        self.sample_dir = os.path.join(config().scratch,self.sample_name)
+        self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
+        self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name)
         self.recal_bam = os.path.join(self.sample_dir,self.sample_name+'.realn.recal.bam')
         self.output_file_raw = os.path.join(self.sample_dir,self.sample_name+'.alignment.metrics.raw.txt')
         self.output_file = os.path.join(self.sample_dir,self.sample_name+'.alignment.metrics.txt')
@@ -2378,7 +2442,8 @@ class AlignmentMetrics(SGEJobTask):
         """
         self.remove_cmd = "rm {0}".format(self.output_file_raw)
         run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
-                     [self.cmd,self.parser_cmd,self.remove_cmd])
+                     [self.cmd,self.parser_cmd,self.remove_cmd],self.sample_name,
+                     self.__class__.__name__)
 
         
 class RunCvgMetrics(SGEJobTask):
@@ -2404,9 +2469,9 @@ class RunCvgMetrics(SGEJobTask):
 
         super(RunCvgMetrics,self).__init__(*args,**kwargs)
         ## Define on the fly parameters
-        self.sample_dir = os.path.join(config().scratch,self.sample_name)
+        self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
+        self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name)
         self.recal_bam = os.path.join(self.sample_dir,self.sample_name+'.realn.recal.bam') 
-
         self.output_file = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.txt")
         self.raw_output_file = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.raw.txt")
         self.output_file_ccds = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.ccds.txt")
@@ -2438,7 +2503,7 @@ class RunCvgMetrics(SGEJobTask):
             self.cvg_cmd2 = self.cvg_cmd.format(config().java,config().picard,config().bait_file,config().bait_file,self.recal_bam,self.raw_output_file,self.log_file)
             ## Run the Metrics cvg metrics on X and Y Chromosomes only, note using the bait regions not ccds
             self.cvg_cmd3 =self.cvg_cmd.format(config().java,config().picard,config().bait_file_X,config().bait_file_X,self.recal_bam,self.raw_output_file_X,self.log_file)
-            self.cvg_cmd4 = self.cvg_sex.format(config().java,config().picard,config().bait_file_Y,config().bait_file_Y,self.recal_bam,self.raw_output_file_Y,self.log_file)
+            self.cvg_cmd4 = self.cvg_cmd.format(config().java,config().picard,config().bait_file_Y,config().bait_file_Y,self.recal_bam,self.raw_output_file_Y,self.log_file)
 
 
         self.parser_cmd = """cat {0} | grep -v "^#" | awk -f {1} > {2}"""
@@ -2480,8 +2545,8 @@ class RunCvgMetrics(SGEJobTask):
         run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
                      [self.cvg_cmd1,self.parser_cmd1,self.cvg_cmd2,
                       self.parser_cmd2,self.cvg_cmd3,self.parser_cmd3,
-                      self.cvg_cmd4,self.parser_cmd4,self.remove_cmd])
-
+                      self.cvg_cmd4,self.parser_cmd4,self.remove_cmd],
+                     self.sample_name,self.__class__.__name__)
        
 class DuplicateMetrics(SGEJobTask):
     """
@@ -2499,8 +2564,10 @@ class DuplicateMetrics(SGEJobTask):
     
     def __init__(self,*args,**kwargs):
         super(DuplicateMetrics,self).__init__(*args,**kwargs)
-        self.sample_dir = os.path.join(config().base_directory,self.sample_name)
-        self.sample_dir_seqscratch = os.path.join(config().scratch,self.sample_name)
+        self.seqtype_dir_seqscratch = os.path.join(config().scratch,self.sample_type.upper())
+        self.sample_dir_seqscratch = os.path.join(self.seqtype_dir_seqscratch,self.sample_name)
+        self.seqtype_dir = os.path.join(config().base_dir,self.sample_type.upper())
+        self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name)
         self.log_dir = os.path.join(self.sample_dir,'logs')
         self.dragen_log = os.path.join(self.log_dir,self.sample_name+'.dragen.log')
         self.output_file = os.path.join(self.sample_dir_seqscratch,self.sample_name+'.duplicates.txt')
@@ -2538,11 +2605,12 @@ class DuplicateMetrics(SGEJobTask):
                     pseudo_prepid=self.pseudo_prepid,
                     pipeline_step_id=self.pipeline_step_id))
 
-                proc=subprocess.Popen(self.cmd,shell=True,stdout=dragen_output)
+                proc=subprocess.Popen(self.cmd,shell=True,stdout=subprocess.PIPE)
                 proc.wait()
                 if proc.returncode: ## Non zero return code
                     raise subprocess.CalledProcessError(proc.returncode,self.cmd)
-                               
+
+                dragen_output = proc.stdout.read()
                 match = re.match(catch_dup,dragen_output)
                 if match:
                     perc_duplicates = match.group(1)
@@ -2550,21 +2618,24 @@ class DuplicateMetrics(SGEJobTask):
                         print >> OUT_HANDLE,perc_duplicates
 
                 else: 
-                    raise Exception("Could not find duplicate metrics in dragen log!") 
+                    raise Exception("Could not find duplicate metrics in dragen log!")
+                update_dragen_status(self.pseudo_prepid,self.sample_name,
+                                     self.__class__.__name__,cur)
                 cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                     pseudo_prepid=self.pseudo_prepid,
                     pipeline_step_id=self.pipeline_step_id))
+                
                 db.commit()
                 
             except MySQLdb.Error, e:
                 if i < tries - 1:
-                    raise "ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1])
+                    raise Exception("ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1]))
                 else:
                     time.sleep(60) ## Wait a minute before trying again
                     continue 
-                finally:
-                    if db.open:
-                        db.close()
+            finally:
+                if db.open:
+                    db.close()
 
 class VariantCallingMetrics(SGEJobTask):
     """
@@ -2583,16 +2654,17 @@ class VariantCallingMetrics(SGEJobTask):
     def __init__(self,*args,**kwargs):
         super(VariantCallingMetrics,self).__init__(*args,**kwargs)
         #self.output = os.path.join(config().scratch,self.sample_name)
-        self.sample_dir = os.path.join(config().scratch,self.sample_name)
+        self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
+        self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name)
         self.output_file_raw = os.path.join(self.sample_dir,self.sample_name+'.raw')
         self.output_file_raw1 = os.path.join(self.sample_dir,self.sample_name+".raw.variant_calling_summary_metrics")
         self.output_file_raw2 = os.path.join(self.sample_dir,self.sample_name+".raw.variant_calling_detail_metrics")
+        self.annotated_vcf_gz = os.path.join(self.sample_dir,"{0}.analysisReady.annotated.vcf.gz".format(self.sample_name))
         self.output_file = os.path.join(self.sample_dir,"{0}.variant_calling_summary_metrics".format(self.sample_name))
-        self.annotated_vcf_gz = "{scratch}/{sample_name}/{sample_name}.analysisReady.annotated.vcf.gz".format(scratch=config().scratch, sample_name=self.sample_name)
         self.log_dir = os.path.join(self.sample_dir,'logs')
         self.log_file = os.path.join(self.log_dir,self.sample_name+'.variantcalling.metrics.log')
 
-        self.cmd = "{0} -XX:ParallelGCThreads=4 -jar {1} CollectVariantCallingMetrics INPUT={2} OUTPUT={3} DBSNP={4} &> {5}".format(config().java,config().picard,self.annotated_vcf_gz,self.output_file_raw,config().dbsnp,self.log_file)
+        self.cmd = "{0} -XX:ParallelGCThreads=4 -jar {1} CollectVariantCallingMetrics INPUT={2} OUTPUT={3} DBSNP={4} &> {5}".format(config().java,config().picard,self.annotated_vcf_gz,self.output_file_raw,config().dbSNP,self.log_file)
         self.parser_cmd = """cat {0} | grep -v "^#" | awk -f {1}  > {2}""".format(self.output_file_raw1,config().transpose_awk,self.output_file)
         self.pipeline_step_id = get_pipeline_step_id(
             self.__class__.__name__,"seqdb")
@@ -2624,13 +2696,8 @@ class VariantCallingMetrics(SGEJobTask):
         
         run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
                      [self.cmd,self.parser_cmd,self.remove_cmd1,
-                      self.remove_cmd2])
+                      self.remove_cmd2],self.sample_name,self.__class__.__name__)
         
-        #os.system(self.cmd)
-        #os.system(self.parser_cmd)
-        ## Remove raw files
-        #os.system('rm {0}'.format(self.output_file_raw1))
-        #os.system('rm {0}'.format(self.output_file_raw2))
         
 class GenotypeConcordance(SGEJobTask):
     """
@@ -2650,22 +2717,22 @@ class GenotypeConcordance(SGEJobTask):
     def __init__(self,*args,**kwargs):
         super(GenotypeConcordance,self).__init__(*args,**kwargs)
         #self.output = os.path.join(config().scratch,self.sample_name)
-        self.sample_dir = os.path.join(config().base_directory,self.sample_name)
+        self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
+        self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name)
         self.output_file = os.path.join(self.sample_dir,
                                         "{0}.genotype_concordance_metrics"
                                         .format(self.sample_name))
-        self.annotated_vcf_gz = "{scratch}/{sample_name}/{sample_name}
-        .analysisReady.annotated.vcf.gz".format(
-            scratch=config().scratch, sample_name=self.sample_name)
+        self.annotated_vcf_gz = os.path.join(self.sample_dir,"{0}.analysisReady.annotated.vcf.gz".format(self.sample_name))
+
         self.log_dir = os.path.join(self.sample_dir,'logs')
         self.log_file = os.path.join(self.log_dir,
                                      self.sample_name+
                                      '.genotypeconcoradance.metrics.log')
         self.truth_vcf = 'truth.vcf' ## The final subsetted truth vcf
         self.eval_vcf = 'eval.vcf' ## The final subsetted eval vcf 
-        self.concordance_cmd = "{0} -XX:ParallelGCThreads=4 -jar {1} -T 
-        GenotypeConcordance -R {2} -eval {3} -comp {4} -o {5} 
-        -U ALLOW_SEQ_DICT_INCOMPATIBILITY &> {6}".format(
+        self.concordance_cmd = "{0} -XX:ParallelGCThreads=4 -jar {1} -T "
+        "GenotypeConcordance -R {2} -eval {3} -comp {4} -o {5} " 
+        "-U ALLOW_SEQ_DICT_INCOMPATIBILITY &> {6}".format(
             config().java,config().gatk,config().ref,self.eval_vcf,
             self.truth_vcf,self.output_file,self.log_file)
         self.pipeline_step_id = get_pipeline_step_id(
@@ -2709,8 +2776,8 @@ class GenotypeConcordance(SGEJobTask):
                 if production_vcf == None:
                     ## Note this should not happen since the task is only
                     ## yielded upstream if the return is valid
-                    raise Exception("Production vcf missing,bug in dependency 
-                          resolution cannot run genotype concordance!!")
+                    raise Exception("Production vcf missing,bug in dependency"
+                          "resolution cannot run genotype concordance!!")
                 
                 subset_vcf(production_vcf,self.annotated_vcf_gz)
                 proc = subprocess.Popen(self.concordance_cmd,shell=True)
@@ -2719,19 +2786,21 @@ class GenotypeConcordance(SGEJobTask):
                     raise subprocess.CalledProcessError(proc.returncode,
                                                             cmd)
                 remove_cmd = "rm temp.vcf {0} {1}"
+                update_dragen_status(pseudo_prepid,self.sample_name,
+                                     self.__class__.__name__,cur)
                 cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                     pseudo_prepid=self.pseudo_prepid,
                     pipeline_step_id=self.pipeline_step_id))
                 db.commit()                
             except MySQLdb.Error, e:
                 if i < tries - 1:
-                    raise "ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1])
+                    raise Exception("ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1]))
                 else:
                     time.sleep(60) ## Wait a minute before trying again
                     continue 
-                finally:
-                    if db.open:
-                        db.close()
+            finally:
+                if db.open:
+                    db.close()
     
     def subset_vcf(self,vcfs):
         """ 
@@ -2747,7 +2816,7 @@ class GenotypeConcordance(SGEJobTask):
         out_vcf = [self.truth_vcf,self.eval_vcf]
         i=0
         for vcf in vcfs:
-            cmd = tabix_cmd.format(config().tabix,vcf,config().bait_bed_file
+            cmd = tabix_cmd.format(config().tabix,vcf,config().bait_bed_file,
                                    'temp.vcf',self.log_file)
             proc = subprocess.Popen(cmd,shell=True)
             proc.wait()
@@ -2760,45 +2829,11 @@ class GenotypeConcordance(SGEJobTask):
                 raise subprocess.CalledProcessError(proc.returncode,cmd)
             i+=1
             
-            
-class CheckUpdates(luigi.Target):
+class ContaminationCheck(SGEJobTask):
     """
-    Checks whether the database entry was updated
-    correctly
+    Run VerifyBamID to check for sample contamination
     """
 
-    def __init__(self,*args,**kwargs):
-        super(CheckUpdates,self).__init__(*args,**kwargs)
-        cnf_file = kwargs['cnf_file']
-        value = kwargs['value']
-        db_field = kwargs['db_field']
-        seq_type = kwargs['seq_type']
-        prep_id = kwargs['prep_id']
-        chgvid = kwargs['chgvid']
-        testmode = kwargs['testmode']
-               
-        if self.testmode:
-            db = MySQLdb.connect(read_default_group='clienttestdb',db='sequenceDB',read_default_file=self.cnf_file)
-            db_cursor = db.cursor()
-            
-        query_statement = """ SELECT {0} FROM seqdbClone WHERE CHGVID = '{1}' AND seq_type = '{2}' AND prepid = {3} """.format(self.db_field,self.chgvid,self.seq_type,self.prep_id)
-        db_cursor.execute(query_statement)
-        self.db_val = db_cursor.fetchall()
-        
-         
-    def exists(self):
-        if len(db_val > 1):
-            warnings.warn( "More than 1 entry , warning : duplicate prepids !")
-        if self.value == self.db_val[0][-1]:
-            return True
-        else:
-            return False
-"""
-class CheckQC(SGEJobTask):
-    """
-    Check qc metrics before updating seqdb
-    """
-    
     sample_name = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
@@ -2806,23 +2841,60 @@ class CheckQC(SGEJobTask):
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/home/rp2801/git"    
+    shared_tmp_dir = "/home/rp2801/git"
 
     def __init__(self,*args,**kwargs):
-        super(CheckQC,self).__init__(*args,**kwargs)
+        super(ContaminationCheck,self).__init__(*args,**kwargs)
+        #self.output = os.path.join(config().scratch,self.sample_name)
+        self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
+        self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name)
+        self.output_stem = os.path.join(self.sample_dir,
+                                        "{0}.contamination.raw"
+                                        .format(self.sample_name))
+        self.output_file = os.path.join(self.sample_dir,
+                                        "{0}.contamination.selfSM"
+                                        .format(self.sample_name))
+        self.annotated_vcf_gz = os.path.join(self.sample_dir,"{0}.analysisReady.annotated.vcf.gz".format(self.sample_name))
+
+        self.log_dir = os.path.join(self.sample_dir,'logs')
+        self.log_file = os.path.join(self.log_dir,
+                                     self.sample_name+
+                                     '.samplecontamination.log')
+        self.recal_bam = os.path.join(self.sample_dir,self.sample_name+'.realn.recal.bam') 
+        self.cmd = "{0} --vcf {1} --bam {2} --out {3} --verbose -ignoreRG &> {4}".format(
+            config().verifybamid,self.annotated_vcf_gz,self.recal_bam,self.output_stem,self.log_file)
+        self.parser_cmd = "awk -f {0} {1}.selfSM > {2}".format(config().transpose_awk,self.output_stem,self.output_file)
+        self.remove_cmd = "rm {0}*".format(self.output_stem)
         
-        self.query_statement = """ UPDATE seqdbClone SET {0} = {1} WHERE CHGVID = {2} AND seqType = {3} AND prepid = {4}"""
-        
-        self.out_hash = {}
-        with open(self.output_file,'w') as OUT:
-            for line in OUT:
-                line = line.strip('\n')
-                contents = line.split(' ')
-                self.out_hash[contents[0]] = contents[1]
         self.pipeline_step_id = get_pipeline_step_id(
             self.__class__.__name__,"seqdb")
-"""
+        
+    def requires(self):
+        """
+        The requirement for this task is the presence of the analysis ready 
+        vcf file from the GATK pipeline
+        """
     
+        return self.clone(AnnotateVCF)
+
+    def output(self):
+        """
+        The result from this task is the creation of the metrics file
+        """
+        
+        #return luigi.LocalTarget(self.output_file)
+        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
+                         pipeline_step_id=self.pipeline_step_id)
+    
+    def work(self):
+        """
+        Run this task
+        """
+        run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
+                     [self.cmd,self.parser_cmd,self.remove_cmd],
+                     self.sample_name,self.__class__.__name__)
+
+
 class UpdateSeqdbMetrics(SGEJobTask):
     """
     Populate database with output files
@@ -2839,15 +2911,29 @@ class UpdateSeqdbMetrics(SGEJobTask):
        
     def __init__(self,*args,**kwargs):
         super(UpdateSeqdbMetrics,self).__init__(*args,**kwargs)
+        ## Sample specific directories
+        self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
+        self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name)
+        self.log_dir = os.path.join(self.sample_dir,'logs')
+        self.log_file = os.path.join(self.log_dir,
+                                     self.sample_name+
+                                     '.updateseqdb.log')
+        ## Generic query to be used for updates 
+        self.update_statement = """ UPDATE seqdbClone SET {0} = '{1}' WHERE CHGVID = '{2}' AND seqType = '{3}' AND prepid = '{4}'"""
+        ## The output files from the tasks run 
+        self.alignment_out = os.path.join(self.sample_dir,self.sample_name+'.alignment.metrics.txt')
+        self.cvg_out = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.txt")
+        self.cvg_ccds_out = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.ccds.txt")
+        self.cvg_X_out = os.path.join(self.sample_dir,self.sample_name+ ".cvg.metrics.X.txt")
+        self.cvg_Y_out = os.path.join(self.sample_dir,self.sample_name+ ".cvg.metrics.Y.txt")
+        self.dup_out = os.path.join(self.sample_dir,self.sample_name+'.duplicates.txt')
+        self.variant_call_out = os.path.join(self.sample_dir,"{0}.variant_calling_summary_metrics".format(self.sample_name))
+        self.geno_concordance_out = os.path.join(self.sample_dir,"{0}.genotype_concordance_metrics".format(self.sample_name))
+        self.contamination_out = os.path.join(self.sample_dir,"{0}.contamination.selfSM".format(self.sample_name))
+        ## The metrics to parse out, listed are the fields in the output file
         
-        self.query_statement = """ UPDATE seqdbClone SET {0} = {1} WHERE CHGVID = {2} AND seqType = {3} AND prepid = {4}"""
-        
-        self.out_hash = {}
-        with open(self.output_file,'w') as OUT:
-            for line in OUT:
-                line = line.strip('\n')
-                contents = line.split(' ')
-                self.out_hash[contents[0]] = contents[1]
+        self.DBID,self.prepID = getDBIDMaxPrepID(self.pseudo_prepid)        
+        ## Get the id for this pipeline step
         self.pipeline_step_id = get_pipeline_step_id(
             self.__class__.__name__,"seqdb")
 
@@ -2858,21 +2944,16 @@ class UpdateSeqdbMetrics(SGEJobTask):
         be present
         """
 
-        return [MyExtTask(self.output_file)]
+        yield self.clone(AlignmentMetrics)
+        yield self.clone(RunCvgMetrics)
+        yield self.clone(DuplicateMetrics)
+        yield self.clone(VariantCallingMetrics)
+        yield self.clone(ContaminationCheck)
+        if get_productionvcf(self.pseudo_prepid,self.sample_name,self.sample_type) == None:
+            yield self.clone(GenotypeConcordance)
     
     def output(self):
         """
-        The output from this task
-        """
-
-        """
-        check_args = {'cnf_file':self.cnf_file,'seq_type':self.seq_type,
-                      'prep_id':self.prep_id,'chgvid':self.chgvid,
-                      'testmode':self.testmode}
-        for key in self.fields.keys():
-            check_args['db_field'] = self.fields[key]
-            check_args['value'] = self.out_hash[key]
-            return CheckUpdates(check_args)
         """
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
                          pipeline_step_id=self.pipeline_step_id)
@@ -2881,11 +2962,400 @@ class UpdateSeqdbMetrics(SGEJobTask):
         """
         Run this task
         """
+        
+        tries = 5
+        for i in range(tries):
+            try:
+                ## Get db connection and cursor
+                db = get_connection("seqdb")
+                cur = db.cursor()
+                ## Update pipeline start time
+                cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
+                    pseudo_prepid=self.pseudo_prepid,
+                    pipeline_step_id=self.pipeline_step_id))
+                
+                self.update_alignment_metrics()
+                self.update_coverage_metrics('bait')
+                self.update_coverage_metrics('target')
+                self.update_coverage_metrics('X')
+                self.update_coverage_metrics('Y')
+                self.update_duplicates()
+                self.update_variantcalling_metrics()
+                self.update_genotype_concordance_metrics()
+                self.update_contamination_metrics()
 
-        for key in self.fields.keys():
-            value = self.out_hash[field]
-            db_field = self.fields[key]
-            self.db_cursor.execute(self.query_statement.format(db_field,value,self.chgvid,self.seqtype,self.prepid))
-            self.db.commit()
+                ## Update dragen_status
+                update_dragen_status(self.pseudo_prepid,self.sample_name,
+                                     self.__class__.__name__,cur)
+
+                ## Update pipeline finish time
+                cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
+                    pseudo_prepid=self.pseudo_prepid,
+                    pipeline_step_id=self.pipeline_step_id))
+                
+            except MySQLdb.Error, e:
+                if i < tries - 1:
+                    raise Exception("ERROR %d IN CONNECTION: %s" %(e.args[0],e.args[1]))
+                else:
+                    time.sleep(60)
+                    continue
+            finally:
+                if db.open:
+                    db.close()
+                    
+    def check_qc(self):
+        """
+        Check if all the metrics meet the thresholds,will call individual
+        functions for checking the appropriate metric
+        
+        Args : Nothing
+
+        Returns : Boolean ; True/False
+        """
+
+        if (check_alignment() and check_duplicates() and check_variantcalling()):
+            return True
+        else:
+            return False
+
+    def update_qc_message(self):
+        """
+        Update qc message in statusT based on qc check, will call the check_qc 
+        function to perform the check
+        """
+
+        if check_qc():
+            return "QC Passed"
+        else:
+            return "QC Failed"
+        
+    def updatedatabase(self,db_field,val):
+        """
+        Function to update qc fields in seqdbClone
+        Will raise an exception if there was a connection
+        error 
+        
+        Args : db_field ; String ; The database field to update
+               val ; String ; The value to update with
+
+        Return : Does not return anything
+        """
+        
+        tries = 5
+        for i in range(tries):
+            try:
+                db = get_connection("seqdb")
+                cur = db.cursor()
+                cur.execute(update_statement.format(db_field,val,self.sample_name,self.sample_type,self.prepID))
+                db.commit()
+            except MySQLdb.Error, e:
+                if i < tries - 1:
+                    raise "ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1])
+                else:
+                    time.sleep(60) ## Wait a minute before trying again
+                    continue 
+            finally:
+                if db.open:
+                    db.close()
+
+    def get_metrics(self,query):
+        """
+        Queries seqdbClone and returns the result, will always return a tuple 
+        since we do not know apriori how many how many fields are being needed
+
+        Args : query ; String ; The query to be executed
+        Returns : tuple ; The result from the query 
+        """
+        
+        tries = 5
+        for i in range(tries):
+            try:
+                db = get_connection("seqdb")
+                cur = db.cursor()
+                cur.execute(update_statement.format(db_field,val,self.sample_name,self.sample_type,self.prepID))
+                db_val = cur.fetchall()
+                return db_val 
+            except MySQLdb.Error, e:
+                if i < tries - 1:
+                    raise "ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1])
+                else:
+                    time.sleep(60) ## Wait a minute before trying again
+                    continue 
+            finally:
+                if db.open:
+                    db.close()           
+        
+    def update_alignment_metrics(self):
+        """
+        Function to update the Alignment Metrics
+        Makes a call to the generic updatedatabase function with the 
+        appropriate database field and value to update with
+
+        Args : None
+        Returns : Does not return anything
+        """
+        
+        self.alignment_parse = {'TOTAL_READS':qcmetrics().total_reads,'PCT_PF_READS_ALIGNED':qcmetrics().pct_reads_aligned,'PF_MISMATCH_RATE':qcmetrics().pct_mismatch_rate}
+
+        with open(self.alignment_metrics_out) as OUTFILE:
+            for line in OUTFILE:
+                field,val = line.strip('\n').split(' ')
+                if field in self.alignment_parse.keys():
+                    db_field = self.alignment_parse[field]
+                    self.updatedatabase(field,val)
+
+    def update_coverage_metrics(self,file_type):
+        """
+        Function to update the Coverage Metrics
+        Makes a call to the generic updatedatabase function with the 
+        appropriate database field and value to update with
+
+        Args : file_type ; String ; Can be one of the following : ['bait','target','X','Y']
+        Returns : Does not return anything
+        """
+        
+        self.cvg_bait_parse =  {'PCT_SELECTED_BASES':qcmetrics().capture_specificity,'MEAN_BAIT_COVERAGE':qcmetrics().mean_cvg,'PCT_TARGET_BASES_5X':qcmetrics().pct_bases5X,'PCT_TARGET_BASES10X':qcmetrics().pct_bases10X,'PCT_TARGET_BASES15X':qcmetrics().pct_bases15X,'PCT_TARGET_BASES20X':qcmetrics().pct_bases20X}
+        self.cvg_ccds_parse = {'MEAN_TARGET_COVERAGE':qcmetrics().mean_ccds_cvg,'PCT_TARGET_BASES5X':qcmetrics().pct_ccds_bases5X,'PCT_TARGET_BASES10X':qcmetrics().pct_ccds_bases_10X,'PCT_TARGET_BASES15X':qcmetrics().pct_ccds_bases15X,'PCT_TARGET_BASES20X':qcmetrics().pct_ccds_bases20X}
+        self.cvg_X_parse = {'MEAN_TARGET_COVERAGE':qcmetrics().mean_X_cvg}
+        self.cvg_Y_parse = {'MEAN_TARGET_COVERAGE':qcmetrics().mean_Y_cvg}
+        self.cvg_wgs_parse = {'MEAN_COVERAGE','MEDIAN_COVERAGE','PCT_5X','PCT_10X','PCT_15X','PCT_20X'}
+        
+        if file_type == 'all':
+            metrics_file = self.cvg_out
+            metrics_hash = self.cvg_bait_parse
+        elif file_type == 'ccds':
+            metrics_file == self.cvg_ccds_out
+            metrics_hash = self.cvg_ccds_parse
+        elif file_type == 'X':
+            metrics_file = self.cvg_X_out
+            metrics_hash = self.cvg_X_parse
+        elif file_type == 'Y':
+            metrics_file = self.cvg_Y_out
+            metrics_hash = self.cvg_Y_parse
+
+        else:
+            with open(self.log_file,'a') as LOG:
+                print >> LOG,"Wrong output type specified for coverage metrics output file, cannot update seqdb !"
+
+        if self.sample_type.upper() == 'GENOME':
+            metrics_hash = self.cvg_wgs_parse
+        
             
-        self.db.close()
+        with open(metrics_file) as OUTFILE:
+            for line in OUTFILE:
+                field,val = line.strip('\n').split(' ')[0:2]
+
+    def update_duplicates(self):
+        """ 
+        Function to update the Variant Calling Metrics
+        Makes a call to the generic updatedatabase function with the 
+        appropriate database field and value to update with
+
+        Args : None
+        Returns : Does not return anything
+        """
+
+        with open(self.dup_out,'r') as OUTFILE:
+            for line in OUTFILE:
+                line = line.strip('\n')
+                self.updatedatabase(qcmetrics().pct_duplicate_reads,line)
+                
+                  
+    def update_variantcalling_metrics(self):
+        """
+        Function to update the Variant Calling Metrics
+        Makes a call to the generic updatedatabase function with the 
+        appropriate database field and value to update with
+
+        Args : None
+        Returns : Does not return anything
+        """
+        
+        ## Need to calculate overall titv since that is not available in the output file
+        self.variant_call_parse = {'TOTAL_SNPS':qcmetrics().total_snps,'PCT_DBSNP':qcmetrics().pct_dbsnp_snps,'TOTAL_INDELS':qcmetrics().total_indels,'PCT_DBSNP_INDELS':qcmetrics().pct_dbsnp_indels}
+        temp_hash = {}
+        flag = 0 
+        with open(self.variant_call_out,'r') as OUTFILE:
+            for line in OUTFILE:
+                field,val = line.strip('\n').split(' ')
+                if field in self.variant_call_parse.keys():
+                    db_field = self.variant_call_parse[field]
+                    self.updatedatabase(field,val)
+                temp_hash[field] = val
+
+            titv = (((int(temp_hash['NOVEL_SNPS'])*float(temp_hash['NOVEL_TITV']) + (int(temp_hash['NUM_IN_DB_SNP'])*float(temp_hash['DBSNP_TITV']))))/int(TOTAL_SNPS))
+            self.updatedatabase(qcmetrics().titv,titv)
+
+    def update_genotypeconcordance_metrics(self):
+        """
+        Function to update the Genotype Concordance Metrics
+        Makes a call to the generic updatedatabase function with the 
+        appropriate database field and value to update with
+
+        Args : None
+        Returns : Does not return anything
+        """
+
+        #geno_concordance_parse = {}
+        with open(self.genotype_concordance_out) as OUTFILE:
+            for line in OUTFILE:
+                field,val = line.strip('\n').split(' ')
+                db_field = self.geno_concordance_parse[field]
+                self.updatedatabase(db_field,val)
+                    
+    def update_contamination_metrics(self):
+        """
+        Function to update the Contamination Metrics
+        Makes a call to the generic updatedatabase function with the 
+        appropriate database field and value to update with
+
+        Args : None
+        Returns : Does not return anything
+        """
+
+        with open(self.contamination_out) as OUTFILE:
+            for line in OUTFILE:
+                field,val = line.strip('\n').split(' ')
+                if field == 'FREEMIX':
+                    db_field = qcmetrics().contamination_value
+                    self.updatedatabase(db_field,val)
+                    ## No need to loop further
+                    break
+        
+    def check_alignment(self):
+        """
+        Checks if the alignment metrics matches the appropriate thresholds
+        Currently using only the perc_reads_aligned, will use the get_metrics
+        function to get the requisitve metric(s) required. 
+
+        Args : Nothing
+        Returns : Bool; True/False
+        """
+
+        query = "SELECT {0} FROM seqdbClone WHERE CHGVID = {1} seqType = {2} AND prepid = {3}".format(qcmetrics().perc_reads_aligned,self.sample_name,self.sample_type,self.prepID)
+        result = get_metrics(query)
+        perc_reads_aligned = float(result[0][0])
+        return (perc_reads_aligned >= 0.70)
+        
+
+    def check_coverage(self):
+        """
+        Checks if the coverage metrics matches the appropriate thresholds
+        Currently using {}, will use the get_metrics
+        function to get the requisitve metric(s) required. 
+
+        Args : Nothing
+        Returns : Bool; True/False
+        """
+        
+        return True
+    
+    def check_duplicates(self):
+        """
+        Checks if the duplicate metrics matches the appropriate thresholds
+        Currently using only the perc_duplicate_reads, will use the get_metrics
+        function to get the requisitve metric(s) required. 
+
+        Args : Nothing
+        Returns : Bool; True/False
+        """
+        
+        query = "SELECT {0} FROM seqdbClone WHERE CHGVID = {1} seqType = {2} AND prepid = {3}".format(qcmetrics().perc_duplicate_reads,self.sample_name,self.sample_type,self.prepID)
+        result = get_metrics(query)
+        perc_duplicate_reads = float(result[0][0])
+        if self.sample_type.upper() == 'GENOME':
+            return (perc_duplicate_reads <= 0.20)
+
+        else:
+            return (perc_duplicate_reads <= 0.30)
+        
+    def check_gender(self):
+        """
+        Calculates the X/Y coverage for Exomes and Genomes and returns the seq gender
+        based on existing rules : https://redmine.igm.cumc.columbia.edu/projects/biopipeline/wiki/Gender_checks
+        For custom capture regions the rules are more complicated. 
+
+        Args : Nothing
+        Returns : String; One of the following values : [Male,Female,Ambiguous]
+        """
+
+        if self.sample_type.upper() in ['EXOME','GENOME']:
+            query = "SELECT {0} FROM seqdbClone WHERE CHGVID = {1} seqType = {2} AND prepid = {3}"
+            result = get_metrics(query.format(qcmetrics().mean_X_cvg,self.sample_name,self.sample_type,self.prepID))
+            X_cvg = float(result[0][0])
+            result = get_metrics(query.format(qcmetrics().mean_Y_cvg,self.sample_name,self.sample_type,self.prepID))
+            Y_cvg = float(result[0][0])
+            if X_cvg/Y_cvg < 2:
+                return 'Male'
+            elif X_cvg/Y_cvg > 5:
+                return 'Female'
+            else:
+                return 'Ambiguous'
+            
+        else : ## Custom Capture Samples
+            het = self.get_het_count()
+            hom = self.get_hom_count()
+            if het == 0:
+                return 'Male'
+            elif hom == 0:
+                return 'Female'
+            elif het/hom < 0.26:
+                return 'Male'
+            elif het/hom > 0.58:
+                return 'Female'
+            else:
+                return 'Ambiguous'
+
+    def check_variantcalling(self):
+        """
+        Checks if the concordance metrics matches the appropriate thresholds
+        Currently using only the , will use the get_metrics
+        function to get the requisitve metric(s) required. 
+
+        Args : Nothing
+        Returns : Bool; True/False
+        """
+
+        return True
+    
+    def check_concordance(self):
+        """
+        Checks if the concordance metrics matches the appropriate thresholds
+        Currently using only the , will use the get_metrics
+        function to get the requisitve metric(s) required. 
+
+        Args : Nothing
+        Returns : Bool; True/False
+        """
+
+        return True
+
+    def check_contamination():
+        """
+        Checks if the contamination metrics matches the appropriate thresholds
+        Currently using only the , will use the get_metrics
+        function to get the requisitve metric(s) required. 
+
+        Args : Nothing
+        Returns : Bool; True/False
+        """
+        
+        return True
+    
+    def get_hom_count():
+        """
+        Returns number of homozygous sites in the vcf
+        matching certain conditions
+        Use JEXL : https://software.broadinstitute.org/gatk/guide/article?id=1255
+        """
+        return None
+    
+    def get_het_count():
+        """
+        Returns number of heterozygous sites in the vcf
+        matching certain conditions
+        Use JEXL : https://software.broadinstitute.org/gatk/guide/article?id=1255
+        """
+
+        return None
+    
