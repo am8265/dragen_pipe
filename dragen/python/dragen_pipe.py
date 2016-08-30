@@ -140,12 +140,7 @@ def set_seqtime(curs,sample):
 def single_sample_setup(curs,sample,parameters,gvcf,debug):
 
     setup_dir(curs,sample,debug)
-
     create_align_config(sample)
-    #create_config(sample,gvcf)
-    #create_gvcf_config(sample)
-    #create_joint_call_config(sample)
-    #create_post_dragen_shell(sample,parsed_CNF)
 
 def setup_dir(curs,sample,debug):
     mkdir_cmd = ['mkdir','-p',sample.metadata['script_dir']]

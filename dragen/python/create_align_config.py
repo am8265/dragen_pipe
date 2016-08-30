@@ -34,7 +34,7 @@ enable-auto-multifile = true
 # OUTPUT
 #================================================================================
 
-output-file-prefix = {sample_name}
+output-file-prefix = {sample_name}.{pseudo_prepid}
 output-format = BAM
 output-directory = {output_dir}
 

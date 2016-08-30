@@ -26,4 +26,4 @@ def get_connection(db):
         raise ValueError("specified database group is invalid")
 
 def get_cfg():
-        return cfg
+    return cfg
