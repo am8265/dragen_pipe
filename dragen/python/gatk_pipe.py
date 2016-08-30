@@ -42,6 +42,18 @@ def getUserID():
             db.close()
     return userid[0]
 
+def getCaptureKitBed(pseudo_prepid):
+    db = get_connection("seqdb")
+    try:
+        cur = db.cursor()
+        cur.execute(GET_CAPTURE_KIT_BED.format(
+            pseudo_prepid=pseudo_prepid))
+        userid = cur.fetchone()
+    finally:
+        if db.open:
+            db.close()
+    return capture_kit_bed
+
 class config(luigi.Config):
     """config class for instantiating parameters for this pipeline
     the values are read from luigi.cfg in the current folder"""
@@ -203,7 +215,6 @@ class RealignerTargetCreator(SGEJobTask):
 
     def work(self):
         db = get_connection("seqdb")
-        print config()
         cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk} "
             "-R {ref} "

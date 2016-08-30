@@ -46,3 +46,10 @@ GET_USERID = """
 SELECT userid
 FROM users WHERE netID = "{userName}"
 """
+GET_CAPTURE_KIT_BED = """
+SELECT chgvid,region_file_lsrc
+FROM captureKit ck
+JOIN prepT p ON ck.prepT_name=p.exomekit
+JOIN pseudo_prepid pp ON p.prepid=pp.prepid
+WHERE chr="all" and pseudo_prepid={pseudo_prepid}
+"""
