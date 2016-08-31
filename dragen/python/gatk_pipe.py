@@ -68,7 +68,6 @@ class config(luigi.Config):
     #programs
     bedtools = luigi.Parameter()
     bgzip = luigi.Parameter()
-    coverage_binner_loc = luigi.Parameter()
     gatk = luigi.Parameter()
     java = luigi.Parameter()
     picard = luigi.Parameter()
@@ -85,7 +84,6 @@ class config(luigi.Config):
     relatedness_markers = luigi.Parameter()
     relatedness_refs = luigi.Parameter()
     binner_loc = luigi.Parameter()
-    sampleped_loc = luigi.Parameter()
     snpEff_cfg = luigi.Parameter()
     snpEff_interval = luigi.Parameter()
     target_file = luigi.Parameter()
@@ -153,7 +151,6 @@ class qcmetrics(luigi.Config):
     het_hom_X_ratio = luigi.Parameter()
     contamination_value = luigi.Parameter()
 
-    
 class CopyBam(SGEJobTask):
     """class for copying dragen aligned bam to a scratch location"""
     sample_name = luigi.Parameter()
@@ -224,7 +221,6 @@ class CopyBam(SGEJobTask):
         finally:
             if db.open:
                 db.close()
-
 
     def output(self):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
@@ -321,7 +317,6 @@ class RealignerTargetCreator(SGEJobTask):
     def output(self):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
             pipeline_step_id=self.pipeline_step_id)
-
 
 class IndelRealigner(SGEJobTask):
     """class to create BAM with realigned BAMs"""
@@ -2230,8 +2225,7 @@ class CreateGenomeBed(SGEJobTask):
     def work(self):
         """
         Run the bedtools cmd
-        """
-        
+        """       
         run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
                      [self.genomecov_cmd],self.sample_name,self.__class__.__name__)
 
@@ -2467,16 +2461,16 @@ class RunCvgMetrics(SGEJobTask):
         ## Define shell commands to be run
         if self.sample_type.upper() == 'GENOME': ## If it is a genome sample
             ## Run on the ccds regions only  
-            self.cvg_cmd = """{0} -Xmx{1}g -XX:ParallelGCThreads=4 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={3} I={4} INTERVALS={5} O={6}MQ=20 Q=10 &> {6}"""
+            self.cvg_cmd = """{0} -Xmx{1}g -XX:ParallelGCThreads=4 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={3} I={4} INTERVALS={5} O={6}MQ=20 Q=10 2>>{6}"""
             self.cvg_cmd1 = self.cvg_cmd.format(config().java,config().max_mem,config().picard,config().ref,self.recal_bam,config().target_file,self.raw_output_file_ccds,self.log_file)
             ## Run across the genome 
-            self.cvg_cmd2 = """{0} -Xmx{1}g -XX:ParallelGCThreads=4 -jar {2} CollectWgsMetrics R={3} I={4} O={5} MQ=20 Q=10 &> {6}""".format(config().java,config().max_mem,config().picard,config().ref,self.recal_bam,self.raw_output_file,self.log_file)   
+            self.cvg_cmd2 = """{0} -Xmx{1}g -XX:ParallelGCThreads=4 -jar {2} CollectWgsMetrics R={3} I={4} O={5} MQ=20 Q=10 2>> {6}""".format(config().java,config().max_mem,config().picard,config().ref,self.recal_bam,self.raw_output_file,self.log_file)   
             ## Run on X and Y Chromosomes only (across all regions there not just ccds) 
             self.cvg_cmd3 = self.cvg_cmd.format(config().java,config().max_mem,config().picard,config().ref,self.recal_bam,config().target_file_X,self.raw_output_file_X,self.log_file)              
             self.cvg_cmd4 = self.cvg_cmd.format(config().java,config().max_mem,config().picard,config().ref,self.recal_bam,config().target_file_Y,self.raw_output_file_Y,self.log_file)              
                              
         else: ## Anything other than genome i.e. Exome or Custom Capture( maybe have an elif here to check further ?)
-            self.cvg_cmd = """{0} -XX:ParallelGCThreads=4 -jar {1} CollectHsMetrics BI={2} TI={3} VALIDATION_STRINGENCY=LENIENT METRIC_ACCUMULATION_LEVEL=ALL_READS I={4} O={5} MQ=20 Q=10 &> {6}"""
+            self.cvg_cmd = """{0} -XX:ParallelGCThreads=4 -jar {1} CollectHsMetrics BI={2} TI={3} VALIDATION_STRINGENCY=LENIENT METRIC_ACCUMULATION_LEVEL=ALL_READS I={4} O={5} MQ=20 Q=10 2>> {6}"""
             ## Run across ccds regions
             self.cvg_cmd1 = self.cvg_cmd.format(config().java,config().picard,config().bait_file,config().target_file,self.recal_bam,self.raw_output_file_ccds,self.log_file) 
             ## Run across the baits i.e. capture kit regions
