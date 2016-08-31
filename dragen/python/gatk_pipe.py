@@ -458,7 +458,6 @@ class BaseRecalibrator(SGEJobTask):
             "-L {interval} "
             "-I {realn_bam} "
             "-o {recal_table} "
-            "-L {capture_kit_bed} "
             "--log_to_file {log_file} "
             "-knownSites {Mills1000g} "
             "-knownSites {dbSNP} "
@@ -471,7 +470,6 @@ class BaseRecalibrator(SGEJobTask):
                 recal_table=self.recal_table,
                 Mills1000g=config().Mills1000g,
                 log_file=self.log_file,
-                capture_kit_bed=self.capture_kit_bed,
                 dbSNP=config().dbSNP)
 
         try:
