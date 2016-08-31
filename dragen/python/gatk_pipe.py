@@ -1,5 +1,6 @@
 #!/nfs/goldstein/software/python2.7.7/bin/python2.7
 
+import getpass
 import os
 import shlex
 import sys
@@ -18,6 +19,7 @@ import glob
 Run samples through a luigized GATK pipeline after finishing the
 Dragen based alignment
 """
+
 def getDBIDMaxPrepID(pseudo_prepid):
     db = get_connection("seqdb")
     try:
@@ -35,6 +37,7 @@ def getDBIDMaxPrepID(pseudo_prepid):
 def getUserID():
     #userName = getpass.getuser()
     userName = "rp2801"
+    ## did not have the getpass module so using manual username
     db = get_connection("seqdb")
     try:
         cur = db.cursor()
@@ -45,6 +48,18 @@ def getUserID():
         if db.open:
             db.close()
     return userid[0]
+
+def getCaptureKitBed(pseudo_prepid):
+    db = get_connection("seqdb")
+    try:
+        cur = db.cursor()
+        cur.execute(GET_CAPTURE_KIT_BED.format(
+            pseudo_prepid=pseudo_prepid))
+        userid = cur.fetchone()
+    finally:
+        if db.open:
+            db.close()
+    return capture_kit_bed
 
 class config(luigi.Config):
     """config class for instantiating parameters for this pipeline
@@ -1861,28 +1876,6 @@ class ArchiveSample(SGEJobTask):
         self.geno_concordance_out = os.path.join(self.sample_dir,"{0}.{1}.genotype_concordance_metrics".format(self.sample_name,self.pseudo_prepid))
         self.contamination_out = os.path.join(self.sample_dir,"{0}.{1}.contamination.selfSM".format(self.sample_name,self.pseudo_prepid))
         
-        """
-        self.cvg_binned = {0}/{1}.{2}.cvg_binned.format(
-            self.scratch_dir,self.sample_name,self.pseudo_prepid)
-        self.gq_binned = {0}/{1}.{2}.gq_binned.format(
-            self.scratch_dir,self.sample_name,self.pseudo_prepid)
-        self.align_metrics = {0}/{1}.{2}.alignment.metrics.txt.format(
-            self.scratch_dir,self.sample_name,self.pseudo_prepid)
-        self.cvg_metrics = {0}/{1}.{2}.cvg_metrics.txt.format(
-            self.scratch_dir,self.sample_name,self.pseudo_prepid)
-        self.cvg_metrics_ccds = {0}/{1}.{2}.cvg_metrics.ccds.txt.format(
-            self.scratch_dir,self.sample_name,self.pseudo_prepid)
-        self.cvg_metrics_X = {0}/{1}.{2}.cvg_metrics.X.txt.format(
-            self.scratch_dir,self.sample_name,self.pseudo_prepid)
-        self.cvg_metrics_Y = {0}/{1}.{2}.cvg_metrics.Y.txt.format(
-            self.scratch_dir,self.sample_name,self.pseudo_prepid)
-        self.dup_metrics = {0}/{1}.{2}.duplicates.txt.format(
-            self.scratch_dir,self.sample_name,self.pseudo_prepid)
-        self.variant_call_metrics = {0}/{1}.{2}.variant_calling_summary_metrics.format(
-            self.scratch_dir,self.sample_name,self.pseudo_prepid)
-        self.concordance_metrics = {0}/{1}.{2}.genotype_concordance_metrics.format(
-        """
-
         db = get_connection("seqdb")
         try:
             cur = db.cursor()
@@ -1894,17 +1887,70 @@ class ArchiveSample(SGEJobTask):
                 db.close()
 
     def work(self):
+        db = get_connection("seqdb")
+
         """
         cmd = ("rsync -a --timeout=25000 -r "
               "{script_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
               "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
-              "{cvg_binned} {gq_binned} {align_metrics} 'cvg_metrics} "
-              "{cvg_metrics_ccds} {cvg_metrics_X} {cvg_metrics_Y} {dup_metrics} "
-              "{variant_call_metrics} {concordance_metrics} "
+              "{cvg_binned} {gq_binned} {alignment_out} 'cvg_out} "
+              "{cvg_ccds_out} {cvg_X_out} {cvg_Y_out} {dup_out} "
+              "{variant_call_out} {geno_concordance_out} "
               "{base_dir}"
               ).format(self.__dict__))
         """
-        print "ready to archive!"
+
+        cmd = ("rsync -a --timeout=25000 -r "
+              "{script_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
+              "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
+              "{base_dir}"
+              ).format(recal_bam=self.recal_bam,
+                      recal_bam_index=self.recal_bam_index,
+                      script_dir=self.script_dir,
+                      annotated_vcf_gz=self.annotated_vcf_gz,
+                      annotated_vcf_gz_index=self.annotated_vcf_gz_index,
+                      base_dir=self.base_dir,
+                      g_vcf_gz=self.g_vcf_gz,
+                      g_vcf_gz_index=self.g_vcf_gz_index,
+                      sample_name=self.sample_name,
+                      sample_type=self.sample_type.upper())
+
+        try:
+            cur = db.cursor()
+            cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
+                        pseudo_prepid=self.pseudo_prepid,
+                        pipeline_step_id=self.pipeline_step_id))
+
+            with open(self.script,'w') as o:
+                o.write(cmd + "\n")
+            DEVNULL = open(os.devnull, 'w')
+            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+            subprocess.check_call(['touch',self.copy_complete])
+            """Original dragen BAM could be technically deleted earlier after the
+            realigned BAM has been created on scratch space but it is safer to
+            delete after the final realigned, recalculated BAM has been archived
+            since our scratch space has failed in the past."""
+            rm_cmd = ['rm',self.bam,self.bam_index]
+            rm_folder_cmd = ['rm','-rf',self.scratch_dir]
+            #subprocess.call(rm_cmd)
+            #subprocess.call(rm_folder_cmd)
+
+            DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+            userID = getUserID()
+            cur.execute(INSERT_DRAGEN_STATUS.format(
+                        sample_name=self.sample_name,
+                        status="GATK Pipeline Complete",
+                        DBID=DBID,
+                        prepID=prepID,
+                        pseudoPrepID=self.pseudo_prepid,
+                        userID=userID))
+            cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
+                        pseudo_prepid=self.pseudo_prepid,
+                        pipeline_step_id=self.pipeline_step_id))
+            db.commit()
+        finally:
+            if db.open:
+                db.close()
 
     def requires(self):
         yield self.clone(AnnotateVCF)

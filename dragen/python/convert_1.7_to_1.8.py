@@ -10,14 +10,14 @@ import tarfile
 from glob import glob
 
 def main():
-
     sample_name = sys.argv[1]
+    sample_type = sys.argv[2]
     global run_script
-    run_script = 1
+    run_script = 0
     counter = 1
 
-    for tar_file in glob('/nfs/fastq16/GENOME_1.7/{}/*tar.gz'.format(sample_name)):
-        dest = '/nfs/fastq16/GENOME/{}/{}/'.format(sample_name,counter)
+    for tar_file in glob('/nfs/fastq16/{}_1.7/{}/*tar.gz'.format(sample_type.upper(),sample_name)):
+        dest = '/nfs/qumulo/{}/{}/{}/'.format(sample_type.upper(),sample_name,counter)
         read_3_flag = 0
 
         mkdir_cmd = 'mkdir -p {}'.format(dest)
@@ -52,24 +52,20 @@ def main():
                 raise Exception, 'File {} is not in the proper naming format!'.format(sequence_file)
 
             if info[-2] == '1':
-                new_file_name = '{}_AAAAAA_L00{}_R{}_001.fastq'.format(sample_name,info[-3],'1')
+                new_file_name = '{}_AAAAAA_L00{}_R{}_001.fastq.gz'.format(sample_name,info[-3],'1')
             elif info[-2] == '3':
-                new_file_name = '{}_AAAAAA_L00{}_R{}_001.fastq'.format(sample_name,info[-3],'2')
+                new_file_name = '{}_AAAAAA_L00{}_R{}_001.fastq.gz'.format(sample_name,info[-3],'2')
                 read_3_flag = 1
             elif info[-2] == '2' and read_3_flag == 0:
-                new_file_name = '{}_AAAAAA_L00{}_R{}_001.fastq'.format(sample_name,info[-3],'2')
+                new_file_name = '{}_AAAAAA_L00{}_R{}_001.fastq.gz'.format(sample_name,info[-3],'2')
             else:
                 raise Exception, 'File {} could not be processed'.format(sequence_file)
 
-            """Future Optimization: pipe seqtk output directly into gzip"""
-            seqtk_cmd = '/nfs/goldstein/software/seqtk/seqtk seq -Q64 -V {}'.format(sequence_file)
-            print seqtk_cmd
-
+            seqtk_gzip_cmd = ('/nfs/goldstein/software/seqtk/seqtk seq -Q64 -V {}'
+                                ' | /nfs/goldstein/software/pigz-2.3.1/pigz -p 4 > {}/{}').format(sequence_file,dest,new_file_name)
+            print seqtk_gzip_cmd
             if run_script:
-                subprocess.check_call(shlex.split(seqtk_cmd),stdout=open('{}/{}'.format(dest,new_file_name),'w'))
-
-            gzip_cmd = 'gzip {}/{}'.format(dest,new_file_name)
-            runCmd(gzip_cmd)
+                subprocess.check_call(seqtk_gzip_cmd,shell=True)
 
             rm_cmd = 'rm {}'.format(sequence_file)
             runCmd(rm_cmd)
