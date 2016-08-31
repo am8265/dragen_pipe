@@ -26,5 +26,3 @@ def get_connection(db):
             read_default_group="client" + cfg.get("db", "seqdb_group"))
     else:
         raise ValueError("specified database group is invalid")
-
-
