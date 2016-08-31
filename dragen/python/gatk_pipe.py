@@ -1848,6 +1848,19 @@ class ArchiveSample(SGEJobTask):
         self.script_dir = "{0}/scripts".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid)
 
+
+        ## qc metric files 
+        self.sample_dir = self.scratch_dir
+        self.alignment_out = os.path.join(self.sample_dir,"{0}.{1}.alignment.metrics.txt".format(self.sample_name,self.pseudo_prepid))
+        self.cvg_out = os.path.join(self.sample_dir,"{0}.{1}.cvg.metrics.txt".format(self.sample_name,self.pseudo_prepid))
+        self.cvg_ccds_out = os.path.join(self.sample_dir,"{0}.{1}.cvg.metrics.ccds.txt".format(self.sample_name,self.pseudo_prepid))
+        self.cvg_X_out = os.path.join(self.sample_dir,"{0}.{1}.cvg.metrics.X.txt".format(self.sample_name,self.pseudo_prepid))
+        self.cvg_Y_out = os.path.join(self.sample_dir,"{0}.{1}.cvg.metrics.Y.txt".format(self.sample_name,self.pseudo_prepid))
+        self.dup_out = os.path.join(self.sample_dir,"{0}.{1}.duplicates.txt".format(self.sample_name,self.pseudo_prepid))
+        self.variant_call_out = os.path.join(self.sample_dir,"{0}.{1}.variant_calling_summary_metrics".format(self.sample_name,self.pseudo_prepid))
+        self.geno_concordance_out = os.path.join(self.sample_dir,"{0}.{1}.genotype_concordance_metrics".format(self.sample_name,self.pseudo_prepid))
+        self.contamination_out = os.path.join(self.sample_dir,"{0}.{1}.contamination.selfSM".format(self.sample_name,self.pseudo_prepid))
+        
         """
         self.cvg_binned = {0}/{1}.{2}.cvg_binned.format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid)
@@ -1898,7 +1911,6 @@ class ArchiveSample(SGEJobTask):
         yield self.clone(CvgBinning)
         yield self.clone(GQBinning)
         yield self.clone(UpdateSeqdbMetrics)
-
 
     def output(self):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
@@ -1973,8 +1985,9 @@ def get_pipeline_step_id(step_name,db_name):
         finally:
             if db.open:
                 db.close()
+            return pipeline_step_id ## Pass control back 
                 
-    return pipeline_step_id
+    
 
 
 def run_shellcmd(db_name,pipeline_step_id,pseudo_prepid,cmd,sample_name,
@@ -2027,6 +2040,7 @@ def run_shellcmd(db_name,pipeline_step_id,pseudo_prepid,cmd,sample_name,
         finally:
             if db.open:
                 db.close()
+            break ## Exit the loop 
 
 
 def update_dragen_status(pseudo_prepid,sample_name,task_name,cur):
@@ -2083,7 +2097,7 @@ def get_productionvcf(pseudo_prepid,sample_name,sample_type):
             cur.execute(query_statement)
             db_val = cur.fetchall()
             if len(db_val) == 0: ## If the query returned no results
-                return None 
+                return_val = None 
             if len(db_val) > 1:
                 warnings.warn("More than 1 entry , warning :" 
                               "duplicate prepids !")
@@ -2093,9 +2107,9 @@ def get_productionvcf(pseudo_prepid,sample_name,sample_type):
                                          '*analysisReady.annotated*'))
             vcf = temp_vcf[0]
             if not os.path.isfile(vcf):
-                return None
+                return_val = None
             else:
-                return vcf 
+                return_val =  vcf 
         except MySQLdb.Error:
             if i > tries - 1:
                 #raise Exception("ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1]))
@@ -2106,6 +2120,7 @@ def get_productionvcf(pseudo_prepid,sample_name,sample_type):
         finally:
             if db.open:
                 db.close()
+            return return_val ## Pass control back 
    
 class MyExtTask(luigi.ExternalTask):
     """
@@ -2136,6 +2151,9 @@ class CreateGenomeBed(SGEJobTask):
         super(CreateGenomeBed,self).__init__(*args,**kwargs)
         self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
+        kwargs["sample_name"] = self.sample_name
+        super(CreateGenomeBed, self).__init__(*args, **kwargs)
+        
         self.output_dir = os.path.join(self.sample_dir,'cvg_binned')
         self.genomecov_bed = os.path.join(self.sample_dir,self.sample_name+'.genomecvg.bed')
         self.recal_bam = os.path.join(self.sample_dir,self.sample_name+'.{0}.realn.recal.bam'.format(self.pseudo_prepid))
@@ -2190,8 +2208,13 @@ class CvgBinning(SGEJobTask):
         super(CvgBinning,self).__init__(*args,**kwargs)
         self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
+        kwargs["sample_name"] = self.sample_name
+        super(CvgBinning,self).__init__(*args, **kwargs)
+        
         self.output_dir = os.path.join(self.sample_dir,'cvg_binned')
         self.genomecov_bed = os.path.join(self.sample_dir,self.sample_name+'.genomecvg.bed')
+        self.log_dir = os.path.join(self.sample_dir,'logs')
+        self.log_file = os.path.join(self.log_dir,self.sample_name+'.{0}.cvgbinning.log'.format(self.pseudo_prepid))
         
         if not os.path.isdir(self.output_dir): ## Recursively create the directory if it doesnt exist
             os.makedirs(self.output_dir)
@@ -2201,9 +2224,9 @@ class CvgBinning(SGEJobTask):
         self.human_chromosomes = [str(x) for x in self.human_chromosomes]
         self.human_chromosomes.extend(['X', 'Y','MT'])
 
-        self.binning_cmd = "{0} {1} --sample_id {2} --block_size {3} --output_dir {4} {5} --mode coverage".format(
-            config().pypy,config().binner_loc,self.sample_name,config().block_size,self.output_dir,
-            self.genomecov_bed)
+        self.binning_cmd = "{0} {1} --sample_id {2} --block_size {3} --output_dir {4} {5} --mode coverage &> {6}".format(
+            config().pypy,config().binner_loc,self.sample_name+'.'+self.pseudo_prepid,config().block_size,self.output_dir,
+            self.genomecov_bed,self.log_file)
         
         self.pipeline_step_id = get_pipeline_step_id(
             self.__class__.__name__,"seqdb")  
@@ -2252,8 +2275,13 @@ class GQBinning(SGEJobTask):
         super(GQBinning,self).__init__(*args,**kwargs)
         self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
+        kwargs["sample_name"] = self.sample_name
+        super(GQBinning,self).__init__(*args, **kwargs)
+        
         self.output_dir = os.path.join(self.sample_dir,'gq_binned')
-        self.gvcf = os.path.join(self.sample_dir,self.sample_name+'.{0}.g.vcf.gz'.format(self.pseudo_prepid)) 
+        self.gvcf = os.path.join(self.sample_dir,self.sample_name+'.{0}.g.vcf.gz'.format(self.pseudo_prepid))
+        self.log_dir = os.path.join(self.sample_dir,'logs')
+        self.log_file = os.path.join(self.log_dir,self.sample_name+'.{0}.gqbinning.log'.format(self.pseudo_prepid))
 
         if not os.path.isdir(self.output_dir): ## Recursively create the directory if it doesnt exist
             os.makedirs(self.output_dir)
@@ -2263,9 +2291,9 @@ class GQBinning(SGEJobTask):
         self.human_chromosomes = [str(x) for x in self.human_chromosomes]
         self.human_chromosomes.extend(['X', 'Y','MT'])
                        
-        self.binning_cmd = "{0} {1} --sample_id {2} --block_size {3} --output_dir {4} {5} --mode gq".format(
-            config().pypy,config().binner_loc,self.sample_name,config().block_size,self.output_dir,
-            self.gvcf)
+        self.binning_cmd = "{0} {1} --sample_id {2} --block_size {3} --output_dir {4} {5} --mode gq &> {6}".format(
+            config().pypy,config().binner_loc,self.sample_name+'.'+self.pseudo_prepid,config().block_size,self.output_dir,
+            self.gvcf,self.log_file)
         self.pipeline_step_id = get_pipeline_step_id(
             self.__class__.__name__,"seqdb")
         
@@ -2311,11 +2339,14 @@ class AlignmentMetrics(SGEJobTask):
         super(AlignmentMetrics,self).__init__(*args,**kwargs)
         self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
+        kwargs["sample_name"] = self.sample_name
+        super(AlignmentMetrics, self).__init__(*args, **kwargs)
+    
         self.recal_bam = os.path.join(self.sample_dir,self.sample_name+'.{0}.realn.recal.bam'.format(self.pseudo_prepid))
         self.output_file_raw = os.path.join(self.sample_dir,self.sample_name+'.alignment.metrics.raw.txt')
-        self.output_file = os.path.join(self.sample_dir,self.sample_name+'.alignment.metrics.txt')
+        self.output_file = os.path.join(self.sample_dir,self.sample_name+'.{0}.alignment.metrics.txt'.format(self.pseudo_prepid))
         self.log_dir = os.path.join(self.sample_dir,'logs')
-        self.log_file = os.path.join(self.log_dir,self.sample_name+'.alignment.metrics.log')
+        self.log_file = os.path.join(self.log_dir,self.sample_name+'.{0}.alignment.metrics.log'.format(self.pseudo_prepid))
         self.cmd = "{0} -XX:ParallelGCThreads=4 -jar {1} CollectAlignmentSummaryMetrics TMP_DIR={2} VALIDATION_STRINGENCY=SILENT REFERENCE_SEQUENCE={3} INPUT={4} OUTPUT={5} &> {6}".format(config().java,config().picard,self.sample_dir,config().ref,self.recal_bam,self.output_file_raw,self.log_file)               
         self.parser_cmd = """cat {0} | grep -v "^#" | awk -f {1} > {2}""".format(self.output_file_raw,config().transpose_awk,self.output_file)
         self.pipeline_step_id = get_pipeline_step_id(
@@ -2370,18 +2401,21 @@ class RunCvgMetrics(SGEJobTask):
         ## Define on the fly parameters
         self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
+        kwargs["sample_name"] = self.sample_name
+        super(RunCvgMetrics, self).__init__(*args, **kwargs)
+        
         self.recal_bam = os.path.join(self.sample_dir,self.sample_name+'.{0}.realn.recal.bam'.format(self.pseudo_prepid)) 
-        self.output_file = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.txt")
+        self.output_file = os.path.join(self.sample_dir,self.sample_name + ".{0}.cvg.metrics.txt".format(self.pseudo_prepid))
         self.raw_output_file = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.raw.txt")
-        self.output_file_ccds = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.ccds.txt")
+        self.output_file_ccds = os.path.join(self.sample_dir,self.sample_name + ".{0}.cvg.metrics.ccds.txt".format(self.pseudo_prepid))
         self.raw_output_file_ccds = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.ccds.raw.txt")
-        self.output_file_X = os.path.join(self.sample_dir,self.sample_name+ ".cvg.metrics.X.txt")
+        self.output_file_X = os.path.join(self.sample_dir,self.sample_name+ ".{0}.cvg.metrics.X.txt".format(self.pseudo_prepid))
         self.raw_output_file_X = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.X.raw.txt")
-        self.output_file_Y = os.path.join(self.sample_dir,self.sample_name+ ".cvg.metrics.Y.txt")
+        self.output_file_Y = os.path.join(self.sample_dir,self.sample_name+ ".{0}.cvg.metrics.Y.txt".format(self.pseudo_prepid))
         self.raw_output_file_Y = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.Y.raw.txt")
         self.target_file = config().target_file ## Targets here refers to ccds 
         self.log_dir = os.path.join(self.sample_dir,'logs')
-        self.log_file = os.path.join(self.log_dir,self.sample_name+'.cvg.metrics.log')
+        self.log_file = os.path.join(self.log_dir,self.sample_name+'.{0}.cvg.metrics.log'.format(self.pseudo_prepid))
         
         ## Define shell commands to be run
         if self.sample_type.upper() == 'GENOME': ## If it is a genome sample
@@ -2462,9 +2496,10 @@ class DuplicateMetrics(SGEJobTask):
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
         kwargs["sample_name"] = self.sample_name
         super(DuplicateMetrics, self).__init__(*args, **kwargs)
+        
         self.log_dir = os.path.join(self.sample_dir,'logs')
         self.dragen_log = os.path.join(self.log_dir,self.sample_name+'.dragen.log')
-        self.output_file = os.path.join(self.sample_dir_seqscratch,self.sample_name+'.duplicates.txt')
+        self.output_file = os.path.join(self.sample_dir_seqscratch,self.sample_name+'.{0}.duplicates.txt'.format(self.pseudo_prepid))
         self.cmd = "grep 'duplicates marked' {0}".format(self.dragen_log)
         self.pipeline_step_id = get_pipeline_step_id(
             self.__class__.__name__,"seqdb")
@@ -2531,6 +2566,7 @@ class DuplicateMetrics(SGEJobTask):
             finally:
                 if db.open:
                     db.close()
+                break ## Exit the loop since we have completed the task 
 
 class VariantCallingMetrics(SGEJobTask):
     """
@@ -2547,16 +2583,18 @@ class VariantCallingMetrics(SGEJobTask):
       
     def __init__(self,*args,**kwargs):
         super(VariantCallingMetrics,self).__init__(*args,**kwargs)
-        #self.output = os.path.join(config().scratch,self.sample_name)
         self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
+        kwargs["sample_name"] = self.sample_name
+        super(VariantCallingMetrics, self).__init__(*args, **kwargs)
+        
         self.output_file_raw = os.path.join(self.sample_dir,self.sample_name+'.raw')
         self.output_file_raw1 = os.path.join(self.sample_dir,self.sample_name+".raw.variant_calling_summary_metrics")
         self.output_file_raw2 = os.path.join(self.sample_dir,self.sample_name+".raw.variant_calling_detail_metrics")
         self.annotated_vcf_gz = os.path.join(self.sample_dir,"{0}.{1}.analysisReady.annotated.vcf.gz".format(self.sample_name,self.pseudo_prepid))
-        self.output_file = os.path.join(self.sample_dir,"{0}.variant_calling_summary_metrics".format(self.sample_name))
+        self.output_file = os.path.join(self.sample_dir,"{0}.{1}.variant_calling_summary_metrics".format(self.sample_name,self.pseudo_prepid))
         self.log_dir = os.path.join(self.sample_dir,'logs')
-        self.log_file = os.path.join(self.log_dir,self.sample_name+'.variantcalling.metrics.log')
+        self.log_file = os.path.join(self.log_dir,self.sample_name+'.{0}.variantcalling.metrics.log'.format(self.pseudo_prepid))
 
         self.cmd = "{0} -XX:ParallelGCThreads=4 -jar {1} CollectVariantCallingMetrics INPUT={2} OUTPUT={3} DBSNP={4} &> {5}".format(config().java,config().picard,self.annotated_vcf_gz,self.output_file_raw,config().dbSNP,self.log_file)
         self.parser_cmd = """cat {0} | grep -v "^#" | awk -f {1}  > {2}""".format(self.output_file_raw1,config().transpose_awk,self.output_file)
@@ -2609,18 +2647,20 @@ class GenotypeConcordance(SGEJobTask):
 
     def __init__(self,*args,**kwargs):
         super(GenotypeConcordance,self).__init__(*args,**kwargs)
-        #self.output = os.path.join(config().scratch,self.sample_name)
         self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
+        kwargs["sample_name"] = self.sample_name
+        super(GenotypeConcordance, self).__init__(*args, **kwargs)
+        
         self.output_file = os.path.join(self.sample_dir,
-                                        "{0}.genotype_concordance_metrics"
-                                        .format(self.sample_name))
+                                        "{0}.{1}.genotype_concordance_metrics"
+                                        .format(self.sample_name,self.pseudo_prepid))
         self.annotated_vcf_gz = os.path.join(self.sample_dir,"{0}.{1}.analysisReady.annotated.vcf.gz".format(self.sample_name,self.pseudo_prepid))
 
         self.log_dir = os.path.join(self.sample_dir,'logs')
         self.log_file = os.path.join(self.log_dir,
                                      self.sample_name+
-                                     '.genotypeconcoradance.metrics.log')
+                                     '.{0}.genotypeconcoradance.metrics.log'.format(self.pseudo_prepid))
 
         self.concordance_cmd = "{0} -XX:ParallelGCThreads=4 -jar {1} -T GenotypeConcordance -R {2} -eval {3} -comp {4} -o {5} -U ALLOW_SEQ_DICT_INCOMPATIBILITY &> {6}"
         self.pipeline_step_id = get_pipeline_step_id(
@@ -2639,7 +2679,6 @@ class GenotypeConcordance(SGEJobTask):
         The result from this task is the creation of the metrics file
         """
         
-        #return luigi.LocalTarget(self.output_file)
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
                          pipeline_step_id=self.pipeline_step_id)
     
@@ -2689,6 +2728,7 @@ class GenotypeConcordance(SGEJobTask):
             finally:
                 if db.open:
                     db.close()
+                break ## Exit from the loop since we have completed the task 
     
     def subset_vcf(self,vcfs):
         """ 
@@ -2712,7 +2752,6 @@ class GenotypeConcordance(SGEJobTask):
             i+=1
 
         return out_vcf
-
             
 class ContaminationCheck(SGEJobTask):
     """
@@ -2730,21 +2769,23 @@ class ContaminationCheck(SGEJobTask):
 
     def __init__(self,*args,**kwargs):
         super(ContaminationCheck,self).__init__(*args,**kwargs)
-        #self.output = os.path.join(config().scratch,self.sample_name)
         self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
+        kwargs["sample_name"] = self.sample_name
+        super(ContaminationCheck, self).__init__(*args, **kwargs)
+        
         self.output_stem = os.path.join(self.sample_dir,
                                         "{0}.contamination.raw"
                                         .format(self.sample_name))
         self.output_file = os.path.join(self.sample_dir,
-                                        "{0}.contamination.selfSM"
-                                        .format(self.sample_name))
+                                        "{0}.{1}.contamination.selfSM"
+                                        .format(self.sample_name,self.pseudo_prepid))
         self.annotated_vcf_gz = os.path.join(self.sample_dir,"{0}.{1}.analysisReady.annotated.vcf.gz".format(self.sample_name,self.pseudo_prepid))
 
         self.log_dir = os.path.join(self.sample_dir,'logs')
         self.log_file = os.path.join(self.log_dir,
                                      self.sample_name+
-                                     '.samplecontamination.log')
+                                     '.{0}.samplecontamination.log'.format(self.pseudo_prepid))
         self.recal_bam = os.path.join(self.sample_dir,self.sample_name+'.{0}.realn.recal.bam'.format(self.pseudo_prepid)) 
         self.cmd = "{0} --vcf {1} --bam {2} --out {3} --verbose -ignoreRG &> {4}".format(
             config().verifybamid,self.annotated_vcf_gz,self.recal_bam,self.output_stem,self.log_file)
@@ -2795,27 +2836,29 @@ class UpdateSeqdbMetrics(SGEJobTask):
        
     def __init__(self,*args,**kwargs):
         super(UpdateSeqdbMetrics,self).__init__(*args,**kwargs)
-        ## Sample specific directories
         self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
+        kwargs["sample_name"] = self.sample_name
+        super(UpdateSeqdbMetrics, self).__init__(*args, **kwargs)
+        
         self.log_dir = os.path.join(self.sample_dir,'logs')
         self.log_file = os.path.join(self.log_dir,
                                      self.sample_name+
-                                     '.updateseqdb.log')
+                                     '{0}.updateseqdb.log'.format(self.pseudo_prepid))
         self.annotated_vcf_gz = os.path.join(self.sample_dir,"{0}.{1}.analysisReady.annotated.vcf.gz".format(self.sample_name,self.pseudo_prepid))
-        self.recal_bam = os.path.join(self.sample_dir,self.sample_name+'.{0}.realn.recal.bam'.format(self.pseudo_prepid))         
+        self.recal_bam = os.path.join(self.sample_dir,"{0}.{1}.realn.recal.bam".format(self.sample_name,self.pseudo_prepid))         
         ## Generic query to be used for updates 
         self.update_statement = """ UPDATE seqdbClone SET {0} = '{1}' WHERE CHGVID = '{2}' AND seqType = '{3}' AND prepid = '{4}'"""
         ## The output files from the tasks run 
-        self.alignment_out = os.path.join(self.sample_dir,self.sample_name+'.alignment.metrics.txt')
-        self.cvg_out = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.txt")
-        self.cvg_ccds_out = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.ccds.txt")
-        self.cvg_X_out = os.path.join(self.sample_dir,self.sample_name+ ".cvg.metrics.X.txt")
-        self.cvg_Y_out = os.path.join(self.sample_dir,self.sample_name+ ".cvg.metrics.Y.txt")
-        self.dup_out = os.path.join(self.sample_dir,self.sample_name+'.duplicates.txt')
-        self.variant_call_out = os.path.join(self.sample_dir,"{0}.variant_calling_summary_metrics".format(self.sample_name))
-        self.geno_concordance_out = os.path.join(self.sample_dir,"{0}.genotype_concordance_metrics".format(self.sample_name))
-        self.contamination_out = os.path.join(self.sample_dir,"{0}.contamination.selfSM".format(self.sample_name))
+        self.alignment_out = os.path.join(self.sample_dir,"{0}.{1}.alignment.metrics.txt".format(self.sample_name,self.pseudo_prepid))
+        self.cvg_out = os.path.join(self.sample_dir,"{0}.{1}.cvg.metrics.txt".format(self.sample_name,self.pseudo_prepid))
+        self.cvg_ccds_out = os.path.join(self.sample_dir,"{0}.{1}.cvg.metrics.ccds.txt".format(self.sample_name,self.pseudo_prepid))
+        self.cvg_X_out = os.path.join(self.sample_dir,"{0}.{1}.cvg.metrics.X.txt".format(self.sample_name,self.pseudo_prepid))
+        self.cvg_Y_out = os.path.join(self.sample_dir,"{0}.{1}.cvg.metrics.Y.txt".format(self.sample_name,self.pseudo_prepid))
+        self.dup_out = os.path.join(self.sample_dir,"{0}.{1}.duplicates.txt".format(self.sample_name,self.pseudo_prepid))
+        self.variant_call_out = os.path.join(self.sample_dir,"{0}.{1}.variant_calling_summary_metrics".format(self.sample_name,self.pseudo_prepid))
+        self.geno_concordance_out = os.path.join(self.sample_dir,"{0}.{1}.genotype_concordance_metrics".format(self.sample_name,self.pseudo_prepid))
+        self.contamination_out = os.path.join(self.sample_dir,"{0}.{1}.contamination.selfSM".format(self.sample_name,self.pseudo_prepid))
         ## The metrics to parse out, listed are the fields in the output file
         
         self.DBID,self.prepID = getDBIDMaxPrepID(self.pseudo_prepid)        
@@ -2891,6 +2934,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
                 self.LOG_FILE.close()
                 if db.open:
                     db.close()
+                break ## Exit the loop since the work is complete 
                     
     def check_qc(self):
         """
@@ -2946,6 +2990,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
             finally:
                 if db.open:
                     db.close()
+                break ## Exit the loop since the update is complete
 
     def get_metrics(self,query):
         """
@@ -2963,7 +3008,6 @@ class UpdateSeqdbMetrics(SGEJobTask):
                 cur = db.cursor()
                 cur.execute(update_statement.format(db_field,val,self.sample_name,self.sample_type,self.prepID))
                 db_val = cur.fetchall()
-                return db_val 
             except MySQLdb.Error, e:
                 if i > tries - 1:
                     raise "ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1])
@@ -2972,8 +3016,9 @@ class UpdateSeqdbMetrics(SGEJobTask):
                     continue 
             finally:
                 if db.open:
-                    db.close()           
-        
+                    db.close()
+                return db_val ## Pass control back 
+            
     def update_alignment_metrics(self):
         """
         Function to update the Alignment Metrics
