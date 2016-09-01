@@ -186,6 +186,8 @@ def setup_dir(curs,sample,debug):
 
 def get_first_read(sample,read_number,debug):
     #Using first fastq as template for all fastq.gz
+    if debug:
+        print sample.metadata['fastq_loc']
     first_fastq_loc = sample.metadata['fastq_loc'][0]
     if debug:
         print '{0}/*L00*_R{1}_001.fastq.gz'.format(first_fastq_loc,read_number)
