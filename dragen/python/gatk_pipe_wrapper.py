@@ -25,15 +25,16 @@ def main(database,debug):
 
     if debug:
         print "Number of Jobs: {0}".format(number_of_jobs)
-    run_samples(curs,number_of_jobs,debug)
+    run_samples(curs,debug)
 
-def run_samples(curs,number_of_jobs,debug):
-    while number_of_jobs > 1:
-        number_of_jobs -= 1
-        dragen_sample = get_next_sample(curs,debug)
+def run_samples(curs,debug):
+    dragen_sample = get_next_sample(curs,debug)
+
+    while dragen_sample:
         if dragen_sample is None:
             print "No samples were found"
             sys.exit()
+
         print dragen_sample
         add_to_tmp_gatk(curs,dragen_sample,debug)
         run_sample(curs,dragen_sample,debug)
@@ -55,12 +56,9 @@ def add_to_tmp_gatk(curs,dragen_sample,debug):
 
 def run_sample(curs,dragen_sample,debug):
     python2_7_7_loc = "/nfs/goldstein/software/python2.7.7/bin"
-    end_module = "CombineVariants"
-    fastq_dir = "fastq16"
+    end_module = "ArchiveSample"
     sample_name = dragen_sample[0]
     sample_type = dragen_sample[1].upper()
-    random_num = str(randint(9,11)).zfill(2)
-    scratch_dir = "seqscratch" + random_num
     capture_kit_info = get_capture_kit_info(curs,dragen_sample,debug)
 
     if sample_type == 'CUSTOM CAPTURE':
@@ -68,21 +66,26 @@ def run_sample(curs,dragen_sample,debug):
     else:
         capture_kit_info[1] = ""
 
+    mkdir_cmd
+    rsync_cmd
+    export_luigi_config_cmd = 'export LUIGI_CONFIG_PATH=/home/jb3816/github/dragen_pipe/dragen/python/luigi.cfg'
+
     luigi_cmd = ("export PATH={python2_7_7_loc}:$PATH ; "
     "{python2_7_7_loc}/python2.7 -m luigi --module gatk_pipe {end_module} "
-    "--base-directory /nfs/{fastq_dir}/ALIGNMENT/BUILD37/DRAGEN/{sample_type}/{capture_kit_name} "
     "--sample-name {sample_name} "
-    "--scratch /nfs/{scratch_dir}/ALIGNMENT/DRAGEN/{sample_type}/{capture_kit_name} "
     "--capture-kit-bed {capture_kit_bed} "
-    "--sample-type {sample_type}"
+    "--sample-type {sample_type} "
+    "--pseudo_prepid {pseudo_prepid} "
+    "--no-tarball "
+    "--poll-time 60 "
+    "--worker-wait-interval 60 "
     ).format(capture_kit_bed=capture_kit_info[0],
             python2_7_7_loc=python2_7_7_loc,
             end_module=end_module,
-            fastq_dir=fastq_dir,
             sample_type=sample_type,
             sample_name=sample_name,
-            capture_kit_name=capture_kit_info[1],
-            scratch_dir=scratch_dir
+            capture_kit_bed=capture_kit_info[1],
+            pseudo_prepid=pseudo_prepid
             )
     if debug:
         print luigi_cmd
@@ -122,7 +125,6 @@ def get_next_sample(curs,debug):
 def get_avail_cores():
     cores_left_avail = 150
     cores_per_pipeline = 4
-
 
     qstat_cmd = ['qstat','-g','c']
     output = subprocess.check_output(qstat_cmd).splitlines()[2]

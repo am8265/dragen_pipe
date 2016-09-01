@@ -70,20 +70,39 @@ def get_fastq_loc(curs, sample):
             """For externally submitted sample they have a fake Flowcell entry
             in the database.  The Flowcell.FCIllumID begins with 'X' always.
             Typically when processing the external sample each read group is
-            enumerated 1,2,3...etc.  """
+            enumerated 1,2,3...etc.
+
+            Secondly when external samples are archived sometimes the FCIllumID
+            is preserved otherwise its enumerated."""
 
             if seqsatalocs[0][1][0] == 'X':
-                if 'seqsata' in flowcell[0]:
-                    fastq_loc = glob(('/nfs/{0}/seqfinal/whole_genome/{1}/[0-9]'
-                            ).format(flowcell[0],sample['sample_name']))
+                fastq_loc = glob(('/nfs/seqsata*/seqfinal/whole_genome/{}/[0-9]'
+                                ).format(sample['sample_name']))
+                if fastq_loc:
                     for flowcell in fastq_loc:
                         locs.append(os.path.realpath(flowcell))
-                elif 'fastq' in flowcell[0]:
-                    fastq_loc = glob(('/nfs/{0}/{1}/{2}/[0-9]'
-                            ).format(flowcell[0],corrected_sample_type,
-                                    sample['sample_name']))
+                elif glob(('/nfs/seqsata*/seqfinal/whole_genome/{}/*XX'
+                    ).format(sample['sample_name'])) != []:
+                    fastq_loc = glob(('/nfs/seqsata*/seqfinal/whole_genome/{}/*XX'
+                        ).format(sample['sample_name']))
                     for flowcell in fastq_loc:
                         locs.append(os.path.realpath(flowcell))
+                else:
+                    fastq_loc = glob(('/nfs/fastq1[0-9]/{}/{}/[0-9]'
+                                ).format(corrected_sample_type,sample['sample_name']))
+                    if fastq_loc:
+                        for flowcell in fastq_loc:
+                            locs.append(os.path.realpath(flowcell))
+                    elif glob(('/nfs/fastq1[0-9]/{}/{}/*XX'
+                        ).format(corrected_sample_type,sample['sample_name'])):
+                        fastq_loc = glob(('/nfs/fastq1[0-9]/{}/{}/*XX'
+                                ).format(corrected_sample_type,sample['sample_name']))
+                        for flowcell in fastq_loc:
+                            locs.append(os.path.realpath(flowcell))
+                    else:
+                        print '/nfs/seqsata*/seqfinal/whole_genome/{}/[0-9]'.format(sample['sample_name'])
+                        print '/nfs/fastq1*/{}/{}/[0-9]'.format(corrected_sample_type,sample['sample_name'])
+                        raise Exception, 'fastq files not found!'
             else: #For regular samples
                 for flowcell in seqsatalocs:
                     if 'seqsata' in flowcell[0]:
@@ -102,9 +121,9 @@ def get_fastq_loc(curs, sample):
                         # For samples in the database but stored on the quantum and 
                         # have not had their location properly restored
 
-                        fastq_loc = glob('/nfs/fastq_temp*/{0}/{1}/*XX'.format(
+                        fastq_loc = glob('/nfs/fastq16/{0}/{1}/*XX'.format(
                             corrected_sample_type,sample['sample_name']))
-                        print fastq_loc,'/nfs/fastq_temp*/{0}/{1}/*XX'.format(
+                        print fastq_loc,'/nfs/fastq16/{0}/{1}/*XX'.format(
                             corrected_sample_type,sample['sample_name'])
                         if fastq_loc:
                             for flowcell in fastq_loc:
@@ -159,7 +178,6 @@ def get_output_dir(sample):
 
 def get_lanes(curs,sample):
     """retrieve all qualifying lanes for the prepids associated with the sample"""
-
     lanes = []
     """For cases where there is not flowell information the sequeuncing
     will have to be manually.  There will be two types of samples that
@@ -190,7 +208,7 @@ def get_lanes(curs,sample):
                     lane.append(lane_num)
                 lane_nums = set(sorted(lane))
                 for lane_num in lane_nums:
-                    lanes.append((lane_num,flowcell))
+                    lanes.append((lane_num,flowcell.split('/')[-1]))
             lanes = (lanes,)
     return lanes
 
@@ -209,8 +227,8 @@ class dragen_sample:
             #Genome samples are set using the most current capture kit for any case which requires a target region.
             self.metadata['bed_file_loc'] = '/nfs/goldsteindata/refDB/captured_regions/Build37/65MB_build37/SeqCap_EZ_Exome_v3_capture.bed'
         self.metadata['prepid'] = get_prepid(curs, self.metadata)
-        self.metadata['lane'] = get_lanes(curs,self.metadata)
         self.metadata['fastq_loc'] = get_fastq_loc(curs, self.metadata)
+        self.metadata['lane'] = get_lanes(curs,self.metadata)
         self.metadata['output_dir'] = get_output_dir(self.metadata)
         self.metadata['script_dir'] = self.metadata['output_dir']+'scripts'
         self.metadata['fastq_dir'] = self.metadata['output_dir']+'fastq'
