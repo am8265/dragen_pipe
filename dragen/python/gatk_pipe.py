@@ -2478,8 +2478,8 @@ class RunCvgMetrics(SGEJobTask):
 
 
         self.parser_cmd = """cat {0} | grep -v "^#" | awk -f {1} > {2}"""
-        self.parser_cmd1 = self.parser_cmd.format(self.raw_output_file,config().transpose_awk,self.output_file)
-        self.parser_cmd2 = self.parser_cmd.format(self.raw_output_file_ccds,config().transpose_awk,self.output_file_ccds)
+        self.parser_cmd1 = self.parser_cmd.format(self.raw_output_file_ccds,config().transpose_awk,self.output_file_ccds)
+        self.parser_cmd2 = self.parser_cmd.format(self.raw_output_file,config().transpose_awk,self.output_file)
         self.parser_cmd3 = self.parser_cmd.format(self.raw_output_file_X,config().transpose_awk,self.output_file_X)
         self.parser_cmd4 = self.parser_cmd.format(self.raw_output_file_Y,config().transpose_awk,self.output_file_Y)
         self.pipeline_step_id = get_pipeline_step_id(
@@ -2505,7 +2505,7 @@ class RunCvgMetrics(SGEJobTask):
         Run Picard CalculateHsMetrics or WgsMetrics
         """
         
-        self.remove_cmd = "rm {0}/*.cvg.metrics.raw*".format(self.sample_dir)
+        self.remove_cmd = "rm {0}/*.cvg.metrics*raw*".format(self.sample_dir)
         run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
                      [self.cvg_cmd1,self.parser_cmd1,self.cvg_cmd2,
                       self.parser_cmd2,self.cvg_cmd3,self.parser_cmd3,
