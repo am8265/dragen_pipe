@@ -237,6 +237,7 @@ class dragen_sample:
         self.metadata['dragen_stdout'] = "{log_dir}/{sample_name}.{pseudo_prepid}.dragen.out".format(**self.metadata)
         self.metadata['dragen_stderr'] = "{log_dir}/{sample_name}.{pseudo_prepid}.dragen.err".format(**self.metadata)
 
+
     def get_attribute(self, attribute):
         """return the value requested if present, otherwise raise a TypeError"""
         if attribute in self.metadata:
