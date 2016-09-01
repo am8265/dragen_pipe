@@ -1448,7 +1448,6 @@ class VariantFiltrationSNP(SGEJobTask):
                 interval=config().interval,
                 snp_vcf=self.snp_vcf,
                 snp_filtered=self.snp_filtered)
-
         try:
             cur = db.cursor()
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
