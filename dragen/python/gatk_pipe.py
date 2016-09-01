@@ -35,8 +35,8 @@ def getDBIDMaxPrepID(pseudo_prepid):
     return dbid,prepid
 
 def getUserID():
-    #userName = getpass.getuser()
-    userName = "rp2801"
+    userName = getpass.getuser()
+    #userName = "rp2801"
     ## did not have the getpass module so using manual username
     db = get_connection("seqdb")
     try:
@@ -223,8 +223,10 @@ class CopyBam(SGEJobTask):
                 db.close()
 
     def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-            pipeline_step_id=self.pipeline_step_id)
+        yield luigi.LocalTarget("{}/{}.{}.bam.bai".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid))
+        #return SQLTarget(pseudo_prepid=self.pseudo_prepid,
+        #    pipeline_step_id=self.pipeline_step_id)
 
 class RealignerTargetCreator(SGEJobTask):
     """class for creating targets for indel realignment BAMs from Dragen"""
@@ -1949,7 +1951,13 @@ class ArchiveSample(SGEJobTask):
         yield self.clone(AnnotateVCF)
         yield self.clone(CvgBinning)
         yield self.clone(GQBinning)
-        yield self.clone(UpdateSeqdbMetrics)
+        yield self.clone(AlignmentMetrics)
+        yield self.clone(RunCvgMetrics)
+        yield self.clone(DuplicateMetrics)
+        yield self.clone(VariantCallingMetrics)
+        yield self.clone(ContaminationCheck)
+        if get_productionvcf(self.pseudo_prepid,self.sample_name,self.sample_type) != None:
+            yield self.clone(GenotypeConcordance)
 
     def output(self):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
