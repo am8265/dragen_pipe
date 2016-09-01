@@ -178,7 +178,6 @@ def get_output_dir(sample):
 
 def get_lanes(curs,sample):
     """retrieve all qualifying lanes for the prepids associated with the sample"""
-
     lanes = []
     """For cases where there is not flowell information the sequeuncing
     will have to be manually.  There will be two types of samples that
@@ -209,7 +208,7 @@ def get_lanes(curs,sample):
                     lane.append(lane_num)
                 lane_nums = set(sorted(lane))
                 for lane_num in lane_nums:
-                    lanes.append((lane_num,flowcell))
+                    lanes.append((lane_num,flowcell.split('/')[-1]))
             lanes = (lanes,)
     return lanes
 
@@ -228,8 +227,8 @@ class dragen_sample:
             #Genome samples are set using the most current capture kit for any case which requires a target region.
             self.metadata['bed_file_loc'] = '/nfs/goldsteindata/refDB/captured_regions/Build37/65MB_build37/SeqCap_EZ_Exome_v3_capture.bed'
         self.metadata['prepid'] = get_prepid(curs, self.metadata)
-        self.metadata['lane'] = get_lanes(curs,self.metadata)
         self.metadata['fastq_loc'] = get_fastq_loc(curs, self.metadata)
+        self.metadata['lane'] = get_lanes(curs,self.metadata)
         self.metadata['output_dir'] = get_output_dir(self.metadata)
         self.metadata['script_dir'] = self.metadata['output_dir']+'scripts'
         self.metadata['fastq_dir'] = self.metadata['output_dir']+'fastq'
