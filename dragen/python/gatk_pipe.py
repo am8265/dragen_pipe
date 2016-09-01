@@ -36,8 +36,6 @@ def getDBIDMaxPrepID(pseudo_prepid):
 
 def getUserID():
     userName = getpass.getuser()
-    #userName = "rp2801"
-    ## did not have the getpass module so using manual username
     db = get_connection("seqdb")
     try:
         cur = db.cursor()
@@ -64,7 +62,7 @@ def getCaptureKitBed(pseudo_prepid):
 class config(luigi.Config):
     """config class for instantiating parameters for this pipeline
     the values are read from luigi.cfg in the current folder"""
-    
+
     #programs
     bedtools = luigi.Parameter()
     bgzip = luigi.Parameter()
@@ -1870,7 +1868,7 @@ class ArchiveSample(SGEJobTask):
         self.variant_call_out = os.path.join(self.sample_dir,"{0}.{1}.variant_calling_summary_metrics".format(self.sample_name,self.pseudo_prepid))
         self.geno_concordance_out = os.path.join(self.sample_dir,"{0}.{1}.genotype_concordance_metrics".format(self.sample_name,self.pseudo_prepid))
         self.contamination_out = os.path.join(self.sample_dir,"{0}.{1}.contamination.selfSM".format(self.sample_name,self.pseudo_prepid))
-        
+
         db = get_connection("seqdb")
         try:
             cur = db.cursor()
@@ -1884,17 +1882,16 @@ class ArchiveSample(SGEJobTask):
     def work(self):
         db = get_connection("seqdb")
 
-        """
         cmd = ("rsync -a --timeout=25000 -r "
               "{script_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
               "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
               "{cvg_binned} {gq_binned} {alignment_out} 'cvg_out} "
               "{cvg_ccds_out} {cvg_X_out} {cvg_Y_out} {dup_out} "
               "{variant_call_out} {geno_concordance_out} "
-              "{base_dir}"
+              "{contamination_out} {base_dir}"
               ).format(self.__dict__))
-        """
 
+        """
         cmd = ("rsync -a --timeout=25000 -r "
               "{script_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
               "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
@@ -1909,7 +1906,7 @@ class ArchiveSample(SGEJobTask):
                       g_vcf_gz_index=self.g_vcf_gz_index,
                       sample_name=self.sample_name,
                       sample_type=self.sample_type.upper())
-
+        """
         try:
             cur = db.cursor()
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
@@ -1991,7 +1988,7 @@ class SQLTarget(luigi.Target):
         finally:
             if db.open:
                 db.close()
-                
+
 ############################################ POST GATK MODULES ##############################################
 #########       
 #########                              ADD COMMENTS HERE ........                                              
@@ -2487,8 +2484,8 @@ class RunCvgMetrics(SGEJobTask):
 
 
         self.parser_cmd = """cat {0} | grep -v "^#" | awk -f {1} > {2}"""
-        self.parser_cmd1 = self.parser_cmd.format(self.raw_output_file,config().transpose_awk,self.output_file)
-        self.parser_cmd2 = self.parser_cmd.format(self.raw_output_file_ccds,config().transpose_awk,self.output_file_ccds)
+        self.parser_cmd1 = self.parser_cmd.format(self.raw_output_file_ccds,config().transpose_awk,self.output_file_ccds)
+        self.parser_cmd2 = self.parser_cmd.format(self.raw_output_file,config().transpose_awk,self.output_file)
         self.parser_cmd3 = self.parser_cmd.format(self.raw_output_file_X,config().transpose_awk,self.output_file_X)
         self.parser_cmd4 = self.parser_cmd.format(self.raw_output_file_Y,config().transpose_awk,self.output_file_Y)
         self.pipeline_step_id = get_pipeline_step_id(
@@ -2514,7 +2511,7 @@ class RunCvgMetrics(SGEJobTask):
         Run Picard CalculateHsMetrics or WgsMetrics
         """
         
-        self.remove_cmd = "rm {0}/*.cvg.metrics.raw*".format(self.sample_dir)
+        self.remove_cmd = "rm {0}/*.cvg.metrics*raw*".format(self.sample_dir)
         run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
                      [self.cvg_cmd1,self.parser_cmd1,self.cvg_cmd2,
                       self.parser_cmd2,self.cvg_cmd3,self.parser_cmd3,
@@ -2539,7 +2536,7 @@ class DuplicateMetrics(SGEJobTask):
         super(DuplicateMetrics,self).__init__(*args,**kwargs)
         self.seqtype_dir_seqscratch = os.path.join(config().scratch,self.sample_type.upper())
         self.sample_dir_seqscratch = os.path.join(self.seqtype_dir_seqscratch,self.sample_name+'.'+self.pseudo_prepid)
-        self.seqtype_dir = os.path.join(config().base,self.sample_type.upper())
+        self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
         kwargs["sample_name"] = self.sample_name
         super(DuplicateMetrics, self).__init__(*args, **kwargs)
