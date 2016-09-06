@@ -35,9 +35,7 @@ def getDBIDMaxPrepID(pseudo_prepid):
     return dbid,prepid
 
 def getUserID():
-    #userName = getpass.getuser()
-    userName = "rp2801"
-    ## did not have the getpass module so using manual username
+    userName = getpass.getuser()
     db = get_connection("seqdb")
     try:
         cur = db.cursor()
@@ -64,7 +62,7 @@ def getCaptureKitBed(pseudo_prepid):
 class config(luigi.Config):
     """config class for instantiating parameters for this pipeline
     the values are read from luigi.cfg in the current folder"""
-    
+
     #programs
     bedtools = luigi.Parameter()
     bgzip = luigi.Parameter()
@@ -223,8 +221,10 @@ class CopyBam(SGEJobTask):
                 db.close()
 
     def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-            pipeline_step_id=self.pipeline_step_id)
+        yield luigi.LocalTarget("{}/{}.{}.bam.bai".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid))
+        #return SQLTarget(pseudo_prepid=self.pseudo_prepid,
+        #    pipeline_step_id=self.pipeline_step_id)
 
 class RealignerTargetCreator(SGEJobTask):
     """class for creating targets for indel realignment BAMs from Dragen"""
@@ -1867,7 +1867,7 @@ class ArchiveSample(SGEJobTask):
         self.variant_call_out = os.path.join(self.sample_dir,"{0}.{1}.variant_calling_summary_metrics".format(self.sample_name,self.pseudo_prepid))
         self.geno_concordance_out = os.path.join(self.sample_dir,"{0}.{1}.genotype_concordance_metrics".format(self.sample_name,self.pseudo_prepid))
         self.contamination_out = os.path.join(self.sample_dir,"{0}.{1}.contamination.selfSM".format(self.sample_name,self.pseudo_prepid))
-        
+
         db = get_connection("seqdb")
         try:
             cur = db.cursor()
@@ -1881,7 +1881,6 @@ class ArchiveSample(SGEJobTask):
     def work(self):
         db = get_connection("seqdb")
 
-        """
         cmd = ("rsync -a --timeout=25000 -r "
               "{script_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
               "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
@@ -1889,9 +1888,11 @@ class ArchiveSample(SGEJobTask):
               "{cvg_ccds_out} {cvg_X_out} {cvg_Y_out} {dup_out} "
               "{variant_call_out} {geno_concordance_out} {contamination_out}"
               "{base_dir}"
-              ).format(self.__dict__))
-        """
+              "{variant_call_out} {geno_concordance_out} "
+              "{contamination_out} {base_dir}"
+              ).format(self.__dict__)
 
+        """
         cmd = ("rsync -a --timeout=25000 -r "
               "{script_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
               "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
@@ -1906,7 +1907,7 @@ class ArchiveSample(SGEJobTask):
                       g_vcf_gz_index=self.g_vcf_gz_index,
                       sample_name=self.sample_name,
                       sample_type=self.sample_type.upper())
-
+        """
         try:
             cur = db.cursor()
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
@@ -1922,8 +1923,8 @@ class ArchiveSample(SGEJobTask):
             realigned BAM has been created on scratch space but it is safer to
             delete after the final realigned, recalculated BAM has been archived
             since our scratch space has failed in the past."""
-            rm_cmd = ['rm',self.bam,self.bam_index]
-            rm_folder_cmd = ['rm','-rf',self.scratch_dir]
+            #rm_cmd = ['rm',self.bam,self.bam_index]
+            #rm_folder_cmd = ['rm','-rf',self.scratch_dir]
             #subprocess.call(rm_cmd)
             #subprocess.call(rm_folder_cmd)
 
@@ -1948,7 +1949,13 @@ class ArchiveSample(SGEJobTask):
         yield self.clone(AnnotateVCF)
         yield self.clone(CvgBinning)
         yield self.clone(GQBinning)
-        yield self.clone(UpdateSeqdbMetrics)
+        yield self.clone(AlignmentMetrics)
+        yield self.clone(RunCvgMetrics)
+        yield self.clone(DuplicateMetrics)
+        yield self.clone(VariantCallingMetrics)
+        yield self.clone(ContaminationCheck)
+        if get_productionvcf(self.pseudo_prepid,self.sample_name,self.sample_type) != None:
+            yield self.clone(GenotypeConcordance)
 
     def output(self):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
@@ -1982,7 +1989,7 @@ class SQLTarget(luigi.Target):
         finally:
             if db.open:
                 db.close()
-                
+
 ############################################ POST GATK MODULES ##############################################
 #########       
 #########                              ADD COMMENTS HERE ........                                              
@@ -2511,7 +2518,8 @@ class RunCvgMetrics(SGEJobTask):
                       self.parser_cmd2,self.cvg_cmd3,self.parser_cmd3,
                       self.cvg_cmd4,self.parser_cmd4,self.remove_cmd],
                      self.sample_name,self.__class__.__name__)
-       
+
+        
 class DuplicateMetrics(SGEJobTask):
     """
     Parse Duplicate Metrics from dragen logs
@@ -2530,15 +2538,28 @@ class DuplicateMetrics(SGEJobTask):
         super(DuplicateMetrics,self).__init__(*args,**kwargs)
         self.seqtype_dir_seqscratch = os.path.join(config().scratch,self.sample_type.upper())
         self.sample_dir_seqscratch = os.path.join(self.seqtype_dir_seqscratch,self.sample_name+'.'+self.pseudo_prepid)
-        self.seqtype_dir = os.path.join(config().base,self.sample_type.upper())
+        self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
         kwargs["sample_name"] = self.sample_name
         super(DuplicateMetrics, self).__init__(*args, **kwargs)
         
         self.log_dir = os.path.join(self.sample_dir,'logs')
-        self.dragen_log = os.path.join(self.log_dir,self.sample_name+'.dragen.log')
+        self.log_dir_seqscratch = os.path.join(self.sample_dir_seqscratch,'logs')
+        self.dragen_log = os.path.join(self.log_dir,self.sample_name+'.'+self.pseudo_prepid+'.dragen.out')
+        self.dragen_log_seqscratch = os.path.join(self.log_dir_seqscratch,self.sample_name+'.'+self.pseudo_prepid+'.dragen.out')
         self.output_file = os.path.join(self.sample_dir_seqscratch,self.sample_name+'.{0}.duplicates.txt'.format(self.pseudo_prepid))
-        self.cmd = "grep 'duplicates marked' {0}".format(self.dragen_log)
+
+        ## Check for the dragen log_file in either the seqscratch or the fastq16 directory
+        if os.path.isfile(self.dragen_log_seqscratch):
+            self.dlog = self.dragen_log_seqscratch
+            self.cmd = "grep 'duplicates marked' {0}".format(self.dragen_log_seqscratch)
+        elif os.path.isfile(self.dragen_log):
+            self.dlog = self.dragen_log
+            self.cmd = "grep 'duplicates marked' {0}".format(self.dragen_log)
+        else: ## Will fail out anyway when luigi will look for the dependency
+            self.dlog = self.dragen_log
+            self.cmd = "grep 'duplicates marked' {0}".format(self.dragen_log)
+            
         self.pipeline_step_id = get_pipeline_step_id(
             self.__class__.__name__,"seqdb")
         
@@ -2547,8 +2568,8 @@ class DuplicateMetrics(SGEJobTask):
         Dependencies for this task is the existence of the log file 
         """
         
-        return MyExtTask(self.dragen_log)
-
+        return MyExtTask(self.dlog)
+    
     def output(self):
         """
         """

@@ -3,9 +3,11 @@
 import argparse
 import MySQLdb
 import os
+import shlex
 import string
 import sys
 import subprocess
+import time
 from ConfigParser import SafeConfigParser
 from random import randint
 
@@ -21,84 +23,84 @@ def main(database,debug):
             read_default_file=parameters["DB_CONFIG_FILE"])
     curs = db.cursor()
 
-    number_of_jobs = get_avail_cores()
-
-    if debug:
-        print "Number of Jobs: {0}".format(number_of_jobs)
     run_samples(curs,debug)
 
 def run_samples(curs,debug):
     dragen_sample = get_next_sample(curs,debug)
+    number_of_jobs = get_avail_cores()
+    while dragen_sample and number_of_jobs > 0:
+        number_of_jobs = get_avail_cores()
 
-    while dragen_sample:
+        if debug:
+            print "Number of Jobs: {0}".format(number_of_jobs)
+            print dragen_sample
         if dragen_sample is None:
             print "No samples were found"
             sys.exit()
-
-        print dragen_sample
         add_to_tmp_gatk(curs,dragen_sample,debug)
         run_sample(curs,dragen_sample,debug)
 
-        exit()
+        number_of_jobs = 0
+
 def add_to_tmp_gatk(curs,dragen_sample,debug):
     dragen_id = dragen_sample[4]
-
     insert_query = ("INSERT INTO tmp_gatk "
-    "SELECT * FROM gatk_queue WHERE dragen_id={0}"
-    ).format(dragen_id)
-    rm_query = "DELETE FROM {0} WHERE dragen_id={1}".format("gatk_queue",dragen_id)
+                    "SELECT * FROM gatk_queue WHERE dragen_id={0}"
+                    ).format(dragen_id)
+    rm_query = "DELETE FROM gatk_queue WHERE dragen_id={}".format(dragen_id)
     if debug:
         print insert_query
         print rm_query
 
-    #curs.execute(insert_query)
-    #curs.execute(rm_query)
+    curs.execute(insert_query)
+    curs.execute(rm_query)
 
 def run_sample(curs,dragen_sample,debug):
     python2_7_7_loc = "/nfs/goldstein/software/python2.7.7/bin"
     end_module = "ArchiveSample"
     sample_name = dragen_sample[0]
-    sample_type = dragen_sample[1].upper()
+    sample_type = dragen_sample[1].lower()
+    pseudo_prepid = dragen_sample[2]
     capture_kit_info = get_capture_kit_info(curs,dragen_sample,debug)
 
-    if sample_type == 'CUSTOM CAPTURE':
+    if sample_type == 'custom capture':
         sample_type = sample_type.replace(" ","_")
-    else:
-        capture_kit_info[1] = ""
 
-    mkdir_cmd
-    rsync_cmd
     export_luigi_config_cmd = 'export LUIGI_CONFIG_PATH=/home/jb3816/github/dragen_pipe/dragen/python/luigi.cfg'
-
     luigi_cmd = ("export PATH={python2_7_7_loc}:$PATH ; "
-    "{python2_7_7_loc}/python2.7 -m luigi --module gatk_pipe {end_module} "
+    "{export_luigi_config_cmd} ; {python2_7_7_loc}/python2.7 "
+    "-m luigi --module gatk_pipe {end_module} "
     "--sample-name {sample_name} "
     "--capture-kit-bed {capture_kit_bed} "
     "--sample-type {sample_type} "
-    "--pseudo_prepid {pseudo_prepid} "
+    "--pseudo-prepid {pseudo_prepid} "
     "--no-tarball "
     "--poll-time 60 "
     "--worker-wait-interval 60 "
+    "--workers 3"
     ).format(capture_kit_bed=capture_kit_info[0],
             python2_7_7_loc=python2_7_7_loc,
             end_module=end_module,
+            export_luigi_config_cmd=export_luigi_config_cmd,
             sample_type=sample_type,
             sample_name=sample_name,
-            capture_kit_bed=capture_kit_info[1],
             pseudo_prepid=pseudo_prepid
             )
     if debug:
         print luigi_cmd
 
-    #run command
     FNULL = open(os.devnull, 'w')
-    subprocess.call(shlex.split(cmd),close_fds=True,stdout=FNULL)
+    subprocess.Popen(shlex.split(luigi_cmd),close_fds=True,stdout=FNULL,shell=True)
 
 def get_capture_kit_info(curs,dragen_sample,debug):
     capture_kit = dragen_sample[3]
-    query = ("SELECT DISTINCT region_file_lsrc,name "
-        "FROM captureKit WHERE prepT_name='{capture_kit}'"
-        ).format(capture_kit=capture_kit)
+    if dragen_sample[1] == 'genome':
+         query = ("SELECT DISTINCT region_file_lsrc,name "
+            "FROM captureKit WHERE prepT_name='Roche SeqCap EZ V3'")
+    else:
+        query = ("SELECT DISTINCT region_file_lsrc,name "
+            "FROM captureKit WHERE prepT_name='{capture_kit}'"
+            ).format(capture_kit=capture_kit)
 
     if debug:
         print query
@@ -110,7 +112,7 @@ def get_capture_kit_info(curs,dragen_sample,debug):
 
 def get_next_sample(curs,debug):
     query = ("SELECT sample_name,sample_type,pseudo_prepid,capture_kit,dragen_id "
-        "FROM dragen_queue "
+        "FROM gatk_queue "
         "WHERE PRIORITY < 99 "
         "ORDER BY PRIORITY ASC LIMIT 1 ")
 
@@ -123,7 +125,7 @@ def get_next_sample(curs,debug):
 
 
 def get_avail_cores():
-    cores_left_avail = 150
+    cores_left_avail = 200
     cores_per_pipeline = 4
 
     qstat_cmd = ['qstat','-g','c']
