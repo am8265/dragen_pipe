@@ -2542,24 +2542,29 @@ class DuplicateMetrics(SGEJobTask):
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
         kwargs["sample_name"] = self.sample_name
         super(DuplicateMetrics, self).__init__(*args, **kwargs)
-        
         self.log_dir = os.path.join(self.sample_dir,'logs')
         self.log_dir_seqscratch = os.path.join(self.sample_dir_seqscratch,'logs')
         self.dragen_log = os.path.join(self.log_dir,self.sample_name+'.'+self.pseudo_prepid+'.dragen.out')
         self.dragen_log_seqscratch = os.path.join(self.log_dir_seqscratch,self.sample_name+'.'+self.pseudo_prepid+'.dragen.out')
+        self.old_dragen_log = os.path.join(self.log_dir,self.sample_name+'.'+self.pseudo_prepid+'.dragen.log')
+        self.old_dragen_log_seqscratch = os.path.join(self.log_dir_seqscratch,self.sample_name+'.'+self.pseudo_prepid+'.dragen.log')
         self.output_file = os.path.join(self.sample_dir_seqscratch,self.sample_name+'.{0}.duplicates.txt'.format(self.pseudo_prepid))
 
         ## Check for the dragen log_file in either the seqscratch or the fastq16 directory
         if os.path.isfile(self.dragen_log_seqscratch):
             self.dlog = self.dragen_log_seqscratch
-            self.cmd = "grep 'duplicates marked' {0}".format(self.dragen_log_seqscratch)
+            self.cmd = "grep 'duplicates marked' {0}".format(self.dlog)
         elif os.path.isfile(self.dragen_log):
             self.dlog = self.dragen_log
-            self.cmd = "grep 'duplicates marked' {0}".format(self.dragen_log)
+        elif os.path.isfile(self.old_dragen_log):
+            self.dlog = self.old_dragen_log
+        elif os.path.isfile(self.old_dragen_log_seqscratch):
+            self.dlog = self.old_dragen_log
         else: ## Will fail out anyway when luigi will look for the dependency
             self.dlog = self.dragen_log
-            self.cmd = "grep 'duplicates marked' {0}".format(self.dragen_log)
+    
             
+        self.cmd = "grep 'duplicates marked' {0}".format(self.dlog)
         self.pipeline_step_id = get_pipeline_step_id(
             self.__class__.__name__,"seqdb")
         
