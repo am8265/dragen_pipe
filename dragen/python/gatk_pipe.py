@@ -73,6 +73,7 @@ class config(luigi.Config):
     snpEff = luigi.Parameter()
     tabix = luigi.Parameter()
     verifybamid = luigi.Parameter()
+    vcffilter = luigi.Parameter()
     #files
     bait_file = luigi.Parameter()
     bait_file_X = luigi.Parameter()
@@ -143,10 +144,9 @@ class qcmetrics(luigi.Config):
     total_indels = luigi.Parameter()
     pct_dbsnp_indels = luigi.Parameter()
     titv = luigi.Parameter()
-    alt_hom_X = luigi.Parameter()
-    num_hetX = luigi.Parameter()
-    num_homX = luigi.Parameter()
-    het_hom_X_ratio = luigi.Parameter()
+    homhet_ratio = luigi.Parameter()
+    snv_homhet_ratio = luigi.Parameter()
+    x_homhet_ratio = luigi.Parameter()
     contamination_value = luigi.Parameter()
 
 class CopyBam(SGEJobTask):
@@ -1947,15 +1947,9 @@ class ArchiveSample(SGEJobTask):
 
     def requires(self):
         yield self.clone(AnnotateVCF)
-        yield self.clone(CvgBinning)
         yield self.clone(GQBinning)
-        yield self.clone(AlignmentMetrics)
-        yield self.clone(RunCvgMetrics)
-        yield self.clone(DuplicateMetrics)
-        yield self.clone(VariantCallingMetrics)
-        yield self.clone(ContaminationCheck)
-        if get_productionvcf(self.pseudo_prepid,self.sample_name,self.sample_type) != None:
-            yield self.clone(GenotypeConcordance)
+        #yield self.clone(CvgBinning)
+        yield self.clone(UpdateSeqdbMetrics)
 
     def output(self):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
@@ -2927,7 +2921,8 @@ class UpdateSeqdbMetrics(SGEJobTask):
         self.contamination_out = os.path.join(self.sample_dir,"{0}.{1}.contamination.selfSM".format(self.sample_name,self.pseudo_prepid))
         ## The qc table to update
         self.qc_table = "seqdbClone"
-        
+        ## The new lean equivalent of seqdbClone 
+        self.master_table = "seqdbClone"
         self.DBID,self.prepID = getDBIDMaxPrepID(self.pseudo_prepid)        
         ## Get the id for this pipeline step
         self.pipeline_step_id = get_pipeline_step_id(
@@ -2959,7 +2954,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         Run this task
         """
 
-        self.LOG_FILE = open(self.log_file,'w')
+        #self.LOG_FILE = open(self.log_file,'w')
         self.update_alignment_metrics()
         self.update_coverage_metrics('all')
         self.update_coverage_metrics('ccds')
@@ -2967,11 +2962,11 @@ class UpdateSeqdbMetrics(SGEJobTask):
         self.update_coverage_metrics('Y')
         self.update_duplicates()
         self.update_variantcalling_metrics()
-        #self.update_genotype_concordance_metrics()
+        self.update_genotype_concordance_metrics()
         self.update_contamination_metrics()
-        print self.check_gender()
-        #self.update_qc_message()
-        self.LOG_FILE.close()
+        self.update_gender()
+        self.update_qc_message()
+        #self.LOG_FILE.close()
         """
         tries = 5
         self.LOG_FILE = open(self.log_file,'w')
@@ -3029,7 +3024,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         Returns : Boolean ; True/False
         """
 
-        if (check_alignment() and check_duplicates() and check_variantcalling() and check_concordance()):
+        if (self.check_alignment() and self.check_duplicates() and self.check_variantcalling() and self.check_coverage() and self.check_contamination(),self.check_gender()):
             return True
         else:
             return False
@@ -3042,10 +3037,30 @@ class UpdateSeqdbMetrics(SGEJobTask):
 
         self.failed_qc = "QC review needed"
         self.passed_qc = "Passed Bioinfo QC"
-        if check_qc():
-            return "QC Passed"
-        else:
-            return "QC Failed"
+        message=[]
+        if self.issue_contamination_warning == True: ## Check for contamination warning
+            message.append("Warning sample contamination is high, but below qc fail threshold")    
+        if self.check_qc():
+            print "QC Passed"
+        else: ## Check individual qc checks again for updating qc message
+            if not self.check_alignment():
+                message.append("Failed Alignment Check")
+            if not self.check_duplicates():
+                message.append("Failed Duplicate Check")
+            if not self.check_variantcalling():
+                message.append("Failed VariantCalling Check")
+            if not self.check_coverage():
+                message.append("Failed Coverage Check")
+            if not self.check_contamination():
+                message.append("Failed Contamination Check")
+            if not self.check_gender():
+                message.append("Failed Gender Check")
+            print "QC review needed"
+            
+        final_message = ';'.join(message)
+        print final_message
+        #updatedatabase(self.qc_table,QCMessage,final_message)
+        
         
     def updatedatabase(self,table_name,db_field,val):
         """
@@ -3191,8 +3206,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
                 line = line.strip('\n')
                 #self.updatedatabase(self.qc_table,qcmetrics().pct_duplicate_reads,line)
                 print qcmetrics().pct_duplicate_reads,line
-                
-                  
+                                  
     def update_variantcalling_metrics(self):
         """
         Function to update the Variant Calling Metrics
@@ -3218,8 +3232,21 @@ class UpdateSeqdbMetrics(SGEJobTask):
 
             titv = (((int(temp_hash['NOVEL_SNPS'])*float(temp_hash['NOVEL_TITV']) + (int(temp_hash['NUM_IN_DB_SNP'])*float(temp_hash['DBSNP_TITV']))))/int(temp_hash['TOTAL_SNPS']))
             #self.updatedatabase(self.qc_table,qcmetrics().titv,titv)
+            ## Note i make calls to helper functions in the same class to calculate the hom and het counts for different conditions 
+            homhet_ratio = float(self.get_hom_count())/float(self.get_het_count())
+            print homhet_ratio
+            #self.updatedatabase(self.qc_table,qcmetrics().homhet_ratio,homhet_ratio)            
+            snv_homhet_ratio = float(self.get_hom_count(False,False,True))/float(self.get_het_count(False,False,True))
+            print snv_homhet_ratio
+            #self.updatedatabase(self.qc_table,qcmetrics().snv_homhet_ratio,snv_homhet_ratio)
+            indel_homhet_ratio = float(self.get_hom_count(False,True,False))/float(self.get_het_count(False,True,False))
+            print indel_homhet_ratio
+            #self.updatedatabase(self.qc_table,qcmetrics().snv_homhet_ratio,indel_homhet_ratio)
+            x_homhet_ratio = float(self.get_hom_count(True))/float(self.get_het_count(True))
+            print x_homhet_ratio
+            #self.updatedatabase(self.qc_table,qcmetrics().x_homhet_ratio,x_homhet_ratio)
             
-    def update_genotypeconcordance_metrics(self):
+    def update_genotype_concordance_metrics(self):
         """
         Function to update the Genotype Concordance Metrics
         Makes a call to the generic updatedatabase function with the 
@@ -3229,14 +3256,16 @@ class UpdateSeqdbMetrics(SGEJobTask):
         Returns : Does not return anything
         """
 
-        self.geno_concordance_parse = {}
-        with open(self.genotype_concordance_out) as OUTFILE:
+        self.geno_concordance_parse = {'ALLELES_MATCH':1,'ALLELES_DO_NOT_MATCH':1,'EVAL_ONLY':1,'TRUTH_ONLY':1}
+        self.temp_genoconcordance = os.path.join(self.sample_dir,"temp_geno_concordance.txt")
+        cmd = """cat {0} | grep -A 2 "#:GATKTable:SiteConcordance_Summary:Site-level summary statistics"| grep -v "#" | awk -f transpose.awk > {1}""".format(self.geno_concordance_out,self.temp_genoconcordance)
+        with open(self.temp_genoconcordance) as OUTFILE:
             for line in OUTFILE:
                 field,val = line.strip().strip('\n').rstrip(' ').split(' ')[0:2]
                 if field in self.geno_concordance_parse.keys():
-                    db_field = self.geno_concordance_parse[field]
-                    print db_field,value
-                #self.updatedatabase(self.qc_table,db_field,val)
+                    self.geno_concordance_parse[field] = int(val)
+        concordance_metric = geno_concordance_parse['ALLELES_MATCH']/geno_concordance_parse['ALLELES_DO_NOT_MATCH'] + geno_concordance_parse['ALLELES_MATCH'] + geno_concordance_parse['EVAL_ONLY'] + geno_concordance_parse['TRUTH_ONLY']
+                #self.updatedatabase(self.qc_table,'ConcordanceProduction',concordance_metric)
                     
     def update_contamination_metrics(self):
         """
@@ -3258,6 +3287,53 @@ class UpdateSeqdbMetrics(SGEJobTask):
                     ## No need to loop further
                     break
 
+    def update_seqgender(self):
+        """
+        Calculates the X/Y coverage for Exomes and Genomes and updates the seq gender
+        based on existing rules : https://redmine.igm.cumc.columbia.edu/projects/biopipeline/wiki/Gender_checks
+        For custom capture regions the rules are more complicated. 
+        Also updates the database with het/hom ratio on X chromosome, the num_homX and the num_hetX
+        Args : Nothing
+        Returns : String; One of the following values : [Male,Female,Ambiguous]
+        """
+
+        if self.sample_type.upper() in ['EXOME','GENOME']:
+            query = """SELECT {0} FROM {1} WHERE CHGVID = '{2}' AND seqType = '{3}' AND prepid = '{4}'"""
+            result = self.get_metrics(query.format(qcmetrics().mean_X_cvg,self.qc_table,self.sample_name,self.sample_type,self.prepID))
+            if len(result) == 0:
+                seq_gender = 'Ambiguous'
+            else:
+                X_cvg = float(result[0][0])
+                result = self.get_metrics(query.format(qcmetrics().mean_Y_cvg,self.qc_table,self.sample_name,self.sample_type,self.prepID))
+                if len(result) == 0:
+                    seq_gender = 'Ambiguous'
+                else:
+                    Y_cvg = float(result[0][0])
+                    if X_cvg/Y_cvg < 2:
+                        seq_gender = 'M'
+                    elif X_cvg/Y_cvg > 5:
+                        seq_gender = 'F'
+                    else:
+                        seq_gender = 'Ambiguous'
+                        
+        else : ## Custom Capture Samples
+            het = self.get_het_count(sex=True)
+            hom = self.get_hom_count(sex=True)
+            if het == 0:
+                seq_gender = 'M'
+            elif hom == 0:
+                seq_gender = 'F'
+            elif float(het)/hom < 0.26:
+                seq_gender = 'M'
+            elif float(het)/hom > 0.58:
+                seq_gender = 'F'
+            else:
+                seq_gender = 'Ambiguous'
+
+        ## Update the database
+        #self.updatedatabase(self.qc_table,'SeqGender',seq_gender)
+        print seq_gender
+        
     def check_alignment(self):
         """
         Checks if the alignment metrics matches the appropriate thresholds
@@ -3276,14 +3352,17 @@ class UpdateSeqdbMetrics(SGEJobTask):
     def check_coverage(self):
         """
         Checks if the coverage metrics matches the appropriate thresholds
-        Currently using {}, will use the get_metrics
-        function to get the requisitve metric(s) required. 
+        Currently not using anything
 
         Args : Nothing
         Returns : Bool; True/False
         """
-        
-        return True
+
+        query = "SELECT {0},{1} FROM {2} WHERE CHGVID = {3} seqType = {4} AND prepid = {5}".format(qcmetrics().pct_bases5X,qcmetrics().mean_cvg,self.qc_table,self.sample_name,self.sample_type,self.prepID)
+        result = self.get_metrics(query)
+        pct_bases_5X = float(result[0][0])
+        mean_cvg = float(result[0][1])
+        return (pct_bases_5X >= 0.9 and mean_cvg >= 25)
     
     def check_duplicates(self):
         """
@@ -3304,50 +3383,6 @@ class UpdateSeqdbMetrics(SGEJobTask):
         else:
             return (perc_duplicate_reads <= 0.30)
         
-    def check_gender(self):
-        """
-        Calculates the X/Y coverage for Exomes and Genomes and returns the seq gender
-        based on existing rules : https://redmine.igm.cumc.columbia.edu/projects/biopipeline/wiki/Gender_checks
-        For custom capture regions the rules are more complicated. 
-        Also updates the database with het/hom ration on X chromosome, the num_homX and the num_hetX
-        Args : Nothing
-        Returns : String; One of the following values : [Male,Female,Ambiguous]
-        """
-
-        if self.sample_type.upper() in ['EXOME','GENOME']:
-            query = """SELECT {0} FROM {1} WHERE CHGVID = '{2}' AND seqType = '{3}' AND prepid = '{4}'"""
-            result = self.get_metrics(query.format(qcmetrics().mean_X_cvg,self.qc_table,self.sample_name,self.sample_type,self.prepID))
-            if len(result) == 0:
-                return 'Ambiguous'
-            X_cvg = float(result[0][0])
-            result = self.get_metrics(query.format(qcmetrics().mean_Y_cvg,self.qc_table,self.sample_name,self.sample_type,self.prepID))
-            if len(result) == 0:
-                return 'Ambiguous'
-            Y_cvg = float(result[0][0])
-            if X_cvg/Y_cvg < 2:
-                return 'Male'
-            elif X_cvg/Y_cvg > 5:
-                return 'Female'
-            else:
-                return 'Ambiguous'
-            
-        else : ## Custom Capture Samples
-            het = self.get_het_count(sex=True)
-            hom = self.get_hom_count(sex=True)
-            ## Update database with these values as well
-            #self.updatedatabase(self.qc_table,db_field,het)
-            #self.updatedatabase(self.qc_table,db_field,hom)
-            #self.updatedatabase(self.qc_table,db_field,float(het)/hom)
-            if het == 0:
-                return 'Male'
-            elif hom == 0:
-                return 'Female'
-            elif float(het)/hom < 0.26:
-                return 'Male'
-            elif float(het)/hom > 0.58:
-                return 'Female'
-            else:
-                return 'Ambiguous'
 
     def check_variantcalling(self,num_snvs):
         """
@@ -3367,8 +3402,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
     def check_concordance(self):
         """
         Checks if the concordance metrics matches the appropriate thresholds
-        Currently using only the , will use the get_metrics
-        function to get the requisitve metric(s) required. 
+        Currently not using anything 
 
         Args : Nothing
         Returns : Bool; True/False
@@ -3385,26 +3419,36 @@ class UpdateSeqdbMetrics(SGEJobTask):
         Args : Nothing
         Returns : Bool; True/False
         """
+
+        self.issue_contamination_warning = False
         query = "SELECT {0} FROM {1} WHERE CHGVID = {2} seqType = {3} AND prepid = {4}".format(qcmetrics().contamination_value,self.qc_table,self.sample_name,self.sample_type,self.prepID)
         result = get_metrics(query)
         contamination_value = float(result[0][0])
         if contamination_value > 0.05 and contamination_value < 0.08:
-            self.issue_contamination_warning()
+            self.issue_contamination_warning = True
             return True
         elif contamination_value > 0.08:
             return False
         else:
             return True
-    
-    def issue_contamination_warning(self):
+                
+    def check_gender(self):
         """
-        This function is called when the contamination value is between 0.05 and 0.08 
-        Will update the appropriate column / or issue warning
+        Query seqdbClone and check whether the seq and selfdecl gender matchup
+        Args : Nothing
+        Returns : Bool; True/False
         """
 
-        print >> LOG_FILE, "Warning !!! Contamination has exceeded 0.05"
+        query = "SELECT {0} FROM {1} WHERE CHGVID = {2} AND seqType = {3} AND prepid = {4}"
+        q1 = query.format('SelfDeclGender',self.master_table,self.sample_name,self.sample_type,self.prepID)
+        result = get_metrics(query)
+        selfdecl_gender = result[0][0]
+        q2 = query.format('SeqGender',self.master_table,self.sample_name,self.sample_type,self.prepID)
+        result = get_metrics(query)
+        seq_gender = result[0][0]
+        return (selfdecl_gender == seq_gender)
         
-    def get_hom_count(self,sex=False,indel=True,snv=True):
+    def get_hom_count(self,sex=False,indel=True,snv=True,**kwargs):
         """
         Returns number of homozygous sites in the vcf
         matching certain conditions
@@ -3415,22 +3459,30 @@ class UpdateSeqdbMetrics(SGEJobTask):
                snv ; Bool ; If the full vcf, then whether to restrict only to snv
                Note : only one of snv or indel can be False
 
-        Returns : Int; Count for the number of het sites
+        Returns : Int; Count for the number of hom sites
         """
 
+        ## Override default arguments if they are present 
+        if 'sex' in kwargs:
+            sex = kwargs['sex']
+        if 'indel' in kwargs:
+            indel = kwargs['indel']
+        if 'snv' in kwargs:
+            snv = kwargs['snv']
+        
         if sex == True: ## We will always use both snps and indels on the X chromosome
-            self.get_het_cmd = """ zcat | grep -v "#" | grep "^X" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1==$2{print}'| wc -l"""
+            self.get_hom_cmd = """ %s -f "MQ > 39 & QD > 1" -g "GQ > 19" %s | grep -v "#" | grep "^X" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1==$2{{print}}'| wc -l"""%(config().vcffilter,self.annotated_vcf_gz)
         elif indel == False: ## Only SNPs
-            self.get_het_cmd = """ zcat | grep -v "#" | grep -v "INDEL" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1==$2{print}'| wc -l"""
+            self.get_hom_cmd = """ zcat %s | grep -v "#" | grep -v "INDEL" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1==$2{{print}}'| wc -l"""%(self.annotated_vcf_gz)
         elif snv == False: ## Only Indels
-            self.get_het_cmd = """ zcat | grep -v "#" | grep "INDEL" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1==$2{print}'| wc -l"""
+            self.get_hom_cmd = """ zcat %s | grep -v "#" | grep "INDEL" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1==$2{{print}}'| wc -l"""%(self.annotated_vcf_gz)
         else: ## Both SNPs and Indels
-            self.get_het_cmd = """ zcat | grep -v "#" | grep "INDEL" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1==$2{print}'| wc -l"""
-            
-        proc = subprocess.Popen(get_het_cmd.format(self.annotated_vcf_gz),shell=True,stdout=subprocess.PIPE)
+            self.get_hom_cmd = """ zcat %s | grep -v "#" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1==$2{{print}}'| wc -l"""%(self.annotated_vcf_gz)
+        
+        proc = subprocess.Popen(self.get_hom_cmd.format(self.annotated_vcf_gz),shell=True,stdout=subprocess.PIPE)
         proc.wait()
-        if proc.returncode:
-            print >> self.LOG_FILE,subprocess.CalledProcessError(proc.returncode,self.get_het_cmd)
+        #if proc.returncode:
+            #print >> self.LOG_FILE,subprocess.CalledProcessError(proc.returncode,self.get_het_cmd)
             
         return int(proc.stdout.read().strip('\n'))
         
@@ -3448,18 +3500,18 @@ class UpdateSeqdbMetrics(SGEJobTask):
         Returns : Int; Count for the number of het sites
         """
 
-        if sex == True: ## We will always use both snps and indels on the X chromosome
-            self.get_het_cmd = """ zcat | grep -v "#" | grep "^X" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1!=$2{print}'| wc -l"""
+        if sex == True: ## We will always use both snps and indels on the X chromosome, there are some additional filtering criteria which are being applied, see here for more details : https://redmine.igm.cumc.columbia.edu/projects/biopipeline/wiki/Gender_checks
+            self.get_het_cmd = """ %s -f "MQ > 39 & QD > 1" -g "GQ > 19" %s| grep -v "#" | grep "^X" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1!=$2{{print}}'| wc -l"""%(config().vcffilter,self.annotated_vcf_gz)
         elif indel == False: ## Only SNPs
-            self.get_het_cmd = """ zcat | grep -v "#" | grep -v "INDEL" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1!=$2{print}'| wc -l"""
+            self.get_het_cmd = """ zcat %s | grep -v "#" | grep -v "INDEL" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1!=$2{{print}}'| wc -l"""%(self.annotated_vcf_gz)
         elif snv == False: ## Only Indels
-            self.get_het_cmd = """ zcat | grep -v "#" | grep "INDEL" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1!=$2{print}'| wc -l"""
+            self.get_het_cmd = """ zcat %s | grep -v "#" | grep "INDEL" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1!=$2{{print}}'| wc -l"""%(self.annotated_vcf_gz)
         else: ## Both SNPs and Indels
-            self.get_het_cmd = """ zcat | grep -v "#" | grep "INDEL" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1!=$2{print}'| wc -l"""
+            self.get_het_cmd = """ zcat %s | grep -v "#" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1!=$2{{print}}'| wc -l"""%(self.annotated_vcf_gz)
             
-        proc = subprocess.Popen(get_het_cmd.format(self.annotated_vcf_gz),shell=True,stdout=subprocess.PIPE)
+        proc = subprocess.Popen(self.get_het_cmd.format(self.annotated_vcf_gz),shell=True,stdout=subprocess.PIPE)
         proc.wait()
-        if proc.returncode:
-            print >> self.LOG_FILE,subprocess.CalledProcessError(proc.returncode,self.get_het_cmd)
+        #if proc.returncode:
+            #print >> self.LOG_FILE,subprocess.CalledProcessError(proc.returncode,self.get_het_cmd)
             
         return int(proc.stdout.read().strip('\n'))
