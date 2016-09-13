@@ -1,6 +1,6 @@
 #!/nfs/goldstein/software/python2.7/bin/python2.7.7
 """
-Takes a list of samples and imports them into dragen_queue
+Takes a sample and imports them into dragen_queue
 """
 import argparse
 import MySQLdb
