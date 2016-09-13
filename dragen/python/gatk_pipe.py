@@ -2416,8 +2416,7 @@ class AlignmentMetrics(SGEJobTask):
         run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
                      [self.cmd,self.parser_cmd,self.remove_cmd],self.sample_name,
                      self.__class__.__name__)
-
-        
+       
 class RunCvgMetrics(SGEJobTask):
     """ 
     A luigi task
@@ -2477,7 +2476,9 @@ class RunCvgMetrics(SGEJobTask):
             self.cvg_cmd3 =self.cvg_cmd.format(config().java,config().picard,config().bait_file_X,config().bait_file_X,self.recal_bam,self.raw_output_file_X,self.log_file)
             self.cvg_cmd4 = self.cvg_cmd.format(config().java,config().picard,config().bait_file_Y,config().bait_file_Y,self.recal_bam,self.raw_output_file_Y,self.log_file)
 
+            ## Need to get 5X coverage from GATK's DepthOfCoverage since Picard does not output this :-/
 
+            
         self.parser_cmd = """cat {0} | grep -v "^#" | awk -f {1} > {2}"""
         self.parser_cmd1 = self.parser_cmd.format(self.raw_output_file_ccds,config().transpose_awk,self.output_file_ccds)
         self.parser_cmd2 = self.parser_cmd.format(self.raw_output_file,config().transpose_awk,self.output_file)
@@ -2512,8 +2513,7 @@ class RunCvgMetrics(SGEJobTask):
                       self.parser_cmd2,self.cvg_cmd3,self.parser_cmd3,
                       self.cvg_cmd4,self.parser_cmd4,self.remove_cmd],
                      self.sample_name,self.__class__.__name__)
-
-        
+       
 class DuplicateMetrics(SGEJobTask):
     """
     Parse Duplicate Metrics from dragen logs
@@ -2686,8 +2686,7 @@ class VariantCallingMetrics(SGEJobTask):
         run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
                      [self.cmd,self.parser_cmd,self.remove_cmd1,
                       self.remove_cmd2],self.sample_name,self.__class__.__name__)
-        
-        
+                
 class GenotypeConcordance(SGEJobTask):
     """
     Run the gatk tool for evaluation of the variant calls
@@ -2954,7 +2953,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         Run this task
         """
 
-        #self.LOG_FILE = open(self.log_file,'w')
+        self.LOG_FILE = open(self.log_file,'w')
         self.update_alignment_metrics()
         self.update_coverage_metrics('all')
         self.update_coverage_metrics('ccds')
@@ -2964,9 +2963,9 @@ class UpdateSeqdbMetrics(SGEJobTask):
         self.update_variantcalling_metrics()
         self.update_genotype_concordance_metrics()
         self.update_contamination_metrics()
-        self.update_gender()
+        self.update_seqgender()
         self.update_qc_message()
-        #self.LOG_FILE.close()
+        self.LOG_FILE.close()
         """
         tries = 5
         self.LOG_FILE = open(self.log_file,'w')
@@ -3038,10 +3037,10 @@ class UpdateSeqdbMetrics(SGEJobTask):
         self.failed_qc = "QC review needed"
         self.passed_qc = "Passed Bioinfo QC"
         message=[]
-        if self.issue_contamination_warning == True: ## Check for contamination warning
-            message.append("Warning sample contamination is high, but below qc fail threshold")    
         if self.check_qc():
             print "QC Passed"
+        if self.issue_contamination_warning == True: ## Check for contamination warning
+            message.append("Warning sample contamination is high, but below qc fail threshold")    
         else: ## Check individual qc checks again for updating qc message
             if not self.check_alignment():
                 message.append("Failed Alignment Check")
@@ -3154,8 +3153,8 @@ class UpdateSeqdbMetrics(SGEJobTask):
         Returns : Does not return anything
         """
         
-        self.cvg_bait_parse =  {'PCT_SELECTED_BASES':qcmetrics().capture_specificity,'MEAN_BAIT_COVERAGE':qcmetrics().mean_cvg,'PCT_TARGET_BASES_5X':qcmetrics().pct_bases5X,'PCT_TARGET_BASES10X':qcmetrics().pct_bases10X,'PCT_TARGET_BASES15X':qcmetrics().pct_bases15X,'PCT_TARGET_BASES20X':qcmetrics().pct_bases20X}
-        self.cvg_ccds_parse = {'MEAN_TARGET_COVERAGE':qcmetrics().mean_ccds_cvg,'PCT_TARGET_BASES5X':qcmetrics().pct_ccds_bases5X,'PCT_TARGET_BASES10X':qcmetrics().pct_ccds_bases10X,'PCT_TARGET_BASES15X':qcmetrics().pct_ccds_bases15X,'PCT_TARGET_BASES20X':qcmetrics().pct_ccds_bases20X}
+        self.cvg_bait_parse =  {'PCT_SELECTED_BASES':qcmetrics().capture_specificity,'MEAN_BAIT_COVERAGE':qcmetrics().mean_cvg,'PCT_TARGET_BASES_5X':qcmetrics().pct_bases5X,'PCT_TARGET_BASES_10X':qcmetrics().pct_bases10X,'PCT_TARGET_BASES_15X':qcmetrics().pct_bases15X,'PCT_TARGET_BASES_20X':qcmetrics().pct_bases20X}
+        self.cvg_ccds_parse = {'MEAN_TARGET_COVERAGE':qcmetrics().mean_ccds_cvg,'PCT_TARGET_BASES_5X':qcmetrics().pct_ccds_bases5X,'PCT_TARGET_BASES_10X':qcmetrics().pct_ccds_bases10X,'PCT_TARGET_BASES_15X':qcmetrics().pct_ccds_bases15X,'PCT_TARGET_BASES20X':qcmetrics().pct_ccds_bases20X}
         self.cvg_X_parse = {'MEAN_TARGET_COVERAGE':qcmetrics().mean_X_cvg}
         self.cvg_Y_parse = {'MEAN_TARGET_COVERAGE':qcmetrics().mean_Y_cvg}
         self.cvg_wgs_parse = {'MEAN_COVERAGE','MEDIAN_COVERAGE','PCT_5X','PCT_10X','PCT_15X','PCT_20X'}
@@ -3183,7 +3182,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         with open(metrics_file) as OUTFILE:
             for line in OUTFILE:
                 contents = line.strip().strip('\n').rstrip(' ').split(' ')
-                if len(contents) == 4:
+                if len(contents) == 2:
                     field = contents[0]
                     val = contents[-1]
                     if field in metrics_hash.keys():
@@ -3240,7 +3239,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
             print snv_homhet_ratio
             #self.updatedatabase(self.qc_table,qcmetrics().snv_homhet_ratio,snv_homhet_ratio)
             indel_homhet_ratio = float(self.get_hom_count(False,True,False))/float(self.get_het_count(False,True,False))
-            print indel_homhet_ratio
+            print indel_homhet_ratio,float(self.get_hom_count(False,True,False)),float(self.get_het_count(False,True,False))
             #self.updatedatabase(self.qc_table,qcmetrics().snv_homhet_ratio,indel_homhet_ratio)
             x_homhet_ratio = float(self.get_hom_count(True))/float(self.get_het_count(True))
             print x_homhet_ratio
@@ -3258,13 +3257,17 @@ class UpdateSeqdbMetrics(SGEJobTask):
 
         self.geno_concordance_parse = {'ALLELES_MATCH':1,'ALLELES_DO_NOT_MATCH':1,'EVAL_ONLY':1,'TRUTH_ONLY':1}
         self.temp_genoconcordance = os.path.join(self.sample_dir,"temp_geno_concordance.txt")
-        cmd = """cat {0} | grep -A 2 "#:GATKTable:SiteConcordance_Summary:Site-level summary statistics"| grep -v "#" | awk -f transpose.awk > {1}""".format(self.geno_concordance_out,self.temp_genoconcordance)
-        with open(self.temp_genoconcordance) as OUTFILE:
+        cmd = """cat {0} | grep -A 2 "#:GATKTable:SiteConcordance_Summary:Site-level summary statistics"| grep -v "#" | awk -f {1} > {2}""".format(self.geno_concordance_out,config().transpose_awk,self.temp_genoconcordance)
+        proc = subprocess.Popen(cmd,shell=True,stdout=subprocess.PIPE)
+        proc.wait()
+        if proc.returncode:
+            print >> self.LOG_FILE,subprocess.CalledProcessError(proc.returncode,self.get_het_cmd)        
+        with open(self.temp_genoconcordance,'r') as OUTFILE:
             for line in OUTFILE:
                 field,val = line.strip().strip('\n').rstrip(' ').split(' ')[0:2]
                 if field in self.geno_concordance_parse.keys():
                     self.geno_concordance_parse[field] = int(val)
-        concordance_metric = geno_concordance_parse['ALLELES_MATCH']/geno_concordance_parse['ALLELES_DO_NOT_MATCH'] + geno_concordance_parse['ALLELES_MATCH'] + geno_concordance_parse['EVAL_ONLY'] + geno_concordance_parse['TRUTH_ONLY']
+        concordance_metric = self.geno_concordance_parse['ALLELES_MATCH']/self.geno_concordance_parse['ALLELES_DO_NOT_MATCH'] + self.geno_concordance_parse['ALLELES_MATCH'] + self.geno_concordance_parse['EVAL_ONLY'] + self.geno_concordance_parse['TRUTH_ONLY']
                 #self.updatedatabase(self.qc_table,'ConcordanceProduction',concordance_metric)
                     
     def update_contamination_metrics(self):
@@ -3344,7 +3347,8 @@ class UpdateSeqdbMetrics(SGEJobTask):
         Returns : Bool; True/False
         """
 
-        query = "SELECT {0} FROM {1} WHERE CHGVID = {2} seqType = {3} AND prepid = {4}".format(qcmetrics().perc_reads_aligned,self.qc_table,self.sample_name,self.sample_type,self.prepID)
+        query = """SELECT {0} FROM {1} WHERE CHGVID = '{2}' AND seqType = '{3}' AND prepid = '{4}'""".format(qcmetrics().pct_reads_aligned,self.qc_table,self.sample_name,self.sample_type,self.prepID)
+        print query 
         result = self.get_metrics(query)
         perc_reads_aligned = float(result[0][0])
         return (perc_reads_aligned >= 0.70)
@@ -3358,7 +3362,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         Returns : Bool; True/False
         """
 
-        query = "SELECT {0},{1} FROM {2} WHERE CHGVID = {3} seqType = {4} AND prepid = {5}".format(qcmetrics().pct_bases5X,qcmetrics().mean_cvg,self.qc_table,self.sample_name,self.sample_type,self.prepID)
+        query = """SELECT {0},{1} FROM {2} WHERE CHGVID = '{3}' AND seqType = '{4}' AND prepid = '{5}'""".format(qcmetrics().pct_bases5X,qcmetrics().mean_cvg,self.qc_table,self.sample_name,self.sample_type,self.prepID)
         result = self.get_metrics(query)
         pct_bases_5X = float(result[0][0])
         mean_cvg = float(result[0][1])
@@ -3374,7 +3378,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         Returns : Bool; True/False
         """
         
-        query = "SELECT {0} FROM {1} WHERE CHGVID = {2} seqType = {3} AND prepid = {4}".format(qcmetrics().perc_duplicate_reads,self.qc_table,self.sample_name,self.sample_type,self.prepID)
+        query = """SELECT {0} FROM {1} WHERE CHGVID = '{2}' AND seqType = '{3}' AND prepid = '{4}'""".format(qcmetrics().pct_duplicate_reads,self.qc_table,self.sample_name,self.sample_type,self.prepID)
         result = self.get_metrics(query)
         perc_duplicate_reads = float(result[0][0])
         if self.sample_type.upper() == 'GENOME':
@@ -3384,7 +3388,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
             return (perc_duplicate_reads <= 0.30)
         
 
-    def check_variantcalling(self,num_snvs):
+    def check_variantcalling(self):
         """
         Checks if the concordance metrics matches the appropriate thresholds
         Currently using only the , will use the get_metrics
@@ -3394,6 +3398,10 @@ class UpdateSeqdbMetrics(SGEJobTask):
         Returns : Bool; True/False
         """
 
+        query = """SELECT {0} FROM {1} WHERE CHGVID = '{2}'AND seqType = '{3}' AND prepid = '{4}'""".format(qcmetrics().total_snps,self.qc_table,self.sample_name,self.sample_type,self.prepID)
+        result = self.get_metrics(query)
+        num_snvs = int(result[0][0])
+        
         if self.sample_type.upper() == 'GENOME':
             return (int(num_snvs) > 3000000)
         else:
@@ -3421,8 +3429,8 @@ class UpdateSeqdbMetrics(SGEJobTask):
         """
 
         self.issue_contamination_warning = False
-        query = "SELECT {0} FROM {1} WHERE CHGVID = {2} seqType = {3} AND prepid = {4}".format(qcmetrics().contamination_value,self.qc_table,self.sample_name,self.sample_type,self.prepID)
-        result = get_metrics(query)
+        query = """SELECT {0} FROM {1} WHERE CHGVID = '{2}' AND seqType = '{3}' AND prepid = '{4}'""".format(qcmetrics().contamination_value,self.qc_table,self.sample_name,self.sample_type,self.prepID)
+        result = self.get_metrics(query)
         contamination_value = float(result[0][0])
         if contamination_value > 0.05 and contamination_value < 0.08:
             self.issue_contamination_warning = True
@@ -3439,12 +3447,12 @@ class UpdateSeqdbMetrics(SGEJobTask):
         Returns : Bool; True/False
         """
 
-        query = "SELECT {0} FROM {1} WHERE CHGVID = {2} AND seqType = {3} AND prepid = {4}"
+        query = """SELECT {0} FROM {1} WHERE CHGVID = '{2}' AND seqType = '{3}' AND prepid = '{4}'"""
         q1 = query.format('SelfDeclGender',self.master_table,self.sample_name,self.sample_type,self.prepID)
-        result = get_metrics(query)
+        result = self.get_metrics(query)
         selfdecl_gender = result[0][0]
         q2 = query.format('SeqGender',self.master_table,self.sample_name,self.sample_type,self.prepID)
-        result = get_metrics(query)
+        result = self.get_metrics(query)
         seq_gender = result[0][0]
         return (selfdecl_gender == seq_gender)
         
