@@ -75,7 +75,9 @@ def get_fastq_loc(curs, sample):
             Secondly when external samples are archived sometimes the FCIllumID
             is preserved otherwise its enumerated."""
 
+            #for externally submitted samples
             if seqsatalocs[0][1][0] == 'X':
+                #for read group folder named as 1,2.3..etc
                 fastq_loc = glob(('/nfs/seqsata*/seqfinal/whole_genome/{}/[0-9]'
                                 ).format(sample['sample_name']))
                 if fastq_loc:
@@ -83,10 +85,12 @@ def get_fastq_loc(curs, sample):
                         locs.append(os.path.realpath(flowcell))
                 elif glob(('/nfs/seqsata*/seqfinal/whole_genome/{}/*XX'
                     ).format(sample['sample_name'])) != []:
+                    #for read group with actual flowcell name
                     fastq_loc = glob(('/nfs/seqsata*/seqfinal/whole_genome/{}/*XX'
                         ).format(sample['sample_name']))
                     for flowcell in fastq_loc:
                         locs.append(os.path.realpath(flowcell))
+                #on fastq16
                 else:
                     fastq_loc = glob(('/nfs/fastq1[0-9]/{}/{}/[0-9]'
                                 ).format(corrected_sample_type,sample['sample_name']))

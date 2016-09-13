@@ -15,26 +15,21 @@ from datetime import datetime
 from dragen_sample import dragen_sample
 from glob import glob
 
-def main(samples, debug, dontexecute, gvcf, database):
+def main(samples, debug, dontexecute, database):
     CNF = "/nfs/goldstein/software/dragen/dragen.cnf" # defaults file for pipeline
     config_parser = SafeConfigParser()
     config_parser.read(CNF)
     parameters = {}
-    for parameter in ("PYTHON", "REFERENCE_GENOME", "JAVA_1_8", "PIGZ",
-            "DB_CONFIG_FILE", "PICARD_JAR", "DRAGEN_CONFIG"):
+    for parameter in ("DB_CONFIG_FILE","DRAGEN_CONFIG"):
         parameters[parameter] = config_parser.get("dragen_pipe", parameter.upper())
 
     if debug:
         print "Parameters used: {0}".format(parameters)
-        if gvcf:
-            print 'gVCF mode activated'
-
-    db = MySQLdb.connect(db=database, read_default_group="clientsequencedb",
-            read_default_file=parameters["DB_CONFIG_FILE"])
-    curs = db.cursor()
 
     #Automated run
     if samples == True:
+        db = get_cursor(parameters,database)
+        curs = db.cursor()
         info = get_next_sample(curs,debug)
         if info is None:
             print "No samples were found"
@@ -43,30 +38,26 @@ def main(samples, debug, dontexecute, gvcf, database):
         while info is not None:
             dragen_id = info[4]
             sample = dragen_sample(info[0],info[1],info[2],info[3],curs)
-            single_sample_setup(curs,sample,parameters,gvcf,debug)
-            run_sample(curs,sample,dragen_id,dontexecute,debug)
+            single_sample_setup(curs,sample,parameters,debug)
+            db.close()
+            run_sample(sample,dragen_id,dontexecute,parameters,database,debug)
+            db = get_cursor(parameters,database)
+            curs = db.cursor()
             info = get_next_sample(curs,debug)
+            db.close()
 
-    #Run through a sample file
-    else:
-        for line in samples.readlines():
-            info = line.strip().split('\t')
-            prep_query = ("SELECT pseudo_prepid "
-                "FROM seqdbClone "
-                "WHERE CHGVID='{0}' AND seqtype ='{1}' "
-                "ORDER BY prepid desc limit 1"
-                ).format(info[0],info[1])
-            curs.execute(prep_query)
-            pseudo_prepid = curs.fetchone()
-            sample = dragen_sample(info[0],info[1],pseudo_prepid[0],info[2],curs)
-            single_sample_setup(curs,sample,parameters,gvcf,debug)
-            run_sample(curs,sample,0,dontexecute,debug)
+def get_cursor(parameters,database):
+    db = MySQLdb.connect(db=database, read_default_group="clientsequencedb",
+            read_default_file=parameters["DB_CONFIG_FILE"])
+    return db
 
-def run_sample(curs,sample,dragen_id,dontexecute,debug):
+def run_sample(sample,dragen_id,dontexecute,parameters,database,debug):
     output_dir = sample.metadata['output_dir']
     sample_bam = "{output_dir}/{sample_name}.bam".format(
             output_dir=output_dir,
             sample_name=sample.metadata['sample_name'])
+    db = get_cursor(parameters,database)
+    curs = db.cursor()
     if os.path.isfile(sample_bam) == False:
         cmd = ['dragen', '-f', '-v', '-c', sample.metadata['conf_file']]
         if debug:
@@ -76,6 +67,8 @@ def run_sample(curs,sample,dragen_id,dontexecute,debug):
         if dontexecute == False:
             if dragen_id != 0: # All manually run samples will have a dragen_id of 0
                 update_queue(curs,dragen_id,debug)
+
+            curs.close()
 
             with open(sample.metadata['dragen_stdout'],'a') as dragen_stdout:
 
@@ -91,9 +84,12 @@ def run_sample(curs,sample,dragen_id,dontexecute,debug):
             if debug:
                print "Dragen error code: {0}".format(error_code)
             if error_code == 0:
+                db = get_cursor(parameters,database)
+                curs = db.cursor()
+
                 insert_query = ("INSERT INTO gatk_queue "
-                "SELECT * FROM tmp_dragen WHERE dragen_id={0}"
-                ).format(dragen_id)
+                    "SELECT * FROM tmp_dragen WHERE dragen_id={0}"
+                    ).format(dragen_id)
                 rm_query = "DELETE FROM {0} WHERE dragen_id={1}".format("tmp_dragen",dragen_id)
                 if debug:
                     print insert_query
@@ -101,6 +97,7 @@ def run_sample(curs,sample,dragen_id,dontexecute,debug):
 
                 curs.execute(insert_query)
                 curs.execute(rm_query)
+                db.close()
 
             else:
                 print "Sample was not deleted from tmp_dragen due to error code: {0}".format(error_code)
@@ -112,6 +109,7 @@ def run_sample(curs,sample,dragen_id,dontexecute,debug):
     else:
         print "Sample {sample_name} bam file already exists!".format(sample_name=sample.metadata['sample_name'])
         update_queue(curs,dragen_id,debug)
+        db.close()
 
 def update_queue(curs,dragen_id,debug):
     insert_query = ("INSERT INTO tmp_dragen "
@@ -137,7 +135,7 @@ def set_seqtime(curs,sample):
         seqtime = '1970-1-1'
     sample.set('seqtime',seqtime)
 
-def single_sample_setup(curs,sample,parameters,gvcf,debug):
+def single_sample_setup(curs,sample,parameters,debug):
 
     setup_dir(curs,sample,debug)
     create_align_config(sample)
@@ -244,8 +242,6 @@ if __name__ == "__main__":
     # --> Add code to for custom config files <--#
     parser.add_argument("--dontexecute", default=False, action="store_true",
                         help="Perform setup but do not start a Dragen run")
-    parser.add_argument("--gvcf", default=False, action="store_true",
-                        help="Run dragen and product a gVCF")
     parser.add_argument("--test", default=False, action="store_true",
                         help="Query and updates to the database occur on the "
                         "test server")
@@ -266,5 +262,5 @@ if __name__ == "__main__":
         args.database="sequenceDB"
 
 
-    main(samples, args.debug, args.dontexecute, args.gvcf, args.database)
+    main(samples, args.debug, args.dontexecute, args.database)
 
