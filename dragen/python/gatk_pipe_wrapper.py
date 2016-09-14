@@ -65,10 +65,9 @@ def run_sample(curs,dragen_sample,debug):
 
     if sample_type == 'custom capture':
         sample_type = sample_type.replace(" ","_")
-
+    export_path_cmd = "export PATH={python2_7_7_loc}:$PATH".format(python2_7_7_loc=python2_7_7_loc)
     export_luigi_config_cmd = 'export LUIGI_CONFIG_PATH=/home/jb3816/github/dragen_pipe/dragen/python/luigi.cfg'
-    luigi_cmd = ("export PATH={python2_7_7_loc}:$PATH ; "
-    "{export_luigi_config_cmd} ; {python2_7_7_loc}/python2.7 "
+    luigi_cmd = ( "{python2_7_7_loc}/python2.7 "
     "-m luigi --module gatk_pipe {end_module} "
     "--sample-name {sample_name} "
     "--capture-kit-bed {capture_kit_bed} "
@@ -79,18 +78,19 @@ def run_sample(curs,dragen_sample,debug):
     "--worker-wait-interval 60 "
     "--workers 3"
     ).format(capture_kit_bed=capture_kit_info[0],
-            python2_7_7_loc=python2_7_7_loc,
             end_module=end_module,
-            export_luigi_config_cmd=export_luigi_config_cmd,
             sample_type=sample_type,
             sample_name=sample_name,
+            python2_7_7_loc=python2_7_7_loc,
             pseudo_prepid=pseudo_prepid
             )
     if debug:
         print luigi_cmd
-
-    FNULL = open(os.devnull, 'w')
-    subprocess.Popen(shlex.split(luigi_cmd),close_fds=True,stdout=FNULL,shell=True)
+    print export_path_cmd
+    subprocess.check_call(shlex.split(export_path_cmd),shell=True)
+    subprocess.check_call(shlex.split(export_luigi_config_cmd),shell=True)
+    proc = subprocess.Popen(shlex.split(luigi_cmd),close_fds=True,shell=True)
+    return proc
 
 def get_capture_kit_info(curs,dragen_sample,debug):
     capture_kit = dragen_sample[3]
