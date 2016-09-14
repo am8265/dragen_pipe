@@ -127,6 +127,8 @@ class qcmetrics(luigi.Config):
     pct_mismatch_rate = luigi.Parameter()
     capture_specificity = luigi.Parameter()
     mean_cvg = luigi.Parameter()
+    median_cvg = luigi.Parameter()
+    mean_median_cvg = luigi.Parameter()
     pct_bases5X = luigi.Parameter()
     pct_bases10X = luigi.Parameter()
     pct_bases15X = luigi.Parameter()
@@ -1950,6 +1952,7 @@ class ArchiveSample(SGEJobTask):
         yield self.clone(GQBinning)
         #yield self.clone(CvgBinning)
         yield self.clone(UpdateSeqdbMetrics)
+        
 
     def output(self):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
@@ -2451,39 +2454,62 @@ class RunCvgMetrics(SGEJobTask):
         self.raw_output_file_X = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.X.raw.txt")
         self.output_file_Y = os.path.join(self.sample_dir,self.sample_name+ ".{0}.cvg.metrics.Y.txt".format(self.pseudo_prepid))
         self.raw_output_file_Y = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.Y.raw.txt")
+        self.raw_output_file_cs = os.path.join(self.sample_dir,self.sample_name + ".cvg.metrics.cs.raw.txt")
+        self.output_file_cs = os.path.join(self.sample_dir,self.sample_name + "{0}.cvg.metrics.cs.txt".format(self.pseudo_prepid))
         self.target_file = config().target_file ## Targets here refers to ccds 
         self.log_dir = os.path.join(self.sample_dir,'logs')
         self.log_file = os.path.join(self.log_dir,self.sample_name+'.{0}.cvg.metrics.log'.format(self.pseudo_prepid))
+
+        self.DBID,self.prepID = getDBIDMaxPrepID(self.pseudo_prepid)
         
-        ## Define shell commands to be run
-        if self.sample_type.upper() == 'GENOME': ## If it is a genome sample
-            ## Run on the ccds regions only  
-            self.cvg_cmd = """{0} -Xmx{1}g -XX:ParallelGCThreads=4 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={3} I={4} INTERVALS={5} O={6}MQ=20 Q=10 2>>{6}"""
+        db = get_connection("seqdb")
+        cur = db.cursor()
+        query = """SELECT region_file_lsrc FROM captureKit INNER JOIN prepT ON prepT_name=prepT.exomeKit WHERE prepID = {0} AND (chr = 'X' OR chr = 'Y')""".format(self.prepID)
+        cur.execute(query)
+        db_val = cur.fetchall()
+        print db_val
+        self.capture_file_X = db_val[0][0]
+        self.capture_file_Y = db_val[1][0]
+
+        if self.sample_type.upper() == "GENOME":
+            ## Define shell commands to be run
+            self.cvg_cmd = """{0} -Xmx{1}g -XX:ParallelGCThreads=4 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={3} I={4} INTERVALS={5} O={6}MQ=20 Q=10 &>>{6}"""
+            ## Run on the ccds regions only
             self.cvg_cmd1 = self.cvg_cmd.format(config().java,config().max_mem,config().picard,config().ref,self.recal_bam,config().target_file,self.raw_output_file_ccds,self.log_file)
-            ## Run across the genome 
-            self.cvg_cmd2 = """{0} -Xmx{1}g -XX:ParallelGCThreads=4 -jar {2} CollectWgsMetrics R={3} I={4} O={5} MQ=20 Q=10 2>> {6}""".format(config().java,config().max_mem,config().picard,config().ref,self.recal_bam,self.raw_output_file,self.log_file)   
-            ## Run on X and Y Chromosomes only (across all regions there not just ccds) 
-            self.cvg_cmd3 = self.cvg_cmd.format(config().java,config().max_mem,config().picard,config().ref,self.recal_bam,config().target_file_X,self.raw_output_file_X,self.log_file)              
-            self.cvg_cmd4 = self.cvg_cmd.format(config().java,config().max_mem,config().picard,config().ref,self.recal_bam,config().target_file_Y,self.raw_output_file_Y,self.log_file)              
-                             
-        else: ## Anything other than genome i.e. Exome or Custom Capture( maybe have an elif here to check further ?)
-            self.cvg_cmd = """{0} -XX:ParallelGCThreads=4 -jar {1} CollectHsMetrics BI={2} TI={3} VALIDATION_STRINGENCY=LENIENT METRIC_ACCUMULATION_LEVEL=ALL_READS I={4} O={5} MQ=20 Q=10 2>> {6}"""
+            ## Run across the genome
+            self.cvg_cmd2 = """{0} -Xmx{1}g -XX:ParallelGCThreads=4 -jar {2} CollectWgsMetrics R={3} I={4} O={5} MQ=20 Q=10 &>> {6}""".format(config().java,config().max_mem,config().picard,config().ref,self.recal_bam,self.raw_output_file,self.log_file)
+            ## Run on X and Y Chromosomes only (across all regions there not just ccds)
+            self.cvg_cmd3 = self.cvg_cmd.format(config().java,config().max_mem,config().picard,config().ref,self.recal_bam,config().target_file_X,self.raw_output_file_X,self.log_file)
+            self.cvg_cmd4 = self.cvg_cmd.format(config().java,config().max_mem,config().picard,config().ref,self.recal_bam,config().target_file_Y,self.raw_output_file_Y,self.log_file)
+        else:
+            self.calc_capture_specificity = 1 ## We need to run an additional picard module for calculating capture specificity
+            self.cvg_cmd = "{0} -XX:ParallelGCThreads=4 -jar {1} -T DepthOfCoverage -mbq 10 -mmq 20 --omitIntervalStatistics --omitDepthOutputAtEachBase --omitLocusTable -R {2} -I {3} -ct 5 -ct 10 -ct 15 -ct 20 -L {4} -o {5} &>> {6}"
             ## Run across ccds regions
-            self.cvg_cmd1 = self.cvg_cmd.format(config().java,config().picard,config().bait_file,config().target_file,self.recal_bam,self.raw_output_file_ccds,self.log_file) 
-            ## Run across the baits i.e. capture kit regions
-            self.cvg_cmd2 = self.cvg_cmd.format(config().java,config().picard,config().bait_file,config().bait_file,self.recal_bam,self.raw_output_file,self.log_file)
-            ## Run the Metrics cvg metrics on X and Y Chromosomes only, note using the bait regions not ccds
-            self.cvg_cmd3 =self.cvg_cmd.format(config().java,config().picard,config().bait_file_X,config().bait_file_X,self.recal_bam,self.raw_output_file_X,self.log_file)
-            self.cvg_cmd4 = self.cvg_cmd.format(config().java,config().picard,config().bait_file_Y,config().bait_file_Y,self.recal_bam,self.raw_output_file_Y,self.log_file)
-
-            ## Need to get 5X coverage from GATK's DepthOfCoverage since Picard does not output this :-/
-
-            
+            self.cvg_cmd1 = self.cvg_cmd.format(config().java,config().gatk,config().ref,self.recal_bam,config().target_file,self.raw_output_file_ccds,self.log_file)
+            ## Run across capture kit regions
+            self.cvg_cmd2 = self.cvg_cmd.format(config().java,config().gatk,config().ref,self.recal_bam,self.capture_kit_bed,self.raw_output_file,self.log_file) 
+            ## Run on X and Y Chromosomes only (across all regions there not just ccds)
+            self.cvg_cmd3 = self.cvg_cmd.format(config().java,config().gatk,config().ref,self.recal_bam,self.capture_file_X,self.raw_output_file_X,self.log_file)
+            self.cvg_cmd4 = self.cvg_cmd.format(config().java,config().gatk,config().ref,self.recal_bam,self.capture_file_Y,self.raw_output_file_Y,self.log_file)
+            ## Run PicardHsMetrics for Capture Specificity
+            self.output_bait_file = os.path.join(self.sample_dir,'targets.interval')
+            self.convert_cmd = "{0} -jar {1} BedToIntervalList I={2} SD={3} OUTPUT={4}".format(config().java,config().picard,self.capture_kit_bed,config().seqdict_file,self.output_bait_file)
+            self.cvg_cmd5 = """{0} -XX:ParallelGCThreads=4 -jar {1} CollectHsMetrics BI={2} TI={3} VALIDATION_STRINGENCY=SILENT METRIC_ACCUMULATION_LEVEL=ALL_READS I={4} O={5} MQ=20 Q=10 &>> {6}""".format(config().java,config().picard,self.output_bait_file,self.output_bait_file,self.recal_bam,self.raw_output_file_cs,self.log_file)
+            ## DepthOfCoverage output has an extra suffix at the end
+            self.raw_output_file_ccds = self.raw_output_file_ccds+'.sample_summary'
+            self.raw_output_file = self.raw_output_file+'.sample_summary'
+            self.raw_output_file_X = self.raw_output_file_X+'.sample_summary'
+            self.raw_output_file_Y = self.raw_output_file_Y+'.sample_summary'
+    
+        ## An intermediate parsed file is created for extracting info for db update later, this remains the same for exomes and genomes
         self.parser_cmd = """cat {0} | grep -v "^#" | awk -f {1} > {2}"""
         self.parser_cmd1 = self.parser_cmd.format(self.raw_output_file_ccds,config().transpose_awk,self.output_file_ccds)
         self.parser_cmd2 = self.parser_cmd.format(self.raw_output_file,config().transpose_awk,self.output_file)
         self.parser_cmd3 = self.parser_cmd.format(self.raw_output_file_X,config().transpose_awk,self.output_file_X)
         self.parser_cmd4 = self.parser_cmd.format(self.raw_output_file_Y,config().transpose_awk,self.output_file_Y)
+        if self.sample_type.upper() != "GENOME": ## i.e. Exome or CustomCapture
+            self.parser_cmd5 = self.parser_cmd.format(self.raw_output_file_cs,config().transpose_awk,self.output_file_cs)
+            
         self.pipeline_step_id = get_pipeline_step_id(
             self.__class__.__name__,"seqdb")
         
@@ -2504,14 +2530,24 @@ class RunCvgMetrics(SGEJobTask):
         
     def work(self):
         """
-        Run Picard CalculateHsMetrics or WgsMetrics
+        Run Picard CalculateHsMetrics,DepthOfCoverage or CollectWgsMetrics
+        An optimization for the future is to split this up into multiple tasks since they are all independent 
+        of each other will speed things up significantly, IO can be an issue        
         """
+
         
-        self.remove_cmd = "rm {0}/*.cvg.metrics*raw*".format(self.sample_dir)
-        run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
-                     [self.cvg_cmd1,self.parser_cmd1,self.cvg_cmd2,
+        commands_run = [self.cvg_cmd1,self.parser_cmd1,self.cvg_cmd2,
                       self.parser_cmd2,self.cvg_cmd3,self.parser_cmd3,
-                      self.cvg_cmd4,self.parser_cmd4,self.remove_cmd],
+                      self.cvg_cmd4,self.parser_cmd4]
+        
+        commands_run = []
+        if self.sample_type.upper()!='GENOME': ## Append additional commands for capture specificity
+            commands_run.extend([self.convert_cmd,self.cvg_cmd5,self.parser_cmd5])
+
+        ## Add the remove commands for clearing temp files
+        remove_cmd = "rm {0}/*.cvg.metrics*raw*".format(self.sample_dir)
+        commands_run.append(remove_cmd)
+        run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,commands_run,
                      self.sample_name,self.__class__.__name__)
        
 class DuplicateMetrics(SGEJobTask):
@@ -2914,6 +2950,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         self.cvg_ccds_out = os.path.join(self.sample_dir,"{0}.{1}.cvg.metrics.ccds.txt".format(self.sample_name,self.pseudo_prepid))
         self.cvg_X_out = os.path.join(self.sample_dir,"{0}.{1}.cvg.metrics.X.txt".format(self.sample_name,self.pseudo_prepid))
         self.cvg_Y_out = os.path.join(self.sample_dir,"{0}.{1}.cvg.metrics.Y.txt".format(self.sample_name,self.pseudo_prepid))
+        self.cvg_cs_out = os.path.join(self.sample_dir,"{0}.{1}.cvg.metrics.cs.txt".format(self.sample_name,self.pseudo_prepid))
         self.dup_out = os.path.join(self.sample_dir,"{0}.{1}.duplicates.txt".format(self.sample_name,self.pseudo_prepid))
         self.variant_call_out = os.path.join(self.sample_dir,"{0}.{1}.variant_calling_summary_metrics".format(self.sample_name,self.pseudo_prepid))
         self.geno_concordance_out = os.path.join(self.sample_dir,"{0}.{1}.genotype_concordance_metrics".format(self.sample_name,self.pseudo_prepid))
@@ -2959,6 +2996,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         self.update_coverage_metrics('ccds')
         self.update_coverage_metrics('X')
         self.update_coverage_metrics('Y')
+        self.update_coverage_metrics('cs')
         self.update_duplicates()
         self.update_variantcalling_metrics()
         self.update_genotype_concordance_metrics()
@@ -3039,8 +3077,8 @@ class UpdateSeqdbMetrics(SGEJobTask):
         message=[]
         if self.check_qc():
             print "QC Passed"
-        if self.issue_contamination_warning == True: ## Check for contamination warning
-            message.append("Warning sample contamination is high, but below qc fail threshold")    
+            if self.issue_contamination_warning == True: ## Check for contamination warning
+                message.append("Warning sample contamination is high, but below qc fail threshold")    
         else: ## Check individual qc checks again for updating qc message
             if not self.check_alignment():
                 message.append("Failed Alignment Check")
@@ -3149,47 +3187,74 @@ class UpdateSeqdbMetrics(SGEJobTask):
         Makes a call to the generic updatedatabase function with the 
         appropriate database field and value to update with
 
-        Args : file_type ; String ; Can be one of the following : ['bait','target','X','Y']
+        Args : file_type ; String ; Can be one of the following : ['all','ccds','X','Y','cs']
         Returns : Does not return anything
         """
         
-        self.cvg_bait_parse =  {'PCT_SELECTED_BASES':qcmetrics().capture_specificity,'MEAN_BAIT_COVERAGE':qcmetrics().mean_cvg,'PCT_TARGET_BASES_5X':qcmetrics().pct_bases5X,'PCT_TARGET_BASES_10X':qcmetrics().pct_bases10X,'PCT_TARGET_BASES_15X':qcmetrics().pct_bases15X,'PCT_TARGET_BASES_20X':qcmetrics().pct_bases20X}
-        self.cvg_ccds_parse = {'MEAN_TARGET_COVERAGE':qcmetrics().mean_ccds_cvg,'PCT_TARGET_BASES_5X':qcmetrics().pct_ccds_bases5X,'PCT_TARGET_BASES_10X':qcmetrics().pct_ccds_bases10X,'PCT_TARGET_BASES_15X':qcmetrics().pct_ccds_bases15X,'PCT_TARGET_BASES20X':qcmetrics().pct_ccds_bases20X}
-        self.cvg_X_parse = {'MEAN_TARGET_COVERAGE':qcmetrics().mean_X_cvg}
-        self.cvg_Y_parse = {'MEAN_TARGET_COVERAGE':qcmetrics().mean_Y_cvg}
-        self.cvg_wgs_parse = {'MEAN_COVERAGE','MEDIAN_COVERAGE','PCT_5X','PCT_10X','PCT_15X','PCT_20X'}
+        self.cvg_exome_parse_ccds = {'mean':qcmetrics().mean_ccds_cvg,'%_bases_above_5':qcmetrics().pct_ccds_bases5X,'%_bases_above_10':qcmetrics().pct_ccds_bases10X,'%_bases_above_15':qcmetrics().pct_ccds_bases15X,'%_bases_above_20':qcmetrics().pct_ccds_bases20X}        
+        self.cvg_exome_parse = {'mean':qcmetrics().mean_cvg,'granular_median':qcmetrics().median_cvg,'%_bases_above_5':qcmetrics().pct_bases5X,'%_bases_above_10':qcmetrics().pct_bases10X,'%_bases_above_15':qcmetrics().pct_bases15X,'%_bases_above_20':qcmetrics().pct_bases20X}
+        self.cvg_exome_parse_X = {'mean':qcmetrics().mean_X_cvg}
+        self.cvg_exome_parse_Y = {'mean':qcmetrics().mean_Y_cvg}
+        self.cvg_exome_parse_cs = {'ON_BAIT_VS_SELECTED':qcmetrics().capture_specificity}
         
-        if file_type == 'all':
-            metrics_file = self.cvg_out
-            metrics_hash = self.cvg_bait_parse
-        elif file_type == 'ccds':
-            metrics_file = self.cvg_ccds_out
-            metrics_hash = self.cvg_ccds_parse
-        elif file_type == 'X':
-            metrics_file = self.cvg_X_out
-            metrics_hash = self.cvg_X_parse
-        elif file_type == 'Y':
-            metrics_file = self.cvg_Y_out
-            metrics_hash = self.cvg_Y_parse
-        else:
-            with open(self.log_file,'a') as LOG:
-                print >> LOG,"Wrong output type specified for coverage metrics output file, cannot update seqdb !"
+        self.cvg_wgs_parse_ccds = {'MEAN_COVERAGE':qcmetrics().mean_cvg,'PCT_5X':qcmetrics().pct_bases5X,'PCT_10X':qcmetrics().pct_bases10X,'PCT_15X':qcmetrics().pct_bases15X,'PCT_20X':qcmetrics().pct_bases20X}
+        self.cvg_wgs_parse_X = {'MEAN_COVERAGE':qcmetrics().mean_X_cvg}
+        self.cvg_wgs_parse_Y = {'MEAN_COVERAGE':qcmetrics().mean_Y_cvg}
+        self.cvg_wgs_parse = {'MEAN_COVERAGE':qcmetrics().mean_cvg,'MEDIAN_COVERAGE':qcmetrics().median_cvg,'PCT_5X':qcmetrics().pct_bases5X,'PCT_10X':qcmetrics().pct_bases10X,'PCT_15X':qcmetrics().pct_bases15X,'PCT_20X':qcmetrics().pct_bases20X}
 
         if self.sample_type.upper() == 'GENOME':
-            metrics_hash = self.cvg_wgs_parse
-        
+            if file_type == 'ccds':
+                metrics_hash = self.cvg_wgs_parse_ccds
+                metrics_file = self.cvg_ccds_out
+            elif file_type == 'X':
+                metrics_hash = self.cvg_wgs_parse_X
+                metrics_file = self.cvg_X_out
+            elif file_type == 'Y':
+                metrics_hash = self.cvg_wgs_parse_Y
+                metrics_file = self.cvg_Y_out
+            elif file_type == 'all':
+                metrics_hash = self.cvg_wgs_parse
+                metrics_file = self.cvg_out
+        else: ## Exome or custom capture
+            if file_type == 'ccds':
+                metrics_hash = self.cvg_exome_parse_ccds
+                metrics_file = self.cvg_ccds_out
+            elif file_type == 'X':
+                metrics_hash = self.cvg_exome_parse_X
+                metrics_file = self.cvg_X_out
+            elif file_type == 'Y':
+                metrics_hash = self.cvg_exome_parse_Y
+                metrics_file = self.cvg_Y_out
+            elif file_type == 'cs':
+                metrics_hash = self.cvg_exome_parse_cs
+                metrics_file = self.cvg_cs_out
+            elif file_type == 'all':
+                metrics_hash = self.cvg_exome_parse
+                metrics_file = self.cvg_out
             
         with open(metrics_file) as OUTFILE:
             for line in OUTFILE:
                 contents = line.strip().strip('\n').rstrip(' ').split(' ')
-                if len(contents) == 2:
+                if len(contents) > 1:
                     field = contents[0]
-                    val = contents[-1]
+                    val = contents[1]
                     if field in metrics_hash.keys():
                         db_field = metrics_hash[field]
                         #self.updatedatabase(self.qc_table,db_field,val)
                         print db_field,val
-
+                        if file_type == 'all':
+                            if db_field == 'OverallCoverage':
+                                mean_cvg = float(val)
+                            if db_field == 'MedianCoverage':
+                                median_cvg = float(val)
+                            
+            if file_type == 'all':
+                db_field = qcmetrics().mean_median_cvg
+                val = mean_cvg/median_cvg
+                print db_field,val
+                #self.updatedatabase(self.qc_table,db_field,val)
+            
+            
     def update_duplicates(self):
         """ 
         Function to update the Variant Calling Metrics
@@ -3449,10 +3514,10 @@ class UpdateSeqdbMetrics(SGEJobTask):
 
         query = """SELECT {0} FROM {1} WHERE CHGVID = '{2}' AND seqType = '{3}' AND prepid = '{4}'"""
         q1 = query.format('SelfDeclGender',self.master_table,self.sample_name,self.sample_type,self.prepID)
-        result = self.get_metrics(query)
+        result = self.get_metrics(q1)
         selfdecl_gender = result[0][0]
         q2 = query.format('SeqGender',self.master_table,self.sample_name,self.sample_type,self.prepID)
-        result = self.get_metrics(query)
+        result = self.get_metrics(q2)
         seq_gender = result[0][0]
         return (selfdecl_gender == seq_gender)
         
