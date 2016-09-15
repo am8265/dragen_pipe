@@ -140,6 +140,7 @@ class qcmetrics(luigi.Config):
     pct_ccds_bases20X = luigi.Parameter()
     mean_X_cvg = luigi.Parameter()
     mean_Y_cvg = luigi.Parameter()
+    xy_avg_ratio = luigi.Parameter()
     pct_duplicate_reads = luigi.Parameter()
     total_snps = luigi.Parameter()
     pct_dbsnp_snps = luigi.Parameter()
@@ -148,9 +149,11 @@ class qcmetrics(luigi.Config):
     titv = luigi.Parameter()
     homhet_ratio = luigi.Parameter()
     snv_homhet_ratio = luigi.Parameter()
+    indel_homhet_ratio = luigi.Parameter()
     x_homhet_ratio = luigi.Parameter()
     contamination_value = luigi.Parameter()
-
+    concordance = luigi.Parameter()
+    
 class CopyBam(SGEJobTask):
     """class for copying dragen aligned bam to a scratch location"""
     sample_name = luigi.Parameter()
@@ -1865,11 +1868,15 @@ class ArchiveSample(SGEJobTask):
         self.cvg_ccds_out = os.path.join(self.sample_dir,"{0}.{1}.cvg.metrics.ccds.txt".format(self.sample_name,self.pseudo_prepid))
         self.cvg_X_out = os.path.join(self.sample_dir,"{0}.{1}.cvg.metrics.X.txt".format(self.sample_name,self.pseudo_prepid))
         self.cvg_Y_out = os.path.join(self.sample_dir,"{0}.{1}.cvg.metrics.Y.txt".format(self.sample_name,self.pseudo_prepid))
+        if self.sample_type.upper() != 'GENOME': ## exome and custom captures will have capture specificity as well
+            self.cvg_cs_out = os.path.join(self.sample_dir,"{0}.{1}.cvg.metrics.cs.txt".format(self.sample_name,self.pseudo_prepid))
         self.dup_out = os.path.join(self.sample_dir,"{0}.{1}.duplicates.txt".format(self.sample_name,self.pseudo_prepid))
         self.variant_call_out = os.path.join(self.sample_dir,"{0}.{1}.variant_calling_summary_metrics".format(self.sample_name,self.pseudo_prepid))
         self.geno_concordance_out = os.path.join(self.sample_dir,"{0}.{1}.genotype_concordance_metrics".format(self.sample_name,self.pseudo_prepid))
         self.contamination_out = os.path.join(self.sample_dir,"{0}.{1}.contamination.selfSM".format(self.sample_name,self.pseudo_prepid))
-
+        self.cvg_binned = os.path.join(self.sample_dir,'cvg_binned')
+        self.gq_binned = os.path.join(self.sample_dir,'gq_binned')
+        
         db = get_connection("seqdb")
         try:
             cur = db.cursor()
@@ -1883,16 +1890,28 @@ class ArchiveSample(SGEJobTask):
     def work(self):
         db = get_connection("seqdb")
 
-        cmd = ("rsync -a --timeout=25000 -r "
-              "{script_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
-              "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
-              "{cvg_binned} {gq_binned} {alignment_out} 'cvg_out} "
-              "{cvg_ccds_out} {cvg_X_out} {cvg_Y_out} {dup_out} "
-              "{variant_call_out} {geno_concordance_out} {contamination_out}"
-              "{base_dir}"
-              "{variant_call_out} {geno_concordance_out} "
-              "{contamination_out} {base_dir}"
-              ).format(self.__dict__)
+        if self.sample_type.upper() != 'GENOME':
+            cmd = ("rsync -a --timeout=25000 -r "
+                   "{script_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
+                   "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
+                   "{cvg_binned} {gq_binned} {alignment_out} {cvg_out} "
+                   "{cvg_ccds_out} {cvg_X_out} {cvg_Y_out} {cvg_cs_out} {dup_out} "
+                   "{variant_call_out} {geno_concordance_out} {contamination_out}"
+                   "{base_dir}"
+                   "{variant_call_out} {geno_concordance_out} "
+                   "{contamination_out} {base_dir}"
+                   ).format(**self.__dict__)
+        else:
+            cmd = ("rsync -a --timeout=25000 -r "
+                  "{script_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
+                  "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
+                  "{cvg_binned} {gq_binned} {alignment_out} {cvg_out} "
+                  "{cvg_ccds_out} {cvg_X_out} {cvg_Y_out} {dup_out} "
+                  "{variant_call_out} {geno_concordance_out} {contamination_out}"
+                  "{base_dir}"
+                  "{variant_call_out} {geno_concordance_out} "
+                  "{contamination_out} {base_dir}"
+                  ).format(**self.__dict__)
 
         """
         cmd = ("rsync -a --timeout=25000 -r "
@@ -1950,7 +1969,7 @@ class ArchiveSample(SGEJobTask):
     def requires(self):
         yield self.clone(AnnotateVCF)
         yield self.clone(GQBinning)
-        #yield self.clone(CvgBinning)
+        yield self.clone(CvgBinning)
         yield self.clone(UpdateSeqdbMetrics)
         
 
@@ -2130,7 +2149,6 @@ def get_productionvcf(pseudo_prepid,sample_name,sample_type):
                        """ prepid = '{2}'""".format(
                            sample_name,sample_type,prepID)
                       )
-    print query_statement
     tries = 5
     for i in range(tries):
         try:
@@ -2200,9 +2218,11 @@ class CreateGenomeBed(SGEJobTask):
         self.output_dir = os.path.join(self.sample_dir,'cvg_binned')
         self.genomecov_bed = os.path.join(self.sample_dir,self.sample_name+'.genomecvg.bed')
         self.recal_bam = os.path.join(self.sample_dir,self.sample_name+'.{0}.realn.recal.bam'.format(self.pseudo_prepid))
-        self.genomecov_cmd = "{0} genomecov -bga -ibam {1} > {2}".format(
+        self.log_dir = os.path.join(self.sample_dir,'logs')
+        self.log_file = os.path.join(self.log_dir,self.sample_name+'.{0}.genomecov.log'.format(self.pseudo_prepid))
+        self.genomecov_cmd = "{0} genomecov -bga -ibam {1} 1>> {2} 2>> {3}".format(
                               config().bedtools,self.recal_bam,
-                              self.genomecov_bed)
+                              self.genomecov_bed,self.log_file)
         self.pipeline_step_id = get_pipeline_step_id(
             self.__class__.__name__,"seqdb")  
 
@@ -2470,7 +2490,8 @@ class RunCvgMetrics(SGEJobTask):
         print db_val
         self.capture_file_X = db_val[0][0]
         self.capture_file_Y = db_val[1][0]
-
+        db.close()
+        
         if self.sample_type.upper() == "GENOME":
             ## Define shell commands to be run
             self.cvg_cmd = """{0} -Xmx{1}g -XX:ParallelGCThreads=4 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={3} I={4} INTERVALS={5} O={6}MQ=20 Q=10 &>>{6}"""
@@ -2493,7 +2514,7 @@ class RunCvgMetrics(SGEJobTask):
             self.cvg_cmd4 = self.cvg_cmd.format(config().java,config().gatk,config().ref,self.recal_bam,self.capture_file_Y,self.raw_output_file_Y,self.log_file)
             ## Run PicardHsMetrics for Capture Specificity
             self.output_bait_file = os.path.join(self.sample_dir,'targets.interval')
-            self.convert_cmd = "{0} -jar {1} BedToIntervalList I={2} SD={3} OUTPUT={4}".format(config().java,config().picard,self.capture_kit_bed,config().seqdict_file,self.output_bait_file)
+            self.convert_cmd = "{0} -jar {1} BedToIntervalList I={2} SD={3} OUTPUT={4} &>> {5}".format(config().java,config().picard,self.capture_kit_bed,config().seqdict_file,self.output_bait_file,self.log_file)
             self.cvg_cmd5 = """{0} -XX:ParallelGCThreads=4 -jar {1} CollectHsMetrics BI={2} TI={3} VALIDATION_STRINGENCY=SILENT METRIC_ACCUMULATION_LEVEL=ALL_READS I={4} O={5} MQ=20 Q=10 &>> {6}""".format(config().java,config().picard,self.output_bait_file,self.output_bait_file,self.recal_bam,self.raw_output_file_cs,self.log_file)
             ## DepthOfCoverage output has an extra suffix at the end
             self.raw_output_file_ccds = self.raw_output_file_ccds+'.sample_summary'
@@ -2942,8 +2963,9 @@ class UpdateSeqdbMetrics(SGEJobTask):
         self.recal_bam = os.path.join(self.sample_dir,"{0}.{1}.realn.recal.bam".format(self.sample_name,self.pseudo_prepid))         
         ## Generic query to be used for updates 
         self.update_statement = """ UPDATE {0} SET {1} = '{2}' WHERE CHGVID = '{3}' AND seqType = '{4}' AND prepid = '{5}'"""
-        self.query_statement = """ SELECT {0} FROM {1} WHERE CHGVID = '{2}' AND seqType = '{3}' AND prepid = '{4}'"""
-        
+        self.query_statement = """ SELECT {0} FROM {1} WHERE CHGVID = '{2}' AND seqType = '{3}' AND prepid = {4}"""
+
+        self.issue_contamination_warning = False
         ## The output files from the tasks run 
         self.alignment_out = os.path.join(self.sample_dir,"{0}.{1}.alignment.metrics.txt".format(self.sample_name,self.pseudo_prepid))
         self.cvg_out = os.path.join(self.sample_dir,"{0}.{1}.cvg.metrics.txt".format(self.sample_name,self.pseudo_prepid))
@@ -2956,7 +2978,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         self.geno_concordance_out = os.path.join(self.sample_dir,"{0}.{1}.genotype_concordance_metrics".format(self.sample_name,self.pseudo_prepid))
         self.contamination_out = os.path.join(self.sample_dir,"{0}.{1}.contamination.selfSM".format(self.sample_name,self.pseudo_prepid))
         ## The qc table to update
-        self.qc_table = "seqdbClone"
+        self.qc_table = "qcTable"
         ## The new lean equivalent of seqdbClone 
         self.master_table = "seqdbClone"
         self.DBID,self.prepID = getDBIDMaxPrepID(self.pseudo_prepid)        
@@ -2990,23 +3012,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         Run this task
         """
 
-        self.LOG_FILE = open(self.log_file,'w')
-        self.update_alignment_metrics()
-        self.update_coverage_metrics('all')
-        self.update_coverage_metrics('ccds')
-        self.update_coverage_metrics('X')
-        self.update_coverage_metrics('Y')
-        self.update_coverage_metrics('cs')
-        self.update_duplicates()
-        self.update_variantcalling_metrics()
-        self.update_genotype_concordance_metrics()
-        self.update_contamination_metrics()
-        self.update_seqgender()
-        self.update_qc_message()
-        self.LOG_FILE.close()
-        """
         tries = 5
-        self.LOG_FILE = open(self.log_file,'w')
         for i in range(tries):
             try:
                 ## Get db connection and cursor
@@ -3014,29 +3020,32 @@ class UpdateSeqdbMetrics(SGEJobTask):
                 print db
                 cur = db.cursor()
                 ## Update pipeline start time
-                #cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
-                    #pseudo_prepid=self.pseudo_prepid,
-                    #pipeline_step_id=self.pipeline_step_id))
-                
+                cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
+                    pseudo_prepid=self.pseudo_prepid,
+                    pipeline_step_id=self.pipeline_step_id))
+                self.LOG_FILE = open(self.log_file,'w')
+                self.add_sample_to_qc()
                 self.update_alignment_metrics()
-                self.update_coverage_metrics('bait')
-                self.update_coverage_metrics('target')
+                self.update_coverage_metrics('all')
+                self.update_coverage_metrics('ccds')
                 self.update_coverage_metrics('X')
                 self.update_coverage_metrics('Y')
+                self.update_coverage_metrics('cs')
                 self.update_duplicates()
                 self.update_variantcalling_metrics()
-                #self.update_genotype_concordance_metrics()
+                if get_productionvcf(self.pseudo_prepid,self.sample_name,self.sample_type) != None:
+                    self.update_genotype_concordance_metrics()
                 self.update_contamination_metrics()
-                self.check_gender()
+                self.update_seqgender()
                 self.update_qc_message()
                 ## Update dragen_status
                 update_dragen_status(self.pseudo_prepid,self.sample_name,
                                      self.__class__.__name__,cur)
 
                 ## Update pipeline finish time
-                #cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
-                    #pseudo_prepid=self.pseudo_prepid,
-                    #pipeline_step_id=self.pipeline_step_id))
+                cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
+                    pseudo_prepid=self.pseudo_prepid,
+                    pipeline_step_id=self.pipeline_step_id))
                 
             except MySQLdb.Error, e:
                 if i > tries - 1:
@@ -3049,8 +3058,29 @@ class UpdateSeqdbMetrics(SGEJobTask):
                 if db.open:
                     db.close()
                 break ## Exit the loop since the work is complete
-            """
-                    
+            
+
+    def add_sample_to_qc(self):
+        """ 
+        Initialize the sample in the qc table, use update statements later to update qc metrics
+
+        Args : Nothing
+        
+        Returns : Nothing
+        """
+        
+        query = """INSERT INTO {0} (CHGVID,seqType,prepid) VALUES ('{1}','{2}',{3})""".format(self.qc_table,self.sample_name,self.sample_type,self.prepID)
+        try:
+            db = get_connection("seqdb")
+            cur = db.cursor()
+            cur.execute(query)
+            db.commit()
+        except MySQLdb.IntegrityError as e:
+            if not e[0] == 1062: ## The entry is present in the qc table
+                raise Exception("ERROR %d IN CONNECTION: %s" %(e.args[0],e.args[1]))
+            else:
+                print >> self.LOG_FILE,"MySQL error 1062: Duplicate primary key, this chgvid,prepid,seqtype was already present in the qc table!"
+                
     def check_qc(self):
         """
         Check if all the metrics meet the thresholds,will call individual
@@ -3080,12 +3110,14 @@ class UpdateSeqdbMetrics(SGEJobTask):
             if self.issue_contamination_warning == True: ## Check for contamination warning
                 message.append("Warning sample contamination is high, but below qc fail threshold")    
         else: ## Check individual qc checks again for updating qc message
+            if self.issue_contamination_warning == True: ## Check for contamination warning
+                message.append("Warning sample contamination is high, but below qc fail threshold")
             if not self.check_alignment():
                 message.append("Failed Alignment Check")
             if not self.check_duplicates():
                 message.append("Failed Duplicate Check")
             if not self.check_variantcalling():
-                message.append("Failed VariantCalling Check")
+                message.append("Failed VariantCallingCheck")
             if not self.check_coverage():
                 message.append("Failed Coverage Check")
             if not self.check_contamination():
@@ -3095,8 +3127,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
             print "QC review needed"
             
         final_message = ';'.join(message)
-        print final_message
-        #updatedatabase(self.qc_table,QCMessage,final_message)
+        self.updatedatabase(self.qc_table,'QCMessage',final_message)
         
         
     def updatedatabase(self,table_name,db_field,val):
@@ -3146,7 +3177,6 @@ class UpdateSeqdbMetrics(SGEJobTask):
                 cur = db.cursor()
                 cur.execute(query)
                 db_val = cur.fetchall()
-                print query,db_val
                 return db_val ## Pass control back
             except MySQLdb.Error, e:
                 if i == tries - 1:
@@ -3178,8 +3208,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
                     val = contents[-1]
                     if field in self.alignment_parse.keys():
                         db_field = self.alignment_parse[field]
-                        #self.updatedatabase(self.qc_table,db_field,val)
-                        print db_field,val
+                        self.updatedatabase(self.qc_table,db_field,val)
 
     def update_coverage_metrics(self,file_type):
         """
@@ -3240,8 +3269,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
                     val = contents[1]
                     if field in metrics_hash.keys():
                         db_field = metrics_hash[field]
-                        #self.updatedatabase(self.qc_table,db_field,val)
-                        print db_field,val
+                        self.updatedatabase(self.qc_table,db_field,val)
                         if file_type == 'all':
                             if db_field == 'OverallCoverage':
                                 mean_cvg = float(val)
@@ -3251,8 +3279,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
             if file_type == 'all':
                 db_field = qcmetrics().mean_median_cvg
                 val = mean_cvg/median_cvg
-                print db_field,val
-                #self.updatedatabase(self.qc_table,db_field,val)
+                self.updatedatabase(self.qc_table,db_field,val)
             
             
     def update_duplicates(self):
@@ -3268,8 +3295,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         with open(self.dup_out,'r') as OUTFILE:
             for line in OUTFILE:
                 line = line.strip('\n')
-                #self.updatedatabase(self.qc_table,qcmetrics().pct_duplicate_reads,line)
-                print qcmetrics().pct_duplicate_reads,line
+                self.updatedatabase(self.qc_table,qcmetrics().pct_duplicate_reads,line)
                                   
     def update_variantcalling_metrics(self):
         """
@@ -3290,25 +3316,24 @@ class UpdateSeqdbMetrics(SGEJobTask):
                 field,val = line.strip().strip('\n').rstrip(' ').split(' ')[0:2]
                 if field in self.variant_call_parse.keys():
                     db_field = self.variant_call_parse[field]
-                    #self.updatedatabase(self.qc_table,field,val)
-                    print field,val
+                    self.updatedatabase(self.qc_table,db_field,val)
                 temp_hash[field] = val
 
             titv = (((int(temp_hash['NOVEL_SNPS'])*float(temp_hash['NOVEL_TITV']) + (int(temp_hash['NUM_IN_DB_SNP'])*float(temp_hash['DBSNP_TITV']))))/int(temp_hash['TOTAL_SNPS']))
-            #self.updatedatabase(self.qc_table,qcmetrics().titv,titv)
+            self.updatedatabase(self.qc_table,qcmetrics().titv,titv)
             ## Note i make calls to helper functions in the same class to calculate the hom and het counts for different conditions 
             homhet_ratio = float(self.get_hom_count())/float(self.get_het_count())
-            print homhet_ratio
-            #self.updatedatabase(self.qc_table,qcmetrics().homhet_ratio,homhet_ratio)            
+            
+            self.updatedatabase(self.qc_table,qcmetrics().homhet_ratio,homhet_ratio)            
             snv_homhet_ratio = float(self.get_hom_count(False,False,True))/float(self.get_het_count(False,False,True))
-            print snv_homhet_ratio
-            #self.updatedatabase(self.qc_table,qcmetrics().snv_homhet_ratio,snv_homhet_ratio)
+            
+            self.updatedatabase(self.qc_table,qcmetrics().snv_homhet_ratio,snv_homhet_ratio)
             indel_homhet_ratio = float(self.get_hom_count(False,True,False))/float(self.get_het_count(False,True,False))
-            print indel_homhet_ratio,float(self.get_hom_count(False,True,False)),float(self.get_het_count(False,True,False))
-            #self.updatedatabase(self.qc_table,qcmetrics().snv_homhet_ratio,indel_homhet_ratio)
+            
+            self.updatedatabase(self.qc_table,qcmetrics().indel_homhet_ratio,indel_homhet_ratio)
             x_homhet_ratio = float(self.get_hom_count(True))/float(self.get_het_count(True))
-            print x_homhet_ratio
-            #self.updatedatabase(self.qc_table,qcmetrics().x_homhet_ratio,x_homhet_ratio)
+            
+            self.updatedatabase(self.qc_table,qcmetrics().x_homhet_ratio,x_homhet_ratio)
             
     def update_genotype_concordance_metrics(self):
         """
@@ -3332,8 +3357,9 @@ class UpdateSeqdbMetrics(SGEJobTask):
                 field,val = line.strip().strip('\n').rstrip(' ').split(' ')[0:2]
                 if field in self.geno_concordance_parse.keys():
                     self.geno_concordance_parse[field] = int(val)
-        concordance_metric = self.geno_concordance_parse['ALLELES_MATCH']/self.geno_concordance_parse['ALLELES_DO_NOT_MATCH'] + self.geno_concordance_parse['ALLELES_MATCH'] + self.geno_concordance_parse['EVAL_ONLY'] + self.geno_concordance_parse['TRUTH_ONLY']
-                #self.updatedatabase(self.qc_table,'ConcordanceProduction',concordance_metric)
+                    
+            concordance_metric = self.geno_concordance_parse['ALLELES_MATCH']/self.geno_concordance_parse['ALLELES_DO_NOT_MATCH'] + self.geno_concordance_parse['ALLELES_MATCH'] + self.geno_concordance_parse['EVAL_ONLY'] + self.geno_concordance_parse['TRUTH_ONLY']
+            self.updatedatabase(self.qc_table,qcmetrics().concordance,concordance_metric)
                     
     def update_contamination_metrics(self):
         """
@@ -3350,8 +3376,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
                 field,val = line.strip().strip('\n').rstrip(' ').split(' ')[0:2]
                 if field == 'FREEMIX':
                     db_field = qcmetrics().contamination_value
-                    #self.updatedatabase(self.qc_table,db_field,val)
-                    print db_field,val
+                    self.updatedatabase(self.qc_table,db_field,val)
                     ## No need to loop further
                     break
 
@@ -3399,8 +3424,10 @@ class UpdateSeqdbMetrics(SGEJobTask):
                 seq_gender = 'Ambiguous'
 
         ## Update the database
-        #self.updatedatabase(self.qc_table,'SeqGender',seq_gender)
-        print seq_gender
+        if Y_cvg != 0:
+            x_y_cvg = X_cvg/Y_cvg
+            self.updatedatabase(self.qc_table,qcmetrics().xy_avg_ratio,x_y_cvg)
+        self.updatedatabase(self.qc_table,'SeqGender',seq_gender)
         
     def check_alignment(self):
         """
@@ -3413,7 +3440,6 @@ class UpdateSeqdbMetrics(SGEJobTask):
         """
 
         query = """SELECT {0} FROM {1} WHERE CHGVID = '{2}' AND seqType = '{3}' AND prepid = '{4}'""".format(qcmetrics().pct_reads_aligned,self.qc_table,self.sample_name,self.sample_type,self.prepID)
-        print query 
         result = self.get_metrics(query)
         perc_reads_aligned = float(result[0][0])
         return (perc_reads_aligned >= 0.70)
@@ -3493,7 +3519,6 @@ class UpdateSeqdbMetrics(SGEJobTask):
         Returns : Bool; True/False
         """
 
-        self.issue_contamination_warning = False
         query = """SELECT {0} FROM {1} WHERE CHGVID = '{2}' AND seqType = '{3}' AND prepid = '{4}'""".format(qcmetrics().contamination_value,self.qc_table,self.sample_name,self.sample_type,self.prepID)
         result = self.get_metrics(query)
         contamination_value = float(result[0][0])
@@ -3554,8 +3579,8 @@ class UpdateSeqdbMetrics(SGEJobTask):
         
         proc = subprocess.Popen(self.get_hom_cmd.format(self.annotated_vcf_gz),shell=True,stdout=subprocess.PIPE)
         proc.wait()
-        #if proc.returncode:
-            #print >> self.LOG_FILE,subprocess.CalledProcessError(proc.returncode,self.get_het_cmd)
+        if proc.returncode:
+            print >> self.LOG_FILE,subprocess.CalledProcessError(proc.returncode,self.get_het_cmd)
             
         return int(proc.stdout.read().strip('\n'))
         
@@ -3584,7 +3609,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
             
         proc = subprocess.Popen(self.get_het_cmd.format(self.annotated_vcf_gz),shell=True,stdout=subprocess.PIPE)
         proc.wait()
-        #if proc.returncode:
-            #print >> self.LOG_FILE,subprocess.CalledProcessError(proc.returncode,self.get_het_cmd)
+        if proc.returncode:
+            print >> self.LOG_FILE,subprocess.CalledProcessError(proc.returncode,self.get_het_cmd)
             
         return int(proc.stdout.read().strip('\n'))
