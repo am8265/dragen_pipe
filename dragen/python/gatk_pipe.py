@@ -3357,7 +3357,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
                 if field in self.geno_concordance_parse.keys():
                     self.geno_concordance_parse[field] = int(val)
                     
-            concordance_metric = self.geno_concordance_parse['ALLELES_MATCH']/self.geno_concordance_parse['ALLELES_DO_NOT_MATCH'] + self.geno_concordance_parse['ALLELES_MATCH'] + self.geno_concordance_parse['EVAL_ONLY'] + self.geno_concordance_parse['TRUTH_ONLY']
+            concordance_metric = (float(self.geno_concordance_parse['ALLELES_MATCH']))/(self.geno_concordance_parse['ALLELES_DO_NOT_MATCH'] + self.geno_concordance_parse['ALLELES_MATCH'] + self.geno_concordance_parse['EVAL_ONLY'] + self.geno_concordance_parse['TRUTH_ONLY'])
             self.updatedatabase(self.qc_table,qcmetrics().concordance,concordance_metric)
                     
     def update_contamination_metrics(self):
