@@ -11,6 +11,7 @@ import time
 from ConfigParser import SafeConfigParser
 from random import randint
 
+
 def main(database,debug):
     CNF = "/nfs/goldstein/software/dragen/dragen.cnf" # defaults file for pipeline
     config_parser = SafeConfigParser()
@@ -62,7 +63,8 @@ def run_sample(curs,dragen_sample,debug):
     sample_type = dragen_sample[1].lower()
     pseudo_prepid = dragen_sample[2]
     capture_kit_info = get_capture_kit_info(curs,dragen_sample,debug)
-
+    
+    
     if sample_type == 'custom capture':
         sample_type = sample_type.replace(" ","_")
     export_path_cmd = "export PATH={python2_7_7_loc}:$PATH".format(python2_7_7_loc=python2_7_7_loc)
@@ -76,7 +78,7 @@ def run_sample(curs,dragen_sample,debug):
     "--no-tarball "
     "--poll-time 60 "
     "--worker-wait-interval 60 "
-    "--workers 3"
+    "--workers 3 --scheduler-remove-delay 86400"
     ).format(capture_kit_bed=capture_kit_info[0],
             end_module=end_module,
             sample_type=sample_type,
@@ -87,9 +89,9 @@ def run_sample(curs,dragen_sample,debug):
     if debug:
         print luigi_cmd
     print export_path_cmd
-    subprocess.check_call(shlex.split(export_path_cmd),shell=True)
-    subprocess.check_call(shlex.split(export_luigi_config_cmd),shell=True)
-    proc = subprocess.Popen(shlex.split(luigi_cmd),close_fds=True,shell=True)
+    #subprocess.check_call(shlex.split(export_path_cmd),shell=True)
+    #subprocess.check_call(shlex.split(export_luigi_config_cmd),shell=True)
+    proc = subprocess.Popen(shlex.split(luigi_cmd),shell=True)
     return proc
 
 def get_capture_kit_info(curs,dragen_sample,debug):
