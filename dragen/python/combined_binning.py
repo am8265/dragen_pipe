@@ -199,8 +199,8 @@ def output_line(mode_str,exclusion_str,sample_id,out_start,block,bin_out):
     """
 
     if mode_str != exclusion_str:
-        bin_out.write("%s\t%s\t%s\n" % (
-                sample_id,str(out_start/block),mode_str))
+        bin_out.write("%s\t%s\n" % (
+            str(out_start/block),mode_str))
 
         
 def chromosome_check(prev_chromosome,chromosome):
