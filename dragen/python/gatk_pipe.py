@@ -84,7 +84,6 @@ class config(luigi.Config):
     relatedness_refs = luigi.Parameter()
     binner_loc = luigi.Parameter()
     snpEff_cfg = luigi.Parameter()
-    snpEff_interval = luigi.Parameter()
     target_file = luigi.Parameter()
     target_file_X = luigi.Parameter()
     target_file_Y = luigi.Parameter()
@@ -1759,13 +1758,11 @@ class AnnotateVCF(SGEJobTask):
 
         snpEff_cmd = ("{java} -Xmx5G -jar {snpEff} eff "
                      "GRCh37.74 -c {snpEff_cfg} "
-                     "-interval {snpEff_interval} "
                      "-v -noMotif -noNextProt -noLog -nodownload -noStats "
                      "-o vcf {final_vcf}"
                      ).format(java=config().java,
                               snpEff=config().snpEff,
                               snpEff_cfg=config().snpEff_cfg,
-                              snpEff_interval=config().snpEff_interval,
                               final_vcf=self.final_vcf)
         #In case of overwritting previous vcf.gz and vcf.gz.tbi files
         if os.path.isfile(self.annotated_vcf_gz):
