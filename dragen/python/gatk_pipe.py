@@ -225,11 +225,15 @@ class CopyBam(SGEJobTask):
             if db.open:
                 db.close()
 
-    def output(self):
-        yield luigi.LocalTarget("{}/{}.{}.bam.bai".format(
-            self.scratch_dir,self.sample_name,self.pseudo_prepid))
-        #return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-        #    pipeline_step_id=self.pipeline_step_id)
+    def output():
+        ## Need to have a convoluted logic here since there are samples which have their dragen alignment written
+        ## to the scratch dir itself, so for samples which do not have a bam index in the scratch directory we will
+        ## go ahead with the rsync and regular db update for copy bam
+        if os.path.isfile("{}/{}.{}.bam.bai".format(self.scratch_dir,self.sample_name,self.pseudo_prepid)):
+            return luigi.LocalTarget("{}/{}.{}.bam.bai".format(self.scratch_dir,self.sample_name,self.pseudo_prepid))            
+        else:
+            return SQLTarget(pseudo_prepid=self.pseudo_prepid,
+                             pipeline_step_id=self.pipeline_step_id)                   
 
 class RealignerTargetCreator(SGEJobTask):
     """class for creating targets for indel realignment BAMs from Dragen"""
@@ -2167,7 +2171,7 @@ def get_productionvcf(pseudo_prepid,sample_name,sample_type):
                 return None
             else:
                 return vcf 
-        except MySQLdb.Error:
+        except MySQLdb.Error, e:
             if i == tries - 1:
                 raise Exception("ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1]))
             else:
@@ -2308,9 +2312,8 @@ class CvgBinning(SGEJobTask):
         """ Run the binning script
         """
 
-        self.remove_cmd = "rm {0}".format(self.genomecov_bed)
         run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
-                     [self.binning_cmd,self.remove_cmd],self.sample_name,
+                     [self.binning_cmd],self.sample_name,
                      self.__class__.__name__)
          
 class GQBinning(SGEJobTask):
