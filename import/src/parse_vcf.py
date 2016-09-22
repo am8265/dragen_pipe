@@ -168,8 +168,6 @@ def output_novel_variant(
                            replace("5_prime_UTR_truncation&exon_loss_variant",
                                    "5_prime_UTR_truncation+exon_loss_variant"))
             for effect in effects.split("&"):
-                if effect == "custom":
-                    effect = "exon_intron_boundary"
                 if effect not in effect_rankings:
                     raise ValueError(
                         "error: invalid effect {effect} for {VariantID}".format(
