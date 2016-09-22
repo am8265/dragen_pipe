@@ -154,6 +154,10 @@ def output_novel_variant(
         # POS, variant_id is invariant so keep track of transcript_id, effect in
         # order to avoid duplicates, i.e. integrity errors
         annotations = {}
+        # keep track of the effects by transcript in order to annotate the
+        # custom annotations missense_variant+splice_region_variant and
+        # splice_region_variant+synonymous_variant
+        annotations_by_transcript = defaultdict(set)
         for (effects, impact, gene, gene_id, feature_type, feature_id,
              transcript_biotype, rank_total, HGVS_c, HGVS_p, cDNA_position,
              CDS_position, protein_position, distance, errors) in anns:
@@ -168,6 +172,10 @@ def output_novel_variant(
                            replace("5_prime_UTR_truncation&exon_loss_variant",
                                    "5_prime_UTR_truncation+exon_loss_variant"))
             for effect in effects.split("&"):
+                if effect == "custom":
+                    # these correspond to the deprecated INTRON_EXON_BOUNDARY
+                    # annotations which SnpEff now natively annotates
+                    continue
                 if effect not in effect_rankings:
                     raise ValueError(
                         "error: invalid effect {effect} for {VariantID}".format(
@@ -219,6 +227,7 @@ def output_novel_variant(
                         "transcript_stable_id":feature_id,
                         "effect_id":effect_id, "HGVS_c":HGVS_c,
                         "HGVS_p":HGVS_p, "gene":gene}
+                    annotations_by_transcript[feature_id].add(effect)
                     if effect == "missense_variant":
                         # calculate PolyPhen scores if possible
                         annotations[annotations_key].update(
@@ -226,6 +235,24 @@ def output_novel_variant(
                                 cur, feature_id, HGVS_p, VariantID,
                                 polyphen_matrixes_by_stable_id,
                                 polyphen_stable_ids_to_ignore))
+        for feature_id, effects in annotations_by_transcript.iteritems():
+            if "splice_region_variant" in effects:
+                if "missense_variant" in effects:
+                    # if a single transcript has both these effects, add this
+                    # custom effect annotation
+                    effect = "missense_variant+splice_region_variant"
+                    annotations[(feature_id, effect)] = (
+                        annotations[(feature_id, "missense_variant")]).copy()
+                    # need to replace the effect_id for this so as to indicate
+                    # the proper effect type
+                    annotations[(feature_id, effect)]["effect_id"] = (
+                        effect_rankings[effect]["MODERATE"])
+                if "synonymous_variant" in effects:
+                    effect = "splice_region_variant+synonymous_variant"
+                    annotations[(feature_id, effect)] = (
+                            annotations[(feature_id, "synonymous_variant")]).copy()
+                    annotations[(feature_id, effect)]["effect_id"] = (
+                        effect_rankings[effect]["LOW"])
         for annotation_values in annotations.itervalues():
             output_novel_variant_entry(
                 novel_fh, variant_id, POS, REF, ALT, rs_number, indel,
