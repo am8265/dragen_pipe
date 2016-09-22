@@ -229,8 +229,14 @@ class ParseVCF(SGEJobTask):
                 ("variant_chr" + self.chromosome, self.novel_variants),
                 ("called_variant_chr" + self.chromosome, self.called_variants),
                 ("matched_indels", self.matched_indels)):
-                cur.execute(LOAD_TABLE.format(
-                    table_name=table_name, table_file=table_file))
+                load_statement = LOAD_TABLE.format(
+                    table_name=table_name, table_file=table_file)
+                try:
+                    cur.execute(load_statement)
+                except (MySQLdb.IntegrityError, MySQLdb.OperationalError):
+                    print("error with:")
+                    print(load_statement)
+                    raise
             cur.execute(GET_NUM_CALLS_FOR_SAMPLE.format(
                 CHROM=self.chromosome, sample_id=self.sample_id))
             db_count = cur.fetchone()[0]
@@ -287,7 +293,8 @@ class ImportSample(luigi.Task):
             self.capture_kit, self.prep_id)
         if not os.path.isdir(data_directory):
             raise ValueError(
-                "the data directory for the sample does not exist")
+                "the data directory {} for the sample does not exist".format(
+                data_directory))
         self.data_directory = data_directory
         db = get_connection("dragen")
         try:
