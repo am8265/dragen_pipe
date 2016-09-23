@@ -171,10 +171,13 @@ class CopyBam(SGEJobTask):
             config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.base_dir = "{0}/{1}/{2}.{3}".format(
             config().base,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
-        self.bam = "{0}/{1}.{2}.bam".format(
-            self.base_dir,self.sample_name,self.pseudo_prepid)
-        self.bam_index = "{0}/{1}.{2}.bam.bai".format(
-            self.base_dir,self.sample_name,self.pseudo_prepid)
+        self.bam = "{0}/{1}.{2}.bam".format(self.base_dir,
+                                            self.sample_name,self.pseudo_prepid)
+        self.bam_index = "{0}/{1}.{2}.bam.bai".format(self.base_dir,
+                                                      self.sample_name,self.pseudo_prepid)
+        #self.scratch_bam_index ="{0}/{1}.{2}.bam.bai".format(self.scratch_dir,
+                                                             #self.sample_name,self.pseudo_prepid)
+        self.scratch_bam_index = os.path.join(self.scratch_dir,'{0}.{1}.bam.bai'.format(self.sample_name,self.pseudo_prepid))
         self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
@@ -224,15 +227,17 @@ class CopyBam(SGEJobTask):
             if db.open:
                 db.close()
 
-    def output():
+    def output(self):
         ## Need to have a convoluted logic here since there are samples which have their dragen alignment written
         ## to the scratch dir itself, so for samples which do not have a bam index in the scratch directory we will
         ## go ahead with the rsync and regular db update for copy bam
-        if os.path.isfile("{}/{}.{}.bam.bai".format(self.scratch_dir,self.sample_name,self.pseudo_prepid)):
-            return luigi.LocalTarget("{}/{}.{}.bam.bai".format(self.scratch_dir,self.sample_name,self.pseudo_prepid))            
+        
+        if os.path.isfile(self.scratch_bam_index):
+            return luigi.LocalTarget(self.scratch_bam_index)
         else:
             return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-                             pipeline_step_id=self.pipeline_step_id)                   
+                             pipeline_step_id=self.pipeline_step_id)
+
 
 class RealignerTargetCreator(SGEJobTask):
     """class for creating targets for indel realignment BAMs from Dragen"""
@@ -1878,6 +1883,12 @@ class ArchiveSample(SGEJobTask):
         self.contamination_out = os.path.join(self.sample_dir,"{0}.{1}.contamination.selfSM".format(self.sample_name,self.pseudo_prepid))
         self.cvg_binned = os.path.join(self.sample_dir,'cvg_binned')
         self.gq_binned = os.path.join(self.sample_dir,'gq_binned')
+
+        ## copy over the fastq directory as well
+        self.fastq_loc = os.path.join(self.sample_dir,'fastq')
+        ## create a dummy one if it doesnt exist
+        if not os.path.exists(self.fastq_loc):
+            os.makedirs(self.fastq_loc)
         
         db = get_connection("seqdb")
         try:
@@ -1898,7 +1909,7 @@ class ArchiveSample(SGEJobTask):
                    "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
                    "{cvg_binned} {gq_binned} {alignment_out} {cvg_out} "
                    "{cvg_ccds_out} {cvg_X_out} {cvg_Y_out} {cvg_cs_out} {dup_out} "
-                   "{variant_call_out} {geno_concordance_out} {contamination_out} {base_dir}"
+                   "{variant_call_out} {geno_concordance_out} {contamination_out} {fastq_loc} {base_dir}"
                    ).format(**self.__dict__)
         else:
             cmd = ("rsync -a --timeout=25000 -r "
@@ -1906,7 +1917,7 @@ class ArchiveSample(SGEJobTask):
                    "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
                    "{cvg_binned} {gq_binned} {alignment_out} {cvg_out} "
                    "{cvg_ccds_out} {cvg_X_out} {cvg_Y_out} {dup_out} "
-                   "{variant_call_out} {geno_concordance_out} {contamination_out} {base_dir}"
+                   "{variant_call_out} {geno_concordance_out} {contamination_out} {fastq_loc} {base_dir}"
                    "{base_dir}"
                   ).format(**self.__dict__)
 
