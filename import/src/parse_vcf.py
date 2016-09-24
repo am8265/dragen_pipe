@@ -143,7 +143,7 @@ def output_novel_variant(
     VariantID = "{CHROM}-{POS}-{REF}-{ALT}".format(
         CHROM=CHROM, POS=POS, REF=REF, ALT=ALT)
     rs_number = "" if rs_number == "." else rs_number
-    indel = 0 if indel_length else 1
+    indel = 1 if indel_length else 0
     anns = []
     for ann in ANNs.split(","):
         alt_allele, values = ann.split("|", 1)
