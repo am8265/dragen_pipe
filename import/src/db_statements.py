@@ -4,11 +4,15 @@ MySQL statements used in the pipeline
 
 # check novelty of variant/get its id
 VARIANT_EXISTS_QUERY = """
-SELECT variant_id
+SELECT DISTINCT variant_id, effect_id
 FROM variant_chr{CHROM}
 WHERE POS = {POS} AND REF = "{REF}" AND ALT = "{ALT}"
     AND indel_length = {indel_length}
-LIMIT 1
+"""
+GET_VARIANT_EFFECTS = """
+SELECT DISTINCT(effect_id)
+FROM variant_chr{CHROM}
+WHERE variant_id = {variant_id}
 """
 # insert a novel variant
 VARIANT_INSERT = """

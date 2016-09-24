@@ -23,7 +23,7 @@ VARIANT_CALL_FORMAT = ("{" + "}\t{".join(
     ["sample_id", "variant_id", "block_id", "GT", "DP", "AD_REF",
      "AD_ALT", "GQ",# "VQSLOD",
      "FS", "MQ", "QD", "QUAL", "ReadPosRankSum",
-     "MQRankSum", "PASS"]) + "}")
+     "MQRankSum", "PASS", "highest_impact"]) + "}")
 NOVEL_VARIANT_OUTPUT_FORMAT = (
     "{" + "}\t{".join(
         ["variant_id", "POS", "REF", "ALT", "rs_number", "transcript_stable_id",
