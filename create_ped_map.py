@@ -36,7 +36,6 @@ def open_by_magic(filename):
     Args : filename ; string ; Path to the file
     Returns : file handle to the input file
     """
-
     magic_dict = {
             "\x1f\x8b\x08": gzip.open,
             "\x42\x5a\x68": bz2.BZ2File,
@@ -48,6 +47,7 @@ def open_by_magic(filename):
     for magic, fn in magic_dict.items():
         if file_start.startswith(magic):
             return fn(filename)
+    return open(filename,'r') ## Otherwise just a regular file
            
 def is_multiallelic(gt):
     """ Returns a boolean based on whether a variant site is multiallelic
@@ -88,7 +88,7 @@ def get_info_key(info,key,field):
 
     try:
         return field.split(':')[info.split(':').index(key)]
-    except ValueError as e: ## Need to look for stray cases where DP is not defined in the info field, it is (atleast in the cases i have encountered) 0 in such cases 
+    except ValueError as e: ## Need to look for stray cases where DP is not defined in the info field, it is 0 in such cases  (atleast in what I have encountered) 
         return 0
 
 def get_genotypes(ref,alt,gt):
@@ -132,7 +132,8 @@ def return_pedmap(gvcf_hashmap,coordinates):
     
     temp_ped = []
     temp_map = []
-        
+
+    """
     for key in coordinates:
         chrom,pos = key.split('_')                    
         if key in gvcf_hashmap: ## Site is present in gvcf file
@@ -153,7 +154,25 @@ def return_pedmap(gvcf_hashmap,coordinates):
         else: ## Site is missing
             rsid = coordinates[key]
             temp_ped,temp_map = update_missing_variants(temp_ped,temp_map,(chrom,rsid,'0',pos))
-            
+    """     
+
+    for key in gvcf_hashmap:
+        chrom,pos,end = key.split('_')
+        if chrom+'_'+pos in coordinates or (pos):## Site is present in gvcf file
+            rsid,ref,alt,gt = gvcf_hashmap[key][0:4]
+            if gvcf_hashmap[key][-1] == 'nonref': ## Non ref site
+                if int(gvcf_hashmap[key][-2]) >= 10: ## Check dp
+                    temp_ped.extend([ref,ref])
+                    temp_map.append((chrom,rsid,'0',pos))
+
+            else: ## A variant site
+                if not is_multiallelic(gt) and is_valid_snv(ref,alt):
+                    allele1,allele2 = get_genotypes(ref,alt,gt)
+                    if allele1 == -1 and allele2 == -1: ## Stringent check,set to missing
+                        temp_ped,temp_map = update_missing_variants(temp_ped,temp_map,(chrom,rsid,'0',pos))
+                    temp_ped.extend(get_genotypes(ref,alt,gt))
+                    temp_map.append((chrom,rsid,'0',pos))
+
     return [temp_ped,temp_map]
                                         
 def parse_gvcf(line):
@@ -183,14 +202,23 @@ def parse_gvcf(line):
     val_field = contents[-1]
     gt = get_info_key(info,'GT',val_field)
     dp = get_info_key(info,'DP',val_field)
-    interval = int(end) - int(pos) + 1
+    interval = int(end) - int(pos) + 1 ## The gvcf could be binned 
 
-    if alt_type == 'alt':
+    
+    """
+    if alt_type == 'alt': ## This is a valid variant site
         yield [chrom,pos,rsid,ref,alt,gt,dp,'alt']
-    else:
+
+    else: 
         for _ in range(interval):
             yield [chrom,pos,rsid,ref,alt,gt,dp,'nonref']
             pos = str(int(pos) + 1)
+    """
+    if alt_type == 'alt':
+        return [chrom,pos,rsid,ref,alt,gt,dp,'alt',end]
+    else:
+        return [chrom,pos,rsid,ref,alt,gt,dp,'nonref',end]
+
 
 def print_output(line,output_file):
     """ Print output line to file
@@ -217,6 +245,12 @@ def iterate_gvcf(gvcf):
     with open_by_magic(gvcf) as GVCF:
         for line in GVCF:
             if line[0]!='#': ## Skip header
+                chrom,pos,rsid,ref,alt,gt,dp,alt_type,end = parse_gvcf(line)
+                if alt.find(',')!=-1:
+                    alt.alt.split(',')[0]
+                    gvcf_hashmap[chrom+'_'+pos+'_'+end] = [rsid,ref,alt,gt,dp,alt_type]
+
+                """
                 gvcf_generator = parse_gvcf(line) ## If the site is multiallelic there could be more than one return 
                 for element in gvcf_generator: 
                     chrom,pos,rsid,ref,alt,gt,dp,alt_type = element
@@ -224,8 +258,43 @@ def iterate_gvcf(gvcf):
                     if alt.find(',')!=-1: ## A multi-allelic site, use the first allele, this could be the alt,<NON_REF> case , but these are still valid since the GT field signfies these to have only 1 valid alt allele, so lets use them ! 
                         alt = alt.split(',')[0]               
                         gvcf_hashmap[chrom+'_'+pos] = [rsid,ref,alt,gt,dp,alt_type]
-                
+                """
+
     return gvcf_hashmap
+
+def read_gvcf(gvcf,map_locations):
+    """ Read a gvcf file into memory and look for the ethnicity markers
+
+    Args : gvcf ; string; path to the gvcf file
+           map_locations ; list ; ['chr[1-23.X.Y]_pos',...] ; the
+           order must be the same as in the map file, furthermore it 
+           is required that they be in sorted order as this will speed
+           up the fetching of genotypes
+    """
+    
+    with open_by_magic(gvcf) as GVCF:
+        ## Read the file into memory
+        gvcf_contents = GVCF.readlines()
+    
+    initial_seek = 100000 ## Arbitrarily chosen 
+    i = initial_seek
+    chrom_walker = '1' ## Keep track of the current chromosome 
+    chrom_map = map_locations[0][0]
+    loc_map = map_locations[0][1]
+
+    flag = 0
+    while i < len(gvcf_contents):
+        if gvcf_contents[i]!="#": ## Skip header
+            if flag == 0: ## Proceed if it is the first iteration
+                gvcf_generator = parse_gvcf(line) ## If the site is multiallelic there could be more than one return 
+                for element in gvcf_generator: 
+                    chrom,pos,rsid,ref,alt,gt,dp,alt_type = element
+                    ## Better to store only valid sites so as to reduce space complexity
+                    if alt.find(',')!=-1: ## A multi-allelic site, use the first allele, this could be the alt,<NON_REF> case , but these are still valid since the GT field signfies these to have only 1 valid alt allele, so lets use them ! 
+                        alt = alt.split(',')[0]               
+                        gvcf_hashmap[chrom+'_'+pos] = [rsid,ref,alt,gt,dp,alt_type]
+
+
 
 def parse_map_file(map_file):
     """ Function to parse a map file and return the ordered positions 
