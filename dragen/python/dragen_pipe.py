@@ -80,7 +80,7 @@ def run_sample(sample,dragen_id,dontexecute,parameters,database,debug):
 
                 process.communicate()
                 error_code = process.wait()
-
+                subprocess.call(['chmod','-R','775','{}'.format(output_dir)])
             if debug:
                print "Dragen error code: {0}".format(error_code)
             if error_code == 0:
