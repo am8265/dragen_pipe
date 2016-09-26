@@ -231,6 +231,15 @@ class CopyBam(SGEJobTask):
         ## Need to have a convoluted logic here since there are samples which have their dragen alignment written
         ## to the scratch dir itself, so for samples which do not have a bam index in the scratch directory we will
         ## go ahead with the rsync and regular db update for copy bam
+
+        ## For samples which have do have a dragen bam in the qumulo directory, the work function will not be called
+        ## and hence the copy bam task will be absent from the dragen_pipeline_step table, this needs to be fixed
+
+        ## Note, for the future it is better if the dragen bam could be created in this step ,
+        ## luigi tasks are supposed to be idempotant (http://datapipelinearchitect.com/luigi-force-rerun/)
+        ## Since the dragen bam is deleted after the sample is archived the logical way to re-reun a pipeline
+        ## would be deleting database table entries, but since the dragen bam can never be recovered again the
+        ## pipeline would fail to execute
         
         if os.path.isfile(self.scratch_bam_index):
             return luigi.LocalTarget(self.scratch_bam_index)
@@ -304,21 +313,22 @@ class RealignerTargetCreator(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+
+            with open(os.devnull,'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
             cur.execute(INSERT_DRAGEN_STATUS.format(
-                        sample_name=self.sample_name,
-                        status="Dragen "+self.__class__.__name__,
-                        DBID=DBID,
-                        prepID=prepID,
-                        pseudoPrepID=self.pseudo_prepid,
-                        userID=userID))
+                sample_name=self.sample_name,
+                status="Dragen "+self.__class__.__name__,
+                DBID=DBID,
+                prepID=prepID,
+                pseudoPrepID=self.pseudo_prepid,
+                userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
-                        pseudo_prepid=self.pseudo_prepid,
-                        pipeline_step_id=self.pipeline_step_id))
+                pseudo_prepid=self.pseudo_prepid,
+                pipeline_step_id=self.pipeline_step_id))
             db.commit()
         finally:
             if db.open:
@@ -400,8 +410,9 @@ class IndelRealigner(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+                
+            with open(os.devnull,'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
@@ -493,8 +504,9 @@ class BaseRecalibrator(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+                
+            with open(os.devnull, 'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
@@ -588,8 +600,8 @@ class PrintReads(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+            with open(os.devnull, 'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
@@ -693,8 +705,8 @@ class HaplotypeCaller(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+            with open(os.devnull, 'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
@@ -787,8 +799,8 @@ class GenotypeGVCFs(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+            with open(os.devnull, 'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
@@ -876,8 +888,8 @@ class SelectVariantsSNP(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+            with open(os.devnull, 'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
@@ -966,8 +978,8 @@ class SelectVariantsINDEL(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+            with open(os.devnull, 'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
@@ -1082,8 +1094,8 @@ class VariantRecalibratorSNP(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+            with open(os.devnull, 'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
@@ -1185,8 +1197,8 @@ class VariantRecalibratorINDEL(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+            with open(os.devnull, 'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
@@ -1282,8 +1294,8 @@ class ApplyRecalibrationSNP(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+            with open(os.devnull, 'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
@@ -1380,8 +1392,8 @@ class ApplyRecalibrationINDEL(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+            with open(os.devnull, 'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
@@ -1469,8 +1481,8 @@ class VariantFiltrationSNP(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+            with open(os.devnull, 'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
@@ -1559,8 +1571,8 @@ class VariantFiltrationINDEL(SGEJobTask):
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+            with open(os.devnull, 'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
@@ -1889,7 +1901,12 @@ class ArchiveSample(SGEJobTask):
         ## create a dummy one if it doesnt exist
         if not os.path.exists(self.fastq_loc):
             os.makedirs(self.fastq_loc)
-        
+        ## create a dummy geno_concordance file if it doesnt exist , this is because there are times when this task
+        ## will not be scheduled (failure to locate a production vcf) , then the rsync will fail even though all the
+        ## preceeding tasks were sucessful
+        if not os.path.exists(self.geno_concordance_out):
+            os.system("touch %s"%self.geno_concordance_out)
+            
         db = get_connection("seqdb")
         try:
             cur = db.cursor()
@@ -1903,8 +1920,11 @@ class ArchiveSample(SGEJobTask):
     def work(self):
         db = get_connection("seqdb")
 
-        if self.sample_type.upper() != 'GENOME':
-            cmd = ("rsync -a --timeout=25000 -r "
+        ## refer to rsync man for more on options, its all the options in archive mode less preserving the permissions
+        ## the o will not take effect unless run by a superuser and the g will default to your default group, i have removed
+        ## the o option for safety. 
+        if self.sample_type.upper() != 'GENOME': ## There is another additional capture specificity file 
+            cmd = ("rsync --timeout=25000 -vrltgD "
                    "{script_dir} {log_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
                    "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
                    "{cvg_binned} {gq_binned} {alignment_out} {cvg_out} "
@@ -1912,7 +1932,7 @@ class ArchiveSample(SGEJobTask):
                    "{variant_call_out} {geno_concordance_out} {contamination_out} {fastq_loc} {base_dir}"
                    ).format(**self.__dict__)
         else:
-            cmd = ("rsync -a --timeout=25000 -r "
+            cmd = ("rsync --timeout=25000 -vrltgoD "
                    "{script_dir} {log_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
                    "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
                    "{cvg_binned} {gq_binned} {alignment_out} {cvg_out} "
