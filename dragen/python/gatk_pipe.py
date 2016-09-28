@@ -192,13 +192,16 @@ class CopyBam(SGEJobTask):
                 db.close()
 
     def work(self):
-        db = get_connection("seqdb")
+        
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
-
+            db.commit()
+            db.close()
+            
             os.system("mkdir -p {0}/scripts".format(self.scratch_dir))
             os.system("mkdir -p {0}/logs".format(self.scratch_dir))
             cmd = ("rsync -a --timeout=20000 -r {bam} {bam_index} {scratch_dir}/"
@@ -212,6 +215,8 @@ class CopyBam(SGEJobTask):
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
+            db = get_connection("seqdb")
+            cur = db.cursor()
             cur.execute(INSERT_DRAGEN_STATUS.format(
                         sample_name=self.sample_name,
                         status="Dragen "+self.__class__.__name__,
@@ -223,6 +228,7 @@ class CopyBam(SGEJobTask):
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
             db.commit()
+            db.close()
         finally:
             if db.open:
                 db.close()
@@ -231,6 +237,15 @@ class CopyBam(SGEJobTask):
         ## Need to have a convoluted logic here since there are samples which have their dragen alignment written
         ## to the scratch dir itself, so for samples which do not have a bam index in the scratch directory we will
         ## go ahead with the rsync and regular db update for copy bam
+
+        ## For samples which have do have a dragen bam in the qumulo directory, the work function will not be called
+        ## and hence the copy bam task will be absent from the dragen_pipeline_step table, this needs to be fixed
+
+        ## Note, for the future it is better if the dragen bam could be created in this step ,
+        ## luigi tasks are supposed to be idempotant (http://datapipelinearchitect.com/luigi-force-rerun/)
+        ## Since the dragen bam is deleted after the sample is archived the logical way to re-reun a pipeline
+        ## would be deleting database table entries, but since the dragen bam can never be recovered again the
+        ## pipeline would fail to execute
         
         if os.path.isfile(self.scratch_bam_index):
             return luigi.LocalTarget(self.scratch_bam_index)
@@ -274,7 +289,6 @@ class RealignerTargetCreator(SGEJobTask):
                 db.close()
 
     def work(self):
-        db = get_connection("seqdb")
         cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk} "
             "-R {ref} "
@@ -297,29 +311,37 @@ class RealignerTargetCreator(SGEJobTask):
                 log_file=self.log_file)
 
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
-
+            db.commit()
+            db.close()
+            
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+
+            with open(os.devnull,'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
+            
+            db = get_connection("seqdb")
+            cur = db.cursor()
             cur.execute(INSERT_DRAGEN_STATUS.format(
-                        sample_name=self.sample_name,
-                        status="Dragen "+self.__class__.__name__,
-                        DBID=DBID,
-                        prepID=prepID,
-                        pseudoPrepID=self.pseudo_prepid,
-                        userID=userID))
+                sample_name=self.sample_name,
+                status="Dragen "+self.__class__.__name__,
+                DBID=DBID,
+                prepID=prepID,
+                pseudoPrepID=self.pseudo_prepid,
+                userID=userID))
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
-                        pseudo_prepid=self.pseudo_prepid,
-                        pipeline_step_id=self.pipeline_step_id))
+                pseudo_prepid=self.pseudo_prepid,
+                pipeline_step_id=self.pipeline_step_id))
             db.commit()
+            db.close()
         finally:
             if db.open:
                 db.close()
@@ -368,7 +390,7 @@ class IndelRealigner(SGEJobTask):
                 db.close()
 
     def work(self):
-        db = get_connection("seqdb")
+        
         cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk} "
             "-R {ref} "
@@ -393,15 +415,18 @@ class IndelRealigner(SGEJobTask):
                 log_file=self.log_file,
                 dbSNP=config().dbSNP)
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
-
+            db.commit()
+            db.close()
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+                
+            with open(os.devnull,'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
@@ -452,8 +477,8 @@ class BaseRecalibrator(SGEJobTask):
         self.recal_table = "{0}/{1}.{2}.recal_table".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid)
 
-        db = get_connection("seqdb")
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(GET_PIPELINE_STEP_ID.format(
                 step_name=self.__class__.__name__))
@@ -463,7 +488,7 @@ class BaseRecalibrator(SGEJobTask):
                 db.close()
 
     def work(self):
-        db = get_connection("seqdb")
+        
         cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk} "
             "-R {ref} "
@@ -486,15 +511,18 @@ class BaseRecalibrator(SGEJobTask):
                 dbSNP=config().dbSNP)
 
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
-
+            db.commit()
+            db.close()
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+                
+            with open(os.devnull, 'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
@@ -508,6 +536,7 @@ class BaseRecalibrator(SGEJobTask):
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
+            db.close()
             db.commit()
 
         finally:
@@ -558,7 +587,6 @@ class PrintReads(SGEJobTask):
                 db.close()
 
     def work(self):
-        db = get_connection("seqdb")
         # --disable_indel_quals are necessary to remove BI and BD tags in the bam file
         cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk} "
@@ -581,18 +609,24 @@ class PrintReads(SGEJobTask):
                 recal_bam=self.recal_bam)
 
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
-
+            db.commit()
+            db.close()
+            
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+            with open(os.devnull, 'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
+
+            db = get_connection("seqdb")
+            cur = db.cursor()
             cur.execute(INSERT_DRAGEN_STATUS.format(
                         sample_name=self.sample_name,
                         status="Dragen "+self.__class__.__name__,
@@ -604,6 +638,7 @@ class PrintReads(SGEJobTask):
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
             db.commit()
+            db.close()
         finally:
             if db.open:
                 db.close()
@@ -648,8 +683,8 @@ class HaplotypeCaller(SGEJobTask):
         self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
-        db = get_connection("seqdb")
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(GET_PIPELINE_STEP_ID.format(
                 step_name=self.__class__.__name__))
@@ -690,14 +725,17 @@ class HaplotypeCaller(SGEJobTask):
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
-
+            db.commit()
+            db.close()
+            
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+            with open(os.devnull, 'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
+            cur = db.cursor()
             cur.execute(INSERT_DRAGEN_STATUS.format(
                         sample_name=self.sample_name,
                         status="Dragen "+self.__class__.__name__,
@@ -709,10 +747,12 @@ class HaplotypeCaller(SGEJobTask):
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
             db.commit()
+            db.close()
         finally:
             if db.open:
                 db.close()
 
+        ## Removed for qumulo test
         rm_cmd = ['rm',self.realn_bam,self.scratch_bam]
         subprocess.call(rm_cmd)
 
@@ -749,8 +789,8 @@ class GenotypeGVCFs(SGEJobTask):
         self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
-        db = get_connection("seqdb")
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(GET_PIPELINE_STEP_ID.format(
                 step_name=self.__class__.__name__))
@@ -760,7 +800,6 @@ class GenotypeGVCFs(SGEJobTask):
                 db.close()
 
     def work(self):
-        db = get_connection("seqdb")
         cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk} "
             "-R {ref} "
@@ -780,18 +819,24 @@ class GenotypeGVCFs(SGEJobTask):
                 vcf=self.vcf)
 
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
-
+            db.commit()
+            db.close()
+            
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+            with open(os.devnull, 'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
+
+            db = get_connection("seqdb")
+            cur = db.cursor()
             cur.execute(INSERT_DRAGEN_STATUS.format(
                         sample_name=self.sample_name,
                         status="Dragen "+self.__class__.__name__,
@@ -803,6 +848,8 @@ class GenotypeGVCFs(SGEJobTask):
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
             db.commit()
+            db.close()
+            
         finally:
             if db.open:
                 db.close()
@@ -839,8 +886,8 @@ class SelectVariantsSNP(SGEJobTask):
         self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
-        db = get_connection("seqdb")
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(GET_PIPELINE_STEP_ID.format(
                 step_name=self.__class__.__name__))
@@ -850,7 +897,6 @@ class SelectVariantsSNP(SGEJobTask):
                 db.close()
 
     def work(self):
-        db = get_connection("seqdb")
         cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk} "
             "-R {ref} "
@@ -869,18 +915,23 @@ class SelectVariantsSNP(SGEJobTask):
                 vcf=self.vcf)
 
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
+            db.commit()
+            db.close()
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+            with open(os.devnull, 'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
+            db = get_connection("seqdb")
+            cur = db.cursor()
             cur.execute(INSERT_DRAGEN_STATUS.format(
                         sample_name=self.sample_name,
                         status="Dragen "+self.__class__.__name__,
@@ -892,6 +943,7 @@ class SelectVariantsSNP(SGEJobTask):
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
             db.commit()
+            db.close()
 
         finally:
             if db.open:
@@ -959,18 +1011,23 @@ class SelectVariantsINDEL(SGEJobTask):
                 vcf=self.vcf)
 
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
+            db.commit()
+            db.close()
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+            with open(os.devnull, 'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
+            db = get_connection("seqdb")
+            cur = db.cursor()
             cur.execute(INSERT_DRAGEN_STATUS.format(
                         sample_name=self.sample_name,
                         status="Dragen "+self.__class__.__name__,
@@ -982,6 +1039,7 @@ class SelectVariantsINDEL(SGEJobTask):
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
             db.commit()
+            db.close()
 
         finally:
             if db.open:
@@ -1029,8 +1087,8 @@ class VariantRecalibratorSNP(SGEJobTask):
         self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
-        db = get_connection("seqdb")
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(GET_PIPELINE_STEP_ID.format(
                 step_name=self.__class__.__name__))
@@ -1040,7 +1098,7 @@ class VariantRecalibratorSNP(SGEJobTask):
                 db.close()
 
     def work(self):
-        db = get_connection("seqdb")
+        
         cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk} "
             "-R {ref} "
@@ -1075,18 +1133,23 @@ class VariantRecalibratorSNP(SGEJobTask):
                 g1000=config().g1000)
 
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
+            db.commit()
+            db.close()
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+            with open(os.devnull, 'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
+            db = get_connection("seqdb")
+            cur = db.cursor()
             cur.execute(INSERT_DRAGEN_STATUS.format(
                         sample_name=self.sample_name,
                         status="Dragen "+self.__class__.__name__,
@@ -1098,6 +1161,7 @@ class VariantRecalibratorSNP(SGEJobTask):
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
             db.commit()
+            db.close()
 
         finally:
             if db.open:
@@ -1139,8 +1203,8 @@ class VariantRecalibratorINDEL(SGEJobTask):
         self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
-        db = get_connection("seqdb")
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(GET_PIPELINE_STEP_ID.format(
                 step_name=self.__class__.__name__))
@@ -1150,7 +1214,6 @@ class VariantRecalibratorINDEL(SGEJobTask):
                 db.close()
 
     def work(self):
-        db = get_connection("seqdb")
         cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk} "
             "-R {ref} "
@@ -1178,18 +1241,23 @@ class VariantRecalibratorINDEL(SGEJobTask):
                 Mills1000g=config().Mills1000g)
 
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
+            db.commit()
+            db.close()
 
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+            with open(os.devnull, 'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
+            db = get_connection("seqdb")
+            cur = db.cursor()
             cur.execute(INSERT_DRAGEN_STATUS.format(
                         sample_name=self.sample_name,
                         status="Dragen "+self.__class__.__name__,
@@ -1201,7 +1269,8 @@ class VariantRecalibratorINDEL(SGEJobTask):
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
             db.commit()
-
+            db.close()
+            
         finally:
             if db.open:
                 db.close()
@@ -1240,8 +1309,8 @@ class ApplyRecalibrationSNP(SGEJobTask):
         self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
-        db = get_connection("seqdb")
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(GET_PIPELINE_STEP_ID.format(
                 step_name=self.__class__.__name__))
@@ -1251,7 +1320,6 @@ class ApplyRecalibrationSNP(SGEJobTask):
                 db.close()
 
     def work(self):
-        db = get_connection("seqdb")
         cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk} "
             "-R {ref} "
@@ -1275,18 +1343,23 @@ class ApplyRecalibrationSNP(SGEJobTask):
                 snp_recal=self.snp_recal)
 
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
-
+            db.commit()
+            db.close()
+            
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+            with open(os.devnull, 'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
+            db = get_connection("seqdb")
+            cur = db.cursor()
             cur.execute(INSERT_DRAGEN_STATUS.format(
                         sample_name=self.sample_name,
                         status="Dragen "+self.__class__.__name__,
@@ -1298,7 +1371,7 @@ class ApplyRecalibrationSNP(SGEJobTask):
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
             db.commit()
-
+            db.close()
         finally:
             if db.open:
                 db.close()
@@ -1338,8 +1411,8 @@ class ApplyRecalibrationINDEL(SGEJobTask):
         self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
-        db = get_connection("seqdb")
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(GET_PIPELINE_STEP_ID.format(
                 step_name=self.__class__.__name__))
@@ -1349,7 +1422,6 @@ class ApplyRecalibrationINDEL(SGEJobTask):
                 db.close()
 
     def work(self):
-        db = get_connection("seqdb")
         cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk} "
             "-R {ref} "
@@ -1373,18 +1445,25 @@ class ApplyRecalibrationINDEL(SGEJobTask):
                 indel_filtered=self.indel_filtered)
 
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
 
+            db.commit()
+            db.close()
+            
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+            with open(os.devnull, 'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
+
+            db = get_connection("seqdb")
+            cur = db.cursor()
             cur.execute(INSERT_DRAGEN_STATUS.format(
                         sample_name=self.sample_name,
                         status="Dragen "+self.__class__.__name__,
@@ -1396,7 +1475,8 @@ class ApplyRecalibrationINDEL(SGEJobTask):
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
             db.commit()
-
+            db.close()
+            
         finally:
             if db.open:
                 db.close()
@@ -1432,8 +1512,8 @@ class VariantFiltrationSNP(SGEJobTask):
         self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
-        db = get_connection("seqdb")
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(GET_PIPELINE_STEP_ID.format(
                 step_name=self.__class__.__name__))
@@ -1443,7 +1523,6 @@ class VariantFiltrationSNP(SGEJobTask):
                 db.close()
 
     def work(self):
-        db = get_connection("seqdb")
         cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk} "
             "-R {ref} "
@@ -1462,18 +1541,25 @@ class VariantFiltrationSNP(SGEJobTask):
                 snp_vcf=self.snp_vcf,
                 snp_filtered=self.snp_filtered)
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
 
+            db.commit()
+            db.close()
+            
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+            with open(os.devnull, 'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
+
+            db = get_connection("seqdb")
+            cur = db.cursor()
             cur.execute(INSERT_DRAGEN_STATUS.format(
                         sample_name=self.sample_name,
                         status="Dragen "+self.__class__.__name__,
@@ -1485,6 +1571,7 @@ class VariantFiltrationSNP(SGEJobTask):
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
             db.commit()
+            db.close()
 
         finally:
             if db.open:
@@ -1521,8 +1608,8 @@ class VariantFiltrationINDEL(SGEJobTask):
         self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
-        db = get_connection("seqdb")
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(GET_PIPELINE_STEP_ID.format(
                 step_name=self.__class__.__name__))
@@ -1532,7 +1619,6 @@ class VariantFiltrationINDEL(SGEJobTask):
                 db.close()
 
     def work(self):
-        db = get_connection("seqdb")
         cmd = ("{java} -Xmx{max_mem}g "
             "-jar {gatk} "
             "-R {ref} "
@@ -1552,18 +1638,25 @@ class VariantFiltrationINDEL(SGEJobTask):
                 indel_filtered=self.indel_filtered)
 
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
 
+            db.commit()
+            db.close()
+            
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
-            DEVNULL = open(os.devnull, 'w')
-            subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
+            with open(os.devnull, 'w') as DEVNULL:
+                subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
+            
+            db = get_connection("seqdb")
+            cur = db.cursor()
             cur.execute(INSERT_DRAGEN_STATUS.format(
                         sample_name=self.sample_name,
                         status="Dragen "+self.__class__.__name__,
@@ -1575,6 +1668,7 @@ class VariantFiltrationINDEL(SGEJobTask):
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
             db.commit()
+            db.close()
 
         finally:
             if db.open:
@@ -1616,9 +1710,9 @@ class CombineVariants(SGEJobTask):
             self.scratch_dir,self.sample_name,self.pseudo_prepid)
         self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
-
-        db = get_connection("seqdb")
+        
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(GET_PIPELINE_STEP_ID.format(
                 step_name=self.__class__.__name__))
@@ -1628,7 +1722,6 @@ class CombineVariants(SGEJobTask):
                 db.close()
 
     def work(self):
-        db = get_connection("seqdb")
         """Merges SNP and INDEL vcfs.  Using the filtered SNP vcf header as a
         base, variant type/sample type specific ##FILTERs are added to the header.
         Additionally the AnnoDBID annotation is added.  After finishing reading
@@ -1637,11 +1730,15 @@ class CombineVariants(SGEJobTask):
         vcf is then sorted producing the analysisReady.vcf.
         """
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
 
+            db.commit()
+            db.close()
+            
             filter_flag = 0
             with open(self.tmp_vcf,'w') as vcf_out, open(self.snp_filtered) as header:
                 for line in header.readlines():
@@ -1693,6 +1790,9 @@ class CombineVariants(SGEJobTask):
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
+
+            db = get_connection("seqdb")
+            cur = db.cursor()
             cur.execute(INSERT_DRAGEN_STATUS.format(
                         sample_name=self.sample_name,
                         status="Dragen "+self.__class__.__name__,
@@ -1704,6 +1804,7 @@ class CombineVariants(SGEJobTask):
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
             db.commit()
+            db.close()
 
         finally:
             if db.open:
@@ -1752,8 +1853,8 @@ class AnnotateVCF(SGEJobTask):
         self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
 
-        db = get_connection("seqdb")
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(GET_PIPELINE_STEP_ID.format(
                 step_name=self.__class__.__name__))
@@ -1763,8 +1864,7 @@ class AnnotateVCF(SGEJobTask):
                 db.close()
 
     def work(self):
-        db = get_connection("seqdb")
-
+        
         snpEff_cmd = ("{java} -Xmx5G -jar {snpEff} eff "
                      "GRCh37.74 -c {snpEff_cfg} "
                      "-v -noMotif -noNextProt -noLog -nodownload -noStats "
@@ -1780,11 +1880,15 @@ class AnnotateVCF(SGEJobTask):
         tabix_cmd = ("{0} -f {1}").format(config().tabix,self.annotated_vcf_gz)
 
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
 
+            db.commit()
+            db.close()
+            
             with open(self.script,'w') as o:
                 o.write(snpEff_cmd + "\n")
                 o.write(bgzip_cmd + "\n")
@@ -1801,6 +1905,9 @@ class AnnotateVCF(SGEJobTask):
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
+
+            db = get_connection("seqdb")
+            cur = db.cursor()
             cur.execute(INSERT_DRAGEN_STATUS.format(
                         sample_name=self.sample_name,
                         status="Dragen "+self.__class__.__name__,
@@ -1812,6 +1919,7 @@ class AnnotateVCF(SGEJobTask):
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
             db.commit()
+            db.close()
         finally:
             if db.open:
                 db.close()
@@ -1884,14 +1992,8 @@ class ArchiveSample(SGEJobTask):
         self.cvg_binned = os.path.join(self.sample_dir,'cvg_binned')
         self.gq_binned = os.path.join(self.sample_dir,'gq_binned')
 
-        ## copy over the fastq directory as well
-        self.fastq_loc = os.path.join(self.sample_dir,'fastq')
-        ## create a dummy one if it doesnt exist
-        if not os.path.exists(self.fastq_loc):
-            os.makedirs(self.fastq_loc)
-        
-        db = get_connection("seqdb")
         try:
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(GET_PIPELINE_STEP_ID.format(
                 step_name=self.__class__.__name__))
@@ -1901,10 +2003,26 @@ class ArchiveSample(SGEJobTask):
                 db.close()
 
     def work(self):
-        db = get_connection("seqdb")
+        
+        ## copy over the fastq directory as well
+        self.fastq_loc = os.path.join(self.sample_dir,'fastq')
+        ## create a dummy one if it doesnt exist
+        if not os.path.exists(self.fastq_loc):
+            os.makedirs(self.fastq_loc)
+        ## create a dummy geno_concordance file if it doesnt exist , this is because there are times when this task
+        ## will not be scheduled (failure to locate a production vcf) , then the rsync will fail even though all the
+        ## preceeding tasks were sucessful
+        if not os.path.exists(self.geno_concordance_out):
+            os.system("touch %s"%self.geno_concordance_out)
+            ## create the base directory if it does not exist
+        if not os.path.exists(self.base_dir):
+            os.makedirs(self.base_dir)
 
-        if self.sample_type.upper() != 'GENOME':
-            cmd = ("rsync -a --timeout=25000 -r "
+        ## refer to rsync man for more on options, its all the options in archive mode less preserving the permissions
+        ## the o will not take effect unless run by a superuser and the g will default to your default group, i have removed
+        ## the o option for safety. 
+        if self.sample_type.upper() != 'GENOME': ## There is another additional capture specificity file 
+            cmd = ("rsync --timeout=25000 -vrltgD "
                    "{script_dir} {log_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
                    "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
                    "{cvg_binned} {gq_binned} {alignment_out} {cvg_out} "
@@ -1912,7 +2030,7 @@ class ArchiveSample(SGEJobTask):
                    "{variant_call_out} {geno_concordance_out} {contamination_out} {fastq_loc} {base_dir}"
                    ).format(**self.__dict__)
         else:
-            cmd = ("rsync -a --timeout=25000 -r "
+            cmd = ("rsync --timeout=25000 -vrltgoD "
                    "{script_dir} {log_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
                    "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
                    "{cvg_binned} {gq_binned} {alignment_out} {cvg_out} "
@@ -1920,32 +2038,22 @@ class ArchiveSample(SGEJobTask):
                    "{variant_call_out} {geno_concordance_out} {contamination_out} {fastq_loc} {base_dir}"
                    "{base_dir}"
                   ).format(**self.__dict__)
-
-        """
-        cmd = ("rsync -a --timeout=25000 -r "
-              "{script_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
-              "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
-              "{base_dir}"
-              ).format(recal_bam=self.recal_bam,
-                      recal_bam_index=self.recal_bam_index,
-                      script_dir=self.script_dir,
-                      annotated_vcf_gz=self.annotated_vcf_gz,
-                      annotated_vcf_gz_index=self.annotated_vcf_gz_index,
-                      base_dir=self.base_dir,
-                      g_vcf_gz=self.g_vcf_gz,
-                      g_vcf_gz_index=self.g_vcf_gz_index,
-                      sample_name=self.sample_name,
-                      sample_type=self.sample_type.upper())
-        """
+                                
         try:
+            ## Insert to start time to database
+            db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
-
+            db.commit()
+            db.close()
+            
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
             DEVNULL = open(os.devnull, 'w')
+
+            ## Run the rsync
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
             subprocess.check_call(['touch',self.copy_complete])
             """Original dragen BAM could be technically deleted earlier after the
@@ -1956,9 +2064,15 @@ class ArchiveSample(SGEJobTask):
             rm_folder_cmd = ['rm','-rf',self.scratch_dir]
             subprocess.call(rm_cmd)
             subprocess.call(rm_folder_cmd)
+            ## Change folder permissions of base directory
+            subprocess.check_output("chgrp bioinfo {0}".format(self.base_dir),shell=True)
+            subprocess.check_output("chmod -R 755 {0}".format(self.base_dir),shell=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
+
+            ## Insert to dragen status and update finish time in database
+            db = get_connection("seqdb")
             cur.execute(INSERT_DRAGEN_STATUS.format(
                         sample_name=self.sample_name,
                         status="GATK Pipeline Complete",
@@ -1970,6 +2084,8 @@ class ArchiveSample(SGEJobTask):
                         pseudo_prepid=self.pseudo_prepid,
                         pipeline_step_id=self.pipeline_step_id))
             db.commit()
+            db.close()
+            
         finally:
             if db.open:
                 db.close()
@@ -2063,7 +2179,7 @@ def run_shellcmd(db_name,pipeline_step_id,pseudo_prepid,cmd,sample_name,
     """
     Runs a shell command, is flanked by database update calls
     to ensure logging the time and to check for task completion.
-    If the database connection fails, will try a few more attempts
+    If the database connection fails, will try 4 more attempts
 
     Args : 
          db_name : String ; Name of the database to query, either seqdb 
@@ -2086,19 +2202,23 @@ def run_shellcmd(db_name,pipeline_step_id,pseudo_prepid,cmd,sample_name,
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
                         pseudo_prepid=pseudo_prepid,
                         pipeline_step_id=pipeline_step_id))
-
+            db.commit()
+            db.close()
+            
             for cmd_j in cmd:
                 proc = subprocess.Popen(cmd_j,shell=True)
                 proc.wait()
                 if proc.returncode: ## Non zero return code
                     raise subprocess.CalledProcessError(proc.returncode,cmd_j)
 
+            db = get_connection(db_name)
+            cur = db.cursor()
             update_dragen_status(pseudo_prepid,sample_name,task_name,cur)
-
             cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                         pseudo_prepid=pseudo_prepid,
                         pipeline_step_id=pipeline_step_id))
             db.commit()
+            db.close()
         except MySQLdb.Error, e:
                 if i == tries - 1:
                     raise Exception("ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1]))
@@ -2171,7 +2291,7 @@ def get_productionvcf(pseudo_prepid,sample_name,sample_type):
             alignseqfileloc = db_val[-1][0] ## Get the last result
             vcf_loc = os.path.join(alignseqfileloc,'combined')
             temp_vcf = glob.glob(os.path.join(vcf_loc,
-                                         '*analysisReady.annotated*'))
+                                         '*analysisReady.annotated*vcf*'))
             if len(temp_vcf) == 0:
                 return None 
             vcf = temp_vcf[0]
@@ -2434,7 +2554,7 @@ class AlignmentMetrics(SGEJobTask):
         from dragen with duplicates removed
         """
         
-        return self.clone(PrintReads)
+        return self.clone(HaplotypeCaller)
            
     def work(self):
         """
@@ -2553,7 +2673,7 @@ class RunCvgMetrics(SGEJobTask):
         The dependency for this task is the PrintReads task
         """
         
-        yield self.clone(PrintReads)
+        yield self.clone(HaplotypeCaller)
         
     def work(self):
         """
@@ -2654,7 +2774,9 @@ class DuplicateMetrics(SGEJobTask):
                 cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
                     pseudo_prepid=self.pseudo_prepid,
                     pipeline_step_id=self.pipeline_step_id))
-
+                db.commit()
+                db.close()
+                
                 proc=subprocess.Popen(self.cmd,shell=True,stdout=subprocess.PIPE)
                 proc.wait()
                 if proc.returncode: ## Non zero return code
@@ -2669,13 +2791,16 @@ class DuplicateMetrics(SGEJobTask):
 
                 else: 
                     raise Exception("Could not find duplicate metrics in dragen log!")
+
+                db = get_connection("seqdb")
+                cur = db.cursor()
                 update_dragen_status(self.pseudo_prepid,self.sample_name,
                                      self.__class__.__name__,cur)
                 cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                     pseudo_prepid=self.pseudo_prepid,
                     pipeline_step_id=self.pipeline_step_id))
-                
                 db.commit()
+                db.close()
                 
             except MySQLdb.Error, e:
                 if i == tries - 1:
@@ -2815,7 +2940,8 @@ class GenotypeConcordance(SGEJobTask):
                 cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
                     pseudo_prepid=self.pseudo_prepid,
                     pipeline_step_id=self.pipeline_step_id))
-
+                db.commit()
+                db.close()
                 ## The actual task commands to be run
                 production_vcf = get_productionvcf(self.pseudo_prepid,
                                                    self.sample_name,self.sample_type)
@@ -2832,12 +2958,15 @@ class GenotypeConcordance(SGEJobTask):
                     raise subprocess.CalledProcessError(proc.returncode,
                                                             self.concordance_cmd)
                 remove_cmd = "rm temp.vcf {0} {1}"
+                db = get_connection("seqdb")
+                cur = db.cursor()
                 update_dragen_status(self.pseudo_prepid,self.sample_name,
                                      self.__class__.__name__,cur)
                 cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                     pseudo_prepid=self.pseudo_prepid,
                     pipeline_step_id=self.pipeline_step_id))
-                db.commit()                
+                db.commit()
+                db.close()
             except MySQLdb.Error, e:
                 if i == tries - 1:
                     raise Exception("ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1]))
@@ -3027,6 +3156,9 @@ class UpdateSeqdbMetrics(SGEJobTask):
                 cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
                     pseudo_prepid=self.pseudo_prepid,
                     pipeline_step_id=self.pipeline_step_id))
+                db.commit()
+                db.close()
+                
                 self.LOG_FILE = open(self.log_file,'w')
                 self.add_sample_to_qc()
                 self.update_alignment_metrics()
@@ -3042,14 +3174,17 @@ class UpdateSeqdbMetrics(SGEJobTask):
                 self.update_contamination_metrics()
                 self.update_seqgender()
                 self.update_qc_message()
+
+                db = get_connection("seqdb")
+                cur = db.cursor()
                 ## Update dragen_status
                 update_dragen_status(self.pseudo_prepid,self.sample_name,
                                      self.__class__.__name__,cur)
-
                 ## Update pipeline finish time
                 cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                     pseudo_prepid=self.pseudo_prepid,
                     pipeline_step_id=self.pipeline_step_id))
+                db.commit()
                 db.close()
                 break
             except MySQLdb.Error, e:
