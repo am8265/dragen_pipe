@@ -105,7 +105,7 @@ def get_variant_id(novel_fh, matched_indels_fh, cur, CHROM, POS,
     if len(alt) > 255:
         alt = alt[:255]
     POS += offset
-    block_id = POS / BLOCK_SIZ
+    block_id = POS / BLOCK_SIZE
     cur.execute(VARIANT_EXISTS_QUERY.format(
         CHROM=CHROM, POS=POS, REF=REF, ALT=alt, indel_length=indel_length))
     rows = cur.fetchall()
@@ -354,7 +354,17 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, debug=False):
                         "{CHROM} was expected".format(
                             CHROM=CHROM, chromosome=fields["CHROM"]))
                 INFO = create_INFO_dict(fields["INFO"])
-                INFO["PASS"] = 1 if fields["FILTER"] == "PASS" else 0
+                if fields["FILTER"] == "PASS":
+                    INFO["FILTER"] = "PASS"
+                elif fields["FILTER"] == "INDEL_filter":
+                    INFO["FILTER"] = "PASS"
+                elif fields["FILTER"] == "VQSRTrancheSNP99.00to99.90":
+                    INFO["FILTER"] = "INTERMEDIATE"
+                elif fields["FILTER"] == "VQSRTrancheSNP99.90to100.00":
+                    INFO["FILTER"] = "FAILURE"
+                else:
+                    raise ValueError("invalid FILTER {} @ line {}".format(
+                        fields["FILTER"], x))
                 ALT_alleles = fields["ALT"].split(",")
                 nalleles = len(ALT_alleles)
                 variant_ids = []
@@ -419,7 +429,8 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, debug=False):
                         calls_fh.write(VARIANT_CALL_FORMAT.format(
                             **merge_dicts(
                                 call, {"AD_ALT":ADs[1 + x], "variant_id":variant_id,
-                                       "block_id":block_id}, INFO)) + "\n")
+                                       "block_id":block_id,
+                                       "highest_impact":highest_impact}, INFO)) + "\n")
                 # annotate each variant with its variant_id for storage purposes
                 line_fields[VCF_COLUMNS_DICT["INFO"]] = (
                     "VariantID=" + ",".join(
