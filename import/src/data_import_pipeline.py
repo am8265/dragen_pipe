@@ -74,20 +74,13 @@ class CopyDataToScratch(luigi.Task):
     """Copy the VCF and its index to scratch space for processing
     """
     vcf = luigi.InputFileParameter(description="the VCF to copy")
-    seqscratch = luigi.ChoiceParameter(
-        choices=["09", "10", "11"], default="09",
-        description="the seqscratch to use for temporary file creation")
     sample_name = luigi.Parameter(description="the name of the sample")
-    sequencing_type = luigi.ChoiceParameter(
-        choices=["exome", "genome", "custom_capture", "merged"],
-        description="the type of sequencing performed on this sample")
+    output_directory = luigi.Parameter(
+        description="the scratch directory for outputting files")
 
     def __init__(self, *args, **kwargs):
         super(CopyDataToScratch, self).__init__(*args, **kwargs)
         self.vcf_idx = self.vcf + ".tbi"
-        self.output_directory = cfg.get("pipeline", "scratch_area").format(
-            seqscratch=self.seqscratch, sample_name=self.sample_name,
-            sequencing_type=self.sequencing_type.upper())
         self.targets = {}
         self.originals = {}
         for file_type in ("vcf", "vcf_idx"):
@@ -143,19 +136,12 @@ class ParseVCF(SGEJobTask):
         description="the sample_id for this sample")
     output_base = luigi.Parameter(
         default=None, description="specify a custom output file name")
-    seqscratch = luigi.ChoiceParameter(
-        choices=["09", "10", "11"], default="09",
-        description="the seqscratch to use for temporary file creation")
+    output_directory = luigi.Parameter(
+        description="the scratch directory for outputting files")
     sample_name = luigi.Parameter(description="the name of the sample")
-    sequencing_type = luigi.ChoiceParameter(
-        choices=["exome", "genome", "custom_capture", "merged"],
-        description="the type of sequencing performed on this sample")
     task_name_format = luigi.Parameter(
         significant=False, default="{task_family}_{sample_name}_{chromosome}",
         description="how to format the job name submitted to the cluster")
-    debug = luigi.BoolParameter(
-        significant=False,
-        description="output debug timing messages to job.err")
 
     def __init__(self, *args, **kwargs):
         super(ParseVCF, self).__init__(*args, **kwargs)
@@ -177,7 +163,7 @@ class ParseVCF(SGEJobTask):
         try:
             cur = db.cursor()
             cur.execute(GET_PIPELINE_STEP_ID.format(
-                chromosome=self.chromosome))
+                chromosome=self.chromosome, data_type="Variant Data"))
             self.pipeline_step_id = cur.fetchone()[0]
         finally:
             if db.open:
@@ -229,8 +215,14 @@ class ParseVCF(SGEJobTask):
                 ("variant_chr" + self.chromosome, self.novel_variants),
                 ("called_variant_chr" + self.chromosome, self.called_variants),
                 ("matched_indels", self.matched_indels)):
-                cur.execute(LOAD_TABLE.format(
-                    table_name=table_name, table_file=table_file))
+                load_statement = LOAD_TABLE.format(
+                    table_name=table_name, table_file=table_file)
+                try:
+                    cur.execute(load_statement)
+                except (MySQLdb.IntegrityError, MySQLdb.OperationalError):
+                    print("error with:")
+                    print(load_statement)
+                    raise
             cur.execute(GET_NUM_CALLS_FOR_SAMPLE.format(
                 CHROM=self.chromosome, sample_id=self.sample_id))
             db_count = cur.fetchone()[0]
@@ -250,6 +242,94 @@ class ParseVCF(SGEJobTask):
         return SQLTarget(sample_id=self.sample_id,
                          pipeline_step_id=self.pipeline_step_id)
 
+class LoadGQData(SGEJobTask):
+    """Import the GQ binning data for a single chromosome for a sample
+    """
+    fn = luigi.Parameter(description="the file to import")
+    chromosome = luigi.Parameter(description="the chromosome")
+    sample_id = luigi.IntParameter(
+        description="the sample_id for the sample")
+    output_directory = luigi.Parameter(
+        description="the scratch directory for outputting files")
+
+    def __init__(self, *args, **kwargs):
+        super(LoadGQData, self).__init__(*args, **kwargs)
+        db =  get_connection("dragen")
+        try:
+            cur = db.cursor()
+            cur.execute(GET_PIPELINE_STEP_ID.format(
+                chromosome=self.chromosome, data_type="GQ Data"))
+            self.pipeline_step_id = cur.fetchone()[0]
+        finally:
+            if db.open:
+                db.close()
+
+    def work(self):
+        copy(self.fn, self.output_directory)
+        temp_fn = os.path.join(self.output_directory, os.path.basename(self.fn))
+        db = get_connection("dragen")
+        try:
+            cur = db.cursor()
+            cur.execute(
+                INSERT_BIN_STATEMENT.format(
+                    data_file=temp_fn, bin_type="GQ",
+                    chromosome=self.chromosome, sample_id=self.sample_id))
+            cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
+                sample_id=self.sample_id,
+                pipeline_step_id=self.pipeline_step_id))
+            db.commit()
+        finally:
+            if not db.open:
+                db.close()
+
+    def output(self):
+        return SQLTarget(sample_id=self.sample_id,
+                         pipeline_step_id=self.pipeline_step_id)
+
+class LoadDPData(SGEJobTask):
+    """Import the DP binning data for a single chromosome for a sample
+    """
+    fn = luigi.Parameter(description="the file to import")
+    chromosome = luigi.Parameter(description="the chromosome")
+    sample_id = luigi.IntParameter(
+        description="the sample_id for the sample")
+    output_directory = luigi.Parameter(
+        description="the scratch directory for outputting files")
+
+    def __init__(self, *args, **kwargs):
+        super(LoadDPData, self).__init__(*args, **kwargs)
+        db =  get_connection("dragen")
+        try:
+            cur = db.cursor()
+            cur.execute(GET_PIPELINE_STEP_ID.format(
+                chromosome=self.chromosome, data_type="DP Data"))
+            self.pipeline_step_id = cur.fetchone()[0]
+        finally:
+            if db.open:
+                db.close()
+
+    def work(self):
+        copy(self.fn, self.output_directory)
+        temp_fn = os.path.join(self.output_directory, os.path.basename(self.fn))
+        db = get_connection("dragen")
+        try:
+            cur = db.cursor()
+            cur.execute(
+                INSERT_BIN_STATEMENT.format(
+                    data_file=temp_fn, bin_type="DP",
+                    chromosome=self.chromosome, sample_id=self.sample_id))
+            cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
+                sample_id=self.sample_id,
+                pipeline_step_id=self.pipeline_step_id))
+            db.commit()
+        finally:
+            if not db.open:
+                db.close()
+
+    def output(self):
+        return SQLTarget(sample_id=self.sample_id,
+                         pipeline_step_id=self.pipeline_step_id)
+
 class ImportSample(luigi.Task):
     """import a sample by requiring() a ParseVCF Task for each chromosome
     """
@@ -262,6 +342,14 @@ class ImportSample(luigi.Task):
     seqscratch = luigi.ChoiceParameter(
         choices=["09", "10", "11"], default="09",
         description="the seqscratch to use for temporary file creation")
+    sample_name = luigi.Parameter(
+        default=None,
+        description="the name of the sample (doesn't need to be specified")
+    output_directory = luigi.Parameter(
+        default=None, description="the scratch directory for outputting files "
+        "(doesn't need to be specified")
+    run_locally = luigi.BoolParameter(
+        description="run locally instead of on the cluster")
 
     def __init__(self, *args, **kwargs):
         super(ImportSample, self).__init__(*args, **kwargs)
@@ -271,24 +359,25 @@ class ImportSample(luigi.Task):
             cur.execute(GET_SAMPLE_INFO.format(sample_id=self.sample_id))
             row = cur.fetchone()
             if row:
-                (self.sample_name, self.sequencing_type,
-                 self.capture_kit, self.prep_id) = row
+                (sample_name, sequencing_type, capture_kit, prep_id) = row
+                kwargs["sample_name"] = sample_name
+                self.sequencing_type = sequencing_type
+                self.prep_id = prep_id
             else:
                 raise ValueError("sample_id {sample_id} does not exist".format(
-                    sample_id=self.sample_id))
+                    sample_id=sample_id))
         finally:
             if db.open:
                 db.close()
-        self.output_directory = cfg.get("pipeline", "scratch_area").format(
-            seqscratch=self.seqscratch, sample_name=self.sample_name,
+        kwargs["output_directory"] = cfg.get("pipeline", "scratch_area").format(
+            seqscratch=self.seqscratch, sample_name=sample_name,
             sequencing_type=self.sequencing_type.upper())
-        data_directory = get_data_directory(
-            self.sample_name, self.sequencing_type,
-            self.capture_kit, self.prep_id)
-        if not os.path.isdir(data_directory):
+        self.data_directory = get_data_directory(
+            sample_name, self.sequencing_type, capture_kit, self.prep_id)
+        if not os.path.isdir(self.data_directory):
             raise ValueError(
-                "the data directory for the sample does not exist")
-        self.data_directory = data_directory
+                "the data directory {} for the sample does not exist".format(
+                self.data_directory))
         db = get_connection("dragen")
         try:
             cur = db.cursor()
@@ -301,19 +390,28 @@ class ImportSample(luigi.Task):
             kwargs["vcf"] = os.path.join(
                 self.data_directory, "{sample_name}.{prep_id}.analysisReady."
                 "annotated.vcf.gz".format(
-                    sample_name=self.sample_name, prep_id=self.prep_id))
-            super(ImportSample, self).__init__(*args, **kwargs)
+                    sample_name=sample_name, prep_id=self.prep_id))
+        super(ImportSample, self).__init__(*args, **kwargs)
         if not os.path.isfile(self.vcf):
             raise OSError(
                 "could not find the VCF: {vcf}".format(vcf=self.vcf))
 
     def requires(self):
-        return [ParseVCF(
-            vcf=self.vcf, sample_id=self.sample_id,
-            chromosome=CHROM, sample_name=self.sample_name,
-            sequencing_type=self.sequencing_type,
+        return ([self.clone(ParseVCF, chromosome=CHROM, 
             output_base=self.output_directory + CHROM)
-            for CHROM in CHROMs.iterkeys()]
+            for CHROM in CHROMs.iterkeys()] +
+            [self.clone(LoadGQData, fn=os.path.join(
+                self.data_directory, "gq_binned",
+                "{sample_name}.{prep_id}_gq_binned_10000_chr{chromosome}.txt".format(
+                    sample_name=self.sample_name, prep_id=self.prep_id,
+                    chromosome=CHROM)), chromosome=CHROM)
+             for CHROM in CHROMs.iterkeys()] +
+            [self.clone(LoadDPData, fn=os.path.join(
+                self.data_directory, "cvg_binned",
+                "{sample_name}.{prep_id}_coverage_binned_10000_chr{chromosome}.txt".format(
+                    sample_name=self.sample_name, prep_id=self.prep_id,
+                    chromosome=CHROM)), chromosome=CHROM)
+             for CHROM in CHROMs.iterkeys()])
     
     def run(self):
         variant_id_header = cfg.get("pipeline", "variant_id_header") + "\n"

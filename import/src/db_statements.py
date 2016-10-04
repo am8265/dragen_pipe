@@ -4,11 +4,15 @@ MySQL statements used in the pipeline
 
 # check novelty of variant/get its id
 VARIANT_EXISTS_QUERY = """
-SELECT variant_id
+SELECT DISTINCT variant_id, effect_id
 FROM variant_chr{CHROM}
 WHERE POS = {POS} AND REF = "{REF}" AND ALT = "{ALT}"
     AND indel_length = {indel_length}
-LIMIT 1
+"""
+GET_VARIANT_EFFECTS = """
+SELECT DISTINCT(effect_id)
+FROM variant_chr{CHROM}
+WHERE variant_id = {variant_id}
 """
 # insert a novel variant
 VARIANT_INSERT = """
@@ -91,7 +95,7 @@ WHERE sample_id = {sample_id}
 GET_PIPELINE_STEP_ID = """
 SELECT id
 FROM pipeline_step
-WHERE description = "Imported Chromosome {chromosome}"
+WHERE description = "Imported Chromosome {chromosome} {data_type}"
 """
 GET_PIPELINE_FINISHED_ID = """
 SELECT id
@@ -126,4 +130,9 @@ INNER JOIN (
     GROUP BY sample_id) AS s2
     ON s1.sample_id = s2.sample_id AND s1.pipeline_step_id = {pipeline_step_id}
 SET s1.submit_time = s2.st
+"""
+INSERT_BIN_STATEMENT = """
+LOAD DATA INFILE '{data_file}' INTO TABLE {bin_type}_bins_chr{chromosome}
+    (@block_id, @bin_string)
+    SET sample_id={sample_id}, block_id=@block_id, {bin_type}_string=@bin_string
 """

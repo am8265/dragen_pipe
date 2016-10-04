@@ -90,6 +90,8 @@ def calculate_polyphen_scores(
 
 def get_variant_id(novel_fh, matched_indels_fh, cur, CHROM, POS,
                    REF, ALT, rs_number, ANNs, novel_variant_id, effect_rankings,
+                   high_impact_effect_ids, moderate_impact_effect_ids,
+                   low_impact_effect_ids, modifier_impact_effect_ids,
                    polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore):
     """return the variant_id of the given variant and output it to novel_fh
     if it's novel
@@ -106,9 +108,10 @@ def get_variant_id(novel_fh, matched_indels_fh, cur, CHROM, POS,
     block_id = POS / BLOCK_SIZE
     cur.execute(VARIANT_EXISTS_QUERY.format(
         CHROM=CHROM, POS=POS, REF=REF, ALT=alt, indel_length=indel_length))
-    row = cur.fetchone()
-    if row:
-        variant_id = row[0]
+    rows = cur.fetchall()
+    if rows:
+        variant_id = rows[0][0]
+        effect_ids = [row[1] for row in rows]
     else:
         novel = True
         if indel_length:
@@ -123,14 +126,29 @@ def get_variant_id(novel_fh, matched_indels_fh, cur, CHROM, POS,
                 variant_id = matched_indel_id
                 block_id = matched_block_id
                 novel = False
+                cur.execute(GET_VARIANT_EFFECTS.format(
+                    CHROM=CHROM, variant_id=variant_id))
+                effect_ids = [row[0] for row in cur.fetchall()]
         if novel:
             variant_id = novel_variant_id
-            output_novel_variant(
+            effect_ids = output_novel_variant(
                 novel_fh, cur, variant_id, CHROM, POS, REF, alt, indel_length,
                 ALT, rs_number, ANNs, effect_rankings,
                 polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore)
             novel_variant_id += 1
-    return variant_id, block_id, novel_variant_id
+    if any(effect_id in high_impact_effect_ids for effect_id in effect_ids):
+        highest_impact = "HIGH"
+    elif any(effect_id in moderate_impact_effect_ids
+             for effect_id in effect_ids):
+        highest_impact = "MODERATE"
+    elif any(effect_id in low_impact_effect_ids for effect_id in effect_ids):
+        highest_impact = "LOW"
+    elif any(effect_id in modifier_impact_effect_ids for effect_id in
+             effect_ids):
+        highest_impact = "MODIFIER"
+    else:
+        highest_impact = "\\N"
+    return variant_id, highest_impact, block_id, novel_variant_id
 
 def output_novel_variant(
     novel_fh, cur, variant_id, CHROM, POS, REF, ALT, indel_length,
@@ -143,17 +161,22 @@ def output_novel_variant(
     VariantID = "{CHROM}-{POS}-{REF}-{ALT}".format(
         CHROM=CHROM, POS=POS, REF=REF, ALT=ALT)
     rs_number = "" if rs_number == "." else rs_number
-    indel = 0 if indel_length else 1
+    indel = 1 if indel_length else 0
     anns = []
     for ann in ANNs.split(","):
         alt_allele, values = ann.split("|", 1)
         if alt_allele == original_ALT:
             anns.append(values.split("|"))
+    effect_ids = []
     if anns:
         # primary key is POS, variant_id, transcript_stable_id, effect
         # POS, variant_id is invariant so keep track of transcript_id, effect in
         # order to avoid duplicates, i.e. integrity errors
         annotations = {}
+        # keep track of the effects by transcript in order to annotate the
+        # custom annotations missense_variant+splice_region_variant and
+        # splice_region_variant+synonymous_variant
+        annotations_by_transcript = defaultdict(set)
         for (effects, impact, gene, gene_id, feature_type, feature_id,
              transcript_biotype, rank_total, HGVS_c, HGVS_p, cDNA_position,
              CDS_position, protein_position, distance, errors) in anns:
@@ -169,7 +192,9 @@ def output_novel_variant(
                                    "5_prime_UTR_truncation+exon_loss_variant"))
             for effect in effects.split("&"):
                 if effect == "custom":
-                    effect = "exon_intron_boundary"
+                    # these correspond to the deprecated INTRON_EXON_BOUNDARY
+                    # annotations which SnpEff now natively annotates
+                    continue
                 if effect not in effect_rankings:
                     raise ValueError(
                         "error: invalid effect {effect} for {VariantID}".format(
@@ -196,6 +221,7 @@ def output_novel_variant(
                 feature_id = feature_id.upper()
                 annotations_key = (feature_id, effect)
                 effect_id = effect_rankings[effect][impact]
+                effect_ids.append(effect_id)
                 if annotations_key in annotations:
                     if "N" in REF:
                         # ignore the fact that SnpEff annotates multiple HGVS_c
@@ -221,6 +247,7 @@ def output_novel_variant(
                         "transcript_stable_id":feature_id,
                         "effect_id":effect_id, "HGVS_c":HGVS_c,
                         "HGVS_p":HGVS_p, "gene":gene}
+                    annotations_by_transcript[feature_id].add(effect)
                     if effect == "missense_variant":
                         # calculate PolyPhen scores if possible
                         annotations[annotations_key].update(
@@ -228,6 +255,26 @@ def output_novel_variant(
                                 cur, feature_id, HGVS_p, VariantID,
                                 polyphen_matrixes_by_stable_id,
                                 polyphen_stable_ids_to_ignore))
+        for feature_id, effects in annotations_by_transcript.iteritems():
+            if "splice_region_variant" in effects:
+                if "missense_variant" in effects:
+                    # if a single transcript has both these effects, add this
+                    # custom effect annotation
+                    effect = "missense_variant+splice_region_variant"
+                    annotations[(feature_id, effect)] = (
+                        annotations[(feature_id, "missense_variant")]).copy()
+                    # need to replace the effect_id for this so as to indicate
+                    # the proper effect type
+                    effect_id = effect_rankings[effect]["MODERATE"]
+                    annotations[(feature_id, effect)]["effect_id"] = effect_id
+                    effect_ids.append(effect_id)
+                if "synonymous_variant" in effects:
+                    effect = "splice_region_variant+synonymous_variant"
+                    annotations[(feature_id, effect)] = (
+                            annotations[(feature_id, "synonymous_variant")]).copy()
+                    effect_id = effect_rankings[effect]["LOW"]
+                    annotations[(feature_id, effect)]["effect_id"] = effect_id
+                    effect_ids.append(effect_id)
         for annotation_values in annotations.itervalues():
             output_novel_variant_entry(
                 novel_fh, variant_id, POS, REF, ALT, rs_number, indel,
@@ -236,6 +283,7 @@ def output_novel_variant(
         raise ValueError(
             "error: {VariantID} has no SnpEff annotation(s)".
             format(VariantID=VariantID))
+    return effect_ids
 
 def output_novel_variant_entry(
     novel_fh, variant_id, POS, REF, ALT, rs_number, indel, indel_length,
@@ -268,9 +316,21 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, debug=False):
         cur.execute(GET_MAX_VARIANT_ID.format(CHROM=CHROM))
         novel_variant_id = cur.fetchone()[0]
         effect_rankings = defaultdict(lambda: defaultdict(int))
+        high_impact_effect_ids = set()
+        moderate_impact_effect_ids = set()
+        low_impact_effect_ids = set()
+        modifier_impact_effect_ids = set()
         cur.execute(GET_EFFECT_RANKINGS)
         for effect_id, impact, effect in cur.fetchall():
             effect_rankings[effect][impact] = effect_id
+            if impact == "HIGH":
+                high_impact_effect_ids.add(effect_id)
+            elif impact == "MODERATE":
+                moderate_impact_effect_ids.add(effect_id)
+            elif impact == "LOW":
+                low_impact_effect_ids.add(effect_id)
+            elif impact == "MODIFIER":
+                modifier_impact_effect_ids.add(effect_id)
         polyphen_matrixes_by_stable_id = {"humvar":{}, "humdiv":{}}
         polyphen_stable_ids_to_ignore = {"humvar":set(), "humdiv":set()}
         novel_variants = output_base + ".novel_variants.txt"
@@ -294,18 +354,30 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, debug=False):
                         "{CHROM} was expected".format(
                             CHROM=CHROM, chromosome=fields["CHROM"]))
                 INFO = create_INFO_dict(fields["INFO"])
-                INFO["PASS"] = 1 if fields["FILTER"] == "PASS" else 0
+                if fields["FILTER"] == "PASS":
+                    INFO["FILTER"] = "PASS"
+                elif fields["FILTER"] == "INDEL_filter":
+                    INFO["FILTER"] = "PASS"
+                elif fields["FILTER"] == "VQSRTrancheSNP99.00to99.90":
+                    INFO["FILTER"] = "INTERMEDIATE"
+                elif fields["FILTER"] == "VQSRTrancheSNP99.90to100.00":
+                    INFO["FILTER"] = "FAILURE"
+                else:
+                    raise ValueError("invalid FILTER {} @ line {}".format(
+                        fields["FILTER"], x))
                 ALT_alleles = fields["ALT"].split(",")
                 nalleles = len(ALT_alleles)
                 variant_ids = []
                 for ALT_allele in ALT_alleles:
-                    variant_id, block_id, novel_variant_id = get_variant_id(
+                    variant_id, highest_impact, block_id, novel_variant_id = get_variant_id(
                         novel_fh, matched_indels_fh, cur, CHROM,
                         int(fields["POS"]), fields["REF"], ALT_allele,
                         fields["rs_number"], INFO["ANN"], novel_variant_id,
-                        effect_rankings, polyphen_matrixes_by_stable_id,
+                        effect_rankings, high_impact_effect_ids,
+                        moderate_impact_effect_ids, low_impact_effect_ids,
+                        modifier_impact_effect_ids, polyphen_matrixes_by_stable_id,
                         polyphen_stable_ids_to_ignore)
-                    variant_ids.append((variant_id, block_id))
+                    variant_ids.append((variant_id, block_id, highest_impact))
                 for variant_stat in (
                     "FS", "MQ", "QD", "ReadPosRankSum", "MQRankSum"):
                     if variant_stat not in INFO:
@@ -317,6 +389,7 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, debug=False):
                 if nalleles == 1:
                     call["variant_id"] = variant_ids[0][0]
                     call["block_id"] = variant_ids[0][1]
+                    call["highest_impact"] = variant_ids[0][2]
                     GTs = call_stats["GT"].split("/")
                     if len(GTs) == 2:
                         for x, GT in enumerate(GTs):
@@ -352,11 +425,12 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, debug=False):
                             "-{ALT}".format(GT=call_stats["GT"], **fields))
                     ADs = call_stats["AD"].split(",")
                     call["AD_REF"] = ADs[0]
-                    for x, (variant_id, block_id) in enumerate(variant_ids):
+                    for x, (variant_id, block_id, highest_impact) in enumerate(variant_ids):
                         calls_fh.write(VARIANT_CALL_FORMAT.format(
                             **merge_dicts(
                                 call, {"AD_ALT":ADs[1 + x], "variant_id":variant_id,
-                                       "block_id":block_id}, INFO)) + "\n")
+                                       "block_id":block_id,
+                                       "highest_impact":highest_impact}, INFO)) + "\n")
                 # annotate each variant with its variant_id for storage purposes
                 line_fields[VCF_COLUMNS_DICT["INFO"]] = (
                     "VariantID=" + ",".join(
