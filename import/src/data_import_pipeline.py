@@ -156,6 +156,7 @@ class ParseVCF(SGEJobTask):
             super(ParseVCF, self).__init__(*args, **kwargs)
         self.copied_files_dict = self.input().get_targets()
         self.novel_variants = self.output_base + ".novel_variants.txt"
+        self.novel_transcripts = self.output_base + ".novel_transcripts.txt"
         self.called_variants = self.output_base + ".calls.txt"
         self.variant_id_vcf = self.output_base + ".variant_id.vcf"
         self.matched_indels = self.output_base + ".matched_indels.txt"
@@ -187,8 +188,9 @@ class ParseVCF(SGEJobTask):
             vcf=self.copied_files_dict["vcf"],
             CHROM=self.chromosome, sample_id=self.sample_id,
             output_base=self.output_base, debug=self.debug)
-        for fn in (self.novel_variants, self.called_variants,
-                   self.variant_id_vcf, self.matched_indels):
+        for fn in (self.novel_variants, self.novel_transcripts,
+                   self.called_variants, self.variant_id_vcf,
+                   self.matched_indels):
             if not os.path.isfile(fn):
                 raise ValueError("failed running task; {} doesn't exist".format(
                     fn=fn))
@@ -213,6 +215,8 @@ class ParseVCF(SGEJobTask):
             cur = db.cursor()
             for table_name, table_file in (
                 ("variant_chr" + self.chromosome, self.novel_variants),
+                ("custom_transcript_ids_chr" + self.chromosome,
+                 self.novel_transcripts),
                 ("called_variant_chr" + self.chromosome, self.called_variants),
                 ("matched_indels", self.matched_indels)):
                 load_statement = LOAD_TABLE.format(
