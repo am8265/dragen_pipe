@@ -80,7 +80,9 @@ def get_fastq_loc(curs, sample):
                 #for read group folder named as 1,2.3..etc
                 fastq_loc = glob(('/nfs/seqsata*/seqfinal/whole_genome/{}/[0-9]'
                                 ).format(sample['sample_name']))
-                if fastq_loc:
+                if 'SRR' in sample['sample_name']: #specifically for SRR samples
+                    locs.append('/nfs/seqscratch10/SRA/{}/1').format(sample['sample_name'])
+                elif fastq_loc:
                     for flowcell in fastq_loc:
                         locs.append(os.path.realpath(flowcell))
                 elif glob(('/nfs/seqsata*/seqfinal/whole_genome/{}/*XX'
