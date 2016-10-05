@@ -258,7 +258,7 @@ class LoadGQData(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(LoadGQData, self).__init__(*args, **kwargs)
-        db =  get_connection("dragen")
+        db = get_connection("dragen")
         try:
             cur = db.cursor()
             cur.execute(GET_PIPELINE_STEP_ID.format(
@@ -269,11 +269,15 @@ class LoadGQData(SGEJobTask):
                 db.close()
 
     def work(self):
+        db = get_connection("dragen")
+        cur = db.cursor()
+        cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
+            sample_id=self.sample_id,
+            pipeline_step_id=self.pipeline_step_id))
+        db.commit()
         copy(self.fn, self.output_directory)
         temp_fn = os.path.join(self.output_directory, os.path.basename(self.fn))
-        db = get_connection("dragen")
         try:
-            cur = db.cursor()
             cur.execute(
                 INSERT_BIN_STATEMENT.format(
                     data_file=temp_fn, bin_type="GQ",
@@ -302,7 +306,7 @@ class LoadDPData(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(LoadDPData, self).__init__(*args, **kwargs)
-        db =  get_connection("dragen")
+        db = get_connection("dragen")
         try:
             cur = db.cursor()
             cur.execute(GET_PIPELINE_STEP_ID.format(
@@ -313,11 +317,15 @@ class LoadDPData(SGEJobTask):
                 db.close()
 
     def work(self):
+        db = get_connection("dragen")
+        cur = db.cursor()
+        cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
+            sample_id=self.sample_id,
+            pipeline_step_id=self.pipeline_step_id))
+        db.commit()
         copy(self.fn, self.output_directory)
         temp_fn = os.path.join(self.output_directory, os.path.basename(self.fn))
-        db = get_connection("dragen")
         try:
-            cur = db.cursor()
             cur.execute(
                 INSERT_BIN_STATEMENT.format(
                     data_file=temp_fn, bin_type="DP",
@@ -437,7 +445,8 @@ class ImportSample(luigi.Task):
         if not info_output:
             header.append(variant_id_header)
         header.append(line)
-        vcf_out = os.path.join(self.output_directory, self.sample_name + ".vcf")
+        vcf_out = os.path.join(self.output_directory, self.sample_name +
+                               ".variant_id.vcf")
         with open(vcf_out, "w") as vcf_out_fh:
             for line in header:
                 vcf_out_fh.write(line)
