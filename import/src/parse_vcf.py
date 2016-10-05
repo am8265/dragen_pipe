@@ -88,8 +88,9 @@ def calculate_polyphen_scores(
                 HGVS_p=HGVS_p, VariantID=VariantID))
     return scores
 
-def get_variant_id(novel_fh, matched_indels_fh, cur, CHROM, POS,
-                   REF, ALT, rs_number, ANNs, novel_variant_id, effect_rankings,
+def get_variant_id(novel_fh, novel_transcripts_fh, matched_indels_fh, cur,
+                   CHROM, POS, REF, ALT, rs_number, ANNs, novel_variant_id,
+                   novel_transcripts_id, effect_rankings,
                    high_impact_effect_ids, moderate_impact_effect_ids,
                    low_impact_effect_ids, modifier_impact_effect_ids,
                    polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore):
@@ -131,9 +132,10 @@ def get_variant_id(novel_fh, matched_indels_fh, cur, CHROM, POS,
                 effect_ids = [row[0] for row in cur.fetchall()]
         if novel:
             variant_id = novel_variant_id
-            effect_ids = output_novel_variant(
-                novel_fh, cur, variant_id, CHROM, POS, REF, alt, indel_length,
-                ALT, rs_number, ANNs, effect_rankings,
+            effect_ids, novel_transcripts_id = output_novel_variant(
+                novel_fh, novel_transcripts_fh, cur, variant_id,
+                novel_transcripts_id, CHROM, POS,
+                REF, alt, indel_length, ALT, rs_number, ANNs, effect_rankings,
                 polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore)
             novel_variant_id += 1
     if any(effect_id in high_impact_effect_ids for effect_id in effect_ids):
@@ -148,16 +150,18 @@ def get_variant_id(novel_fh, matched_indels_fh, cur, CHROM, POS,
         highest_impact = "MODIFIER"
     else:
         highest_impact = "\\N"
-    return variant_id, highest_impact, block_id, novel_variant_id
+    return (variant_id, highest_impact, block_id,
+            novel_variant_id, novel_transcripts_id)
 
 def output_novel_variant(
-    novel_fh, cur, variant_id, CHROM, POS, REF, ALT, indel_length,
-    original_ALT, rs_number, ANNs, effect_rankings,
+    novel_fh, novel_transcripts_fh, cur, variant_id, novel_transcripts_id, CHROM,
+    POS, REF, ALT, indel_length, original_ALT, rs_number, ANNs, effect_rankings,
     polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore,
     impact_ordering=["HIGH", "MODERATE", "LOW", "MODIFIER"]):
     """output all entries for the novel variant to novel_fh and increment
     variant_id
     """
+    transcript_ids_dict = {}
     VariantID = "{CHROM}-{POS}-{REF}-{ALT}".format(
         CHROM=CHROM, POS=POS, REF=REF, ALT=ALT)
     rs_number = "" if rs_number == "." else rs_number
@@ -219,6 +223,27 @@ def output_novel_variant(
                 # and treat different case differently, but this will cause
                 # integrity errors, so they're converted to upper-case always
                 feature_id = feature_id.upper()
+                if feature_id == "":
+                    transcript_ids_dict[""] = 0
+                elif "-" in feature_id or feature_id.startswith("ENSG"):
+                    cur.execute(GET_CUSTOM_TRANSCRIPT_ID.format(
+                        CHROM=CHROM, transcript_ids=feature_id))
+                    row = cur.fetchone()
+                    if row:
+                        transcript_ids_dict[feature_id] = row[0]
+                    else:
+                        # new transcript id
+                        transcript_ids_dict[feature_id] = novel_transcripts_id
+                        novel_transcripts_fh.write("{id}\t{feature_id}\n".format(
+                            id=novel_transcripts_id, feature_id=feature_id))
+                        novel_transcripts_id -= 1
+                else:
+                    if feature_id.startswith("ENST"):
+                        transcript_ids_dict[feature_id] = int(feature_id[4:])
+                    else:
+                        raise ValueError(
+                            "failure getting a transcript ID for {}".format(
+                                feature_id))
                 annotations_key = (feature_id, effect)
                 effect_id = effect_rankings[effect][impact]
                 effect_ids.append(effect_id)
@@ -235,7 +260,7 @@ def output_novel_variant(
                         # impact, so update the annotations (which are sorted by
                         # impact)
                         annotations[annotations_key] = {
-                            "transcript_stable_id":feature_id,
+                            "transcript_stable_id":transcript_ids_dict[feature_id],
                             "effect_id":effect_id, "HGVS_c":HGVS_c,
                             "HGVS_p":HGVS_p, "gene":gene}
                     elif effect == "exon_intron_boundary":
@@ -244,7 +269,7 @@ def output_novel_variant(
                         continue
                 else:
                     annotations[annotations_key] = {
-                        "transcript_stable_id":feature_id,
+                        "transcript_stable_id":transcript_ids_dict[feature_id],
                         "effect_id":effect_id, "HGVS_c":HGVS_c,
                         "HGVS_p":HGVS_p, "gene":gene}
                     annotations_by_transcript[feature_id].add(effect)
@@ -283,7 +308,7 @@ def output_novel_variant(
         raise ValueError(
             "error: {VariantID} has no SnpEff annotation(s)".
             format(VariantID=VariantID))
-    return effect_ids
+    return effect_ids, novel_transcripts_id
 
 def output_novel_variant_entry(
     novel_fh, variant_id, POS, REF, ALT, rs_number, indel, indel_length,
@@ -315,6 +340,12 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, debug=False):
         cur = db.cursor()
         cur.execute(GET_MAX_VARIANT_ID.format(CHROM=CHROM))
         novel_variant_id = cur.fetchone()[0]
+        cur.execute(GET_MIN_CUSTOM_TRANSCRIPT_ID.format(
+            CHROM=CHROM))
+        novel_transcripts_id = cur.fetchone()[0]
+        if not novel_transcripts_id:
+            novel_transcripts_id = 0
+        novel_transcripts_id -= 1
         effect_rankings = defaultdict(lambda: defaultdict(int))
         high_impact_effect_ids = set()
         moderate_impact_effect_ids = set()
@@ -334,11 +365,13 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, debug=False):
         polyphen_matrixes_by_stable_id = {"humvar":{}, "humdiv":{}}
         polyphen_stable_ids_to_ignore = {"humvar":set(), "humdiv":set()}
         novel_variants = output_base + ".novel_variants.txt"
+        novel_transcripts = output_base + ".novel_transcripts.txt"
         calls = output_base + ".calls.txt"
         variant_id_vcf = output_base + ".variant_id.vcf"
         matched_indels = output_base + ".matched_indels.txt"
         vcf_tabix = tabix.open(vcf)
         with open(novel_variants, "w") as novel_fh, \
+                open(novel_transcripts, "w") as novel_transcripts_fh, \
                 open(calls, "w") as calls_fh, \
                 open(variant_id_vcf, "w") as vcf_out, \
                 open(matched_indels, "w") as matched_indels_fh:
@@ -369,14 +402,15 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, debug=False):
                 nalleles = len(ALT_alleles)
                 variant_ids = []
                 for ALT_allele in ALT_alleles:
-                    variant_id, highest_impact, block_id, novel_variant_id = get_variant_id(
-                        novel_fh, matched_indels_fh, cur, CHROM,
-                        int(fields["POS"]), fields["REF"], ALT_allele,
-                        fields["rs_number"], INFO["ANN"], novel_variant_id,
-                        effect_rankings, high_impact_effect_ids,
-                        moderate_impact_effect_ids, low_impact_effect_ids,
-                        modifier_impact_effect_ids, polyphen_matrixes_by_stable_id,
-                        polyphen_stable_ids_to_ignore)
+                    (variant_id, highest_impact, block_id, novel_variant_id,
+                     novel_transcripts_id) = get_variant_id(
+                         novel_fh, novel_transcripts_fh, matched_indels_fh,
+                         cur, CHROM, int(fields["POS"]), fields["REF"], ALT_allele,
+                         fields["rs_number"], INFO["ANN"], novel_variant_id,
+                         novel_transcripts_id, effect_rankings, high_impact_effect_ids,
+                         moderate_impact_effect_ids, low_impact_effect_ids,
+                         modifier_impact_effect_ids, polyphen_matrixes_by_stable_id,
+                         polyphen_stable_ids_to_ignore)
                     variant_ids.append((variant_id, block_id, highest_impact))
                 for variant_stat in (
                     "FS", "MQ", "QD", "ReadPosRankSum", "MQRankSum"):

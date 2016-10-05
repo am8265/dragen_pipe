@@ -136,3 +136,12 @@ LOAD DATA INFILE '{data_file}' INTO TABLE {bin_type}_bins_chr{chromosome}
     (@block_id, @bin_string)
     SET sample_id={sample_id}, block_id=@block_id, {bin_type}_string=@bin_string
 """
+GET_MIN_CUSTOM_TRANSCRIPT_ID = """
+SELECT MIN(id)
+FROM custom_transcript_ids_chr{CHROM}
+"""
+GET_CUSTOM_TRANSCRIPT_ID = """
+SELECT id
+FROM custom_transcript_ids_chr{CHROM}
+WHERE transcript_ids = "{transcript_ids}"
+"""
