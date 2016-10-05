@@ -171,6 +171,8 @@ class CopyBam(SGEJobTask):
             config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.base_dir = "{0}/{1}/{2}.{3}".format(
             config().base,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        #self.base_dir = "{0}/{1}.{2}".format(config().base,self.sample_name,self.pseudo_prepid) ## For the wierd samples not in fastq16
+        self.base_log = "{0}/logs".format(self.base_dir)
         self.bam = "{0}/{1}.{2}.bam".format(self.base_dir,
                                             self.sample_name,self.pseudo_prepid)
         self.bam_index = "{0}/{1}.{2}.bam.bai".format(self.base_dir,
@@ -204,12 +206,14 @@ class CopyBam(SGEJobTask):
             
             os.system("mkdir -p {0}/scripts".format(self.scratch_dir))
             os.system("mkdir -p {0}/logs".format(self.scratch_dir))
-            cmd = ("rsync -a --timeout=20000 -r {bam} {bam_index} {scratch_dir}/"
+            cmd = ("rsync -a --timeout=20000 -r {bam} {bam_index} {base_log} {scratch_dir}/"
                   ).format(bam=self.bam,
                            bam_index=self.bam_index,
+                           base_log=self.base_log,
                            scratch_dir=self.scratch_dir)
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
+                
             DEVNULL = open(os.devnull, 'w')
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
@@ -1105,39 +1109,76 @@ class VariantRecalibratorSNP(SGEJobTask):
                 db.close()
 
     def work(self):
+
+        ## We will exlcude DP from the VQSR model for Exomes/Custom Captures
         
-        cmd = ("{java} -Xmx{max_mem}g "
-            "-jar {gatk} "
-            "-R {ref} "
-            "-T VariantRecalibrator "
-            "-L {interval} "
-            "--log_to_file {log_file} "
-            "--input {snp_vcf} "
-            "-an DP -an QD -an FS -an SOR -an MQ -an MQRankSum -an ReadPosRankSum "
-            "-mode SNP "
-            "--maxGaussians 4 "
-            "-tranche 100.0 -tranche 99.9 -tranche 99.0 -tranche 90.0 "
-            "-recalFile {snp_recal} "
-            "-tranchesFile {snp_tranches} "
-            "-rscriptFile {snp_rscript} "
-            "-resource:hapmap,known=false,training=true,truth=true,prior=15.0 {hapmap} "
-            "-resource:omni,known=false,training=true,truth=false,prior=12.0 {omni} "
-            "-resource:1000G,known=false,training=true,truth=false,prior=10.0 {g1000} "
-            "-resource:dbsnp,known=true,training=false,truth=false,prior=2.0 {dbSNP} "
-            ).format(java=config().java,
-                gatk=config().gatk,
-                max_mem=config().max_mem,
-                log_file=self.log_file,
-                ref=config().ref,
-                interval=config().interval,
-                snp_vcf=self.snp_vcf,
-                snp_recal=self.snp_recal,
-                snp_tranches=self.snp_tranches,
-                snp_rscript=self.snp_rscript,
-                dbSNP=config().dbSNP,
-                hapmap=config().hapmap,
-                omni=config().omni,
-                g1000=config().g1000)
+        if self.sample_type.upper() == 'GENOME':  
+            cmd = ("{java} -Xmx{max_mem}g "
+                   "-jar {gatk} "
+                   "-R {ref} "
+                   "-T VariantRecalibrator "
+                   "-L {interval} "
+                   "--log_to_file {log_file} "
+                   "--input {snp_vcf} "
+                   "-an DP -an QD -an FS -an SOR -an MQ -an MQRankSum -an ReadPosRankSum "
+                   "-mode SNP "
+                   "--maxGaussians 4 "
+                   "-tranche 100.0 -tranche 99.9 -tranche 99.0 -tranche 90.0 "
+                   "-recalFile {snp_recal} "
+                   "-tranchesFile {snp_tranches} "
+                   "-rscriptFile {snp_rscript} "
+                   "-resource:hapmap,known=false,training=true,truth=true,prior=15.0 {hapmap} "
+                   "-resource:omni,known=false,training=true,truth=true,prior=12.0 {omni} "
+                   "-resource:1000G,known=false,training=true,truth=false,prior=10.0 {g1000} "
+                   "-resource:dbsnp,known=true,training=false,truth=false,prior=2.0 {dbSNP} "
+                       ).format(java=config().java,
+                                gatk=config().gatk,
+                                max_mem=config().max_mem,
+                                log_file=self.log_file,
+                                ref=config().ref,
+                                interval=config().interval,
+                                snp_vcf=self.snp_vcf,
+                                snp_recal=self.snp_recal,
+                                snp_tranches=self.snp_tranches,
+                                snp_rscript=self.snp_rscript,
+                                dbSNP=config().dbSNP,
+                                hapmap=config().hapmap,
+                                omni=config().omni,
+                                g1000=config().g1000)
+        else: ## Anything other than Genome, i.e. Custom Capture or Exome 
+            cmd = ("{java} -Xmx{max_mem}g "
+                   "-jar {gatk} "
+                   "-R {ref} "
+                   "-T VariantRecalibrator "
+                   "-L {interval} "
+                   "--log_to_file {log_file} "
+                   "--input {snp_vcf} "
+                   "-an QD -an FS -an SOR -an MQ -an MQRankSum -an ReadPosRankSum "
+                   "-mode SNP "
+                   "--maxGaussians 4 "
+                   "-tranche 100.0 -tranche 99.9 -tranche 99.0 -tranche 90.0 "
+                   "-recalFile {snp_recal} "
+                   "-tranchesFile {snp_tranches} "
+                   "-rscriptFile {snp_rscript} "
+                   "-resource:hapmap,known=false,training=true,truth=true,prior=15.0 {hapmap} "
+                   "-resource:omni,known=false,training=true,truth=true,prior=12.0 {omni} "
+                   "-resource:1000G,known=false,training=true,truth=false,prior=10.0 {g1000} "
+                   "-resource:dbsnp,known=true,training=false,truth=false,prior=2.0 {dbSNP} "
+                       ).format(java=config().java,
+                                gatk=config().gatk,
+                                max_mem=config().max_mem,
+                                log_file=self.log_file,
+                                ref=config().ref,
+                                interval=config().interval,
+                                snp_vcf=self.snp_vcf,
+                                snp_recal=self.snp_recal,
+                                snp_tranches=self.snp_tranches,
+                                snp_rscript=self.snp_rscript,
+                                dbSNP=config().dbSNP,
+                                hapmap=config().hapmap,
+                                omni=config().omni,
+                                g1000=config().g1000)
+            
 
         try:
             db = get_connection("seqdb")
@@ -1337,7 +1378,7 @@ class ApplyRecalibrationSNP(SGEJobTask):
             "-tranchesFile {snp_tranches} "
             "-recalFile {snp_recal} "
             "-o {snp_filtered} "
-            "--ts_filter_level 99.0 "
+               "--ts_filter_level 99.0 "  ## Gatk recommendations mention a 99.5 % sensitivity for truth sites, but it is mentioned to be subjective, is this the best number for our dataset ?
             "-mode SNP ").format(java=config().java,
                 gatk=config().gatk,
                 max_mem=config().max_mem,
@@ -1537,7 +1578,7 @@ class VariantFiltrationSNP(SGEJobTask):
             "-T VariantFiltration "
             "-L {interval} "
             "-V {snp_vcf} "
-            "--filterExpression \"QD < 2.0 || FS > 60.0 || MQ < 40.0 || MQRankSum < -12.5 || ReadPosRankSum < -8.0\" "
+            "--filterExpression \"QD < 2.0 || FS > 60.0 || MQ < 40.0 || MQRankSum < -12.5 || ReadPosRankSum < -8.0\" "  
             "--filterName \"SNP_filter\" "
             "--log_to_file {log_file} "
             "-o {snp_filtered} ").format(java=config().java,
@@ -1756,7 +1797,7 @@ class CombineVariants(SGEJobTask):
                         if line[0:8] == '##FILTER' and filter_flag == 0 :
                             filter_flag = 1
                             #SNP specific FILTER whether using VQSR or snp filtering
-                            if self.sample_type == 'exome' or self.sample_type =='genome':
+                            if self.sample_type == 'exome' or self.sample_type =='genome':            ## Will a 90.0to99.00 tranche be needed in the header ? 
                                 vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.00to99.90,Description="Truth sensitivity tranche level for SNP model\n')
                                 vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.90to100.00+,Description="Truth sensitivity tranche level for SNP model\n')
                                 vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.90to100.00,Description="Truth sensitivity tranche level for SNP model\n')
@@ -2034,7 +2075,7 @@ class ArchiveSample(SGEJobTask):
         ## the o will not take effect unless run by a superuser and the g will default to your default group, i have removed
         ## the o option for safety. 
         if self.sample_type.upper() != 'GENOME': ## There is another additional capture specificity file 
-            cmd = ("rsync --timeout=25000 -vrltgD --ignore-existing "
+            cmd = ("rsync --timeout=25000 -vrltgD"
                    "{script_dir} {log_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
                    "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
                    "{cvg_binned} {gq_binned} {alignment_out} {cvg_out} "
@@ -2042,7 +2083,7 @@ class ArchiveSample(SGEJobTask):
                    "{variant_call_out} {geno_concordance_out} {contamination_out} {fastq_loc} {base_dir}"
                    ).format(**self.__dict__)
         else:
-            cmd = ("rsync --timeout=25000 -vrltgoD --ignore-existing "
+            cmd = ("rsync --timeout=25000 -vrltgoD"
                    "{script_dir} {log_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
                    "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
                    "{cvg_binned} {gq_binned} {alignment_out} {cvg_out} "
@@ -2185,9 +2226,7 @@ def get_pipeline_step_id(step_name,db_name):
                 db.close()
             return pipeline_step_id ## Pass control back 
                 
-    
-
-
+   
 def run_shellcmd(db_name,pipeline_step_id,pseudo_prepid,cmd,sample_name,
                  task_name):
     """
@@ -2266,6 +2305,7 @@ def update_dragen_status(pseudo_prepid,sample_name,task_name,cur):
         sample_name=sample_name,status="Dragen "+task_name,DBID=DBID,
         prepID=prepID,pseudoPrepID=pseudo_prepid,userID=userID))
 
+    
 def get_productionvcf(pseudo_prepid,sample_name,sample_type):
     """
     Query seqdbClone to get AlignSeqFileLoc
@@ -3730,11 +3770,11 @@ class UpdateSeqdbMetrics(SGEJobTask):
         if sex == True: ## We will always use both snps and indels on the X chromosome
             self.get_hom_cmd = """ %s -f "MQ > 39 & QD > 1" -g "GQ > 19" %s | grep -v "#" | grep "^X" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1==$2{{print}}'| wc -l"""%(config().vcffilter,self.annotated_vcf_gz)
         elif indel == False: ## Only SNPs
-            self.get_hom_cmd = """ zcat %s | grep -v "#" | grep -v "INDEL" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1==$2{{print}}'| wc -l"""%(self.annotated_vcf_gz)
+            self.get_hom_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1==$2{{print}}'| wc -l"""%(self.annotated_vcf_gz)
         elif snv == False: ## Only Indels
-            self.get_hom_cmd = """ zcat %s | grep -v "#" | grep "INDEL" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1==$2{{print}}'| wc -l"""%(self.annotated_vcf_gz)
+            self.get_hom_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{if (length($4)!=length($5)){print $0}}' |awk -F ":" '{{print $1}}' | awk -F "/" '$1==$2{{print}}'| wc -l"""%(self.annotated_vcf_gz)
         else: ## Both SNPs and Indels
-            self.get_hom_cmd = """ zcat %s | grep -v "#" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1==$2{{print}}'| wc -l"""%(self.annotated_vcf_gz)
+            self.get_hom_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1==$2{{print}}'| wc -l"""%(self.annotated_vcf_gz)
         
         proc = subprocess.Popen(self.get_hom_cmd.format(self.annotated_vcf_gz),shell=True,stdout=subprocess.PIPE)
         proc.wait()
@@ -3760,11 +3800,11 @@ class UpdateSeqdbMetrics(SGEJobTask):
         if sex == True: ## We will always use both snps and indels on the X chromosome, there are some additional filtering criteria which are being applied, see here for more details : https://redmine.igm.cumc.columbia.edu/projects/biopipeline/wiki/Gender_checks
             self.get_het_cmd = """ %s -f "MQ > 39 & QD > 1" -g "GQ > 19" %s| grep -v "#" | grep "^X" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1!=$2{{print}}'| wc -l"""%(config().vcffilter,self.annotated_vcf_gz)
         elif indel == False: ## Only SNPs
-            self.get_het_cmd = """ zcat %s | grep -v "#" | grep -v "INDEL" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1!=$2{{print}}'| wc -l"""%(self.annotated_vcf_gz)
+            self.get_het_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1!=$2{{print}}'| wc -l"""%(self.annotated_vcf_gz)
         elif snv == False: ## Only Indels
-            self.get_het_cmd = """ zcat %s | grep -v "#" | grep "INDEL" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1!=$2{{print}}'| wc -l"""%(self.annotated_vcf_gz)
+            self.get_het_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{if (length($4) == length($5)){print $0}} | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1!=$2{{print}}'| wc -l"""%(self.annotated_vcf_gz)
         else: ## Both SNPs and Indels
-            self.get_het_cmd = """ zcat %s | grep -v "#" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1!=$2{{print}}'| wc -l"""%(self.annotated_vcf_gz)
+            self.get_het_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1!=$2{{print}}'| wc -l"""%(self.annotated_vcf_gz)
             
         proc = subprocess.Popen(self.get_het_cmd.format(self.annotated_vcf_gz),shell=True,stdout=subprocess.PIPE)
         proc.wait()
