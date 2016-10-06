@@ -1110,8 +1110,13 @@ class VariantRecalibratorSNP(SGEJobTask):
 
     def work(self):
 
-        ## We will exlcude DP from the VQSR model for Exomes/Custom Captures
-        
+        ## We will exlcude DP from the VQSR model for Exomes/Custom Captures, also note for Exomes omni data , truth is False, but for genomes it is True
+        ## See these links : 
+        ## For exomes : 
+        ## https://software.broadinstitute.org/gatk/gatkdocs/org_broadinstitute_gatk_tools_walkers_variantrecalibration_VariantRecalibrator.php
+        ## For genomes : 
+        ## https://software.broadinstitute.org/gatk/guide/article?id=1259
+
         if self.sample_type.upper() == 'GENOME':  
             cmd = ("{java} -Xmx{max_mem}g "
                    "-jar {gatk} "
@@ -1161,7 +1166,7 @@ class VariantRecalibratorSNP(SGEJobTask):
                    "-tranchesFile {snp_tranches} "
                    "-rscriptFile {snp_rscript} "
                    "-resource:hapmap,known=false,training=true,truth=true,prior=15.0 {hapmap} "
-                   "-resource:omni,known=false,training=true,truth=true,prior=12.0 {omni} "
+                   "-resource:omni,known=false,training=true,truth=false,prior=12.0 {omni} "
                    "-resource:1000G,known=false,training=true,truth=false,prior=10.0 {g1000} "
                    "-resource:dbsnp,known=true,training=false,truth=false,prior=2.0 {dbSNP} "
                        ).format(java=config().java,
