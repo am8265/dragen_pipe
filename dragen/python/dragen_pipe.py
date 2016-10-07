@@ -37,10 +37,14 @@ def main(samples, debug, dontexecute, database):
 
         while info is not None:
             dragen_id = info[4]
+            db = get_cursor(parameters,database)
+            curs = db.cursor()
             sample = dragen_sample(info[0],info[1],info[2],info[3],curs)
             single_sample_setup(curs,sample,parameters,debug)
             db.close()
+
             run_sample(sample,dragen_id,dontexecute,parameters,database,debug)
+
             db = get_cursor(parameters,database)
             curs = db.cursor()
             info = get_next_sample(curs,debug)
