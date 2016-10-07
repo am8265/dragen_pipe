@@ -98,6 +98,7 @@ class config(luigi.Config):
     Mills1000g = luigi.Parameter()
     omni = luigi.Parameter()
     dbSNP = luigi.Parameter()
+    exac = luigi.Parameter()
     #variables
     create_targetfile = luigi.BooleanParameter()
     max_mem = luigi.IntParameter()
@@ -169,9 +170,9 @@ class CopyBam(SGEJobTask):
         super(CopyBam, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
             config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
-        self.base_dir = "{0}/{1}/{2}.{3}".format(
-            config().base,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
-        #self.base_dir = "{0}/{1}.{2}".format(config().base,self.sample_name,self.pseudo_prepid) ## For the wierd samples not in fastq16
+        #self.base_dir = "{0}/{1}/{2}.{3}".format(
+            #config().base,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        self.base_dir = "{0}/{1}.{2}".format(config().base,self.sample_name,self.pseudo_prepid) ## For the wierd samples not in fastq16
         self.base_log = "{0}/logs".format(self.base_dir)
         self.bam = "{0}/{1}.{2}.bam".format(self.base_dir,
                                             self.sample_name,self.pseudo_prepid)
@@ -776,6 +777,7 @@ class HaplotypeCaller(SGEJobTask):
 
 class GenotypeGVCFs(SGEJobTask):
     """class to perfrom variant calling from gVCFs"""
+    
     sample_name = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
@@ -806,9 +808,12 @@ class GenotypeGVCFs(SGEJobTask):
             cur.execute(GET_PIPELINE_STEP_ID.format(
                 step_name=self.__class__.__name__))
             self.pipeline_step_id = cur.fetchone()[0]
-        finally:
-            if db.open:
-                db.close()
+            db.close()
+        except MySQLdb.Error, e:
+            raise Exception("ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1]))
+        #finally:
+            #if db.open:
+                #db.close()
 
     def work(self):
         cmd = ("{java} -Xmx{max_mem}g "
@@ -1117,73 +1122,40 @@ class VariantRecalibratorSNP(SGEJobTask):
         ## For genomes : 
         ## https://software.broadinstitute.org/gatk/guide/article?id=1259
 
-        if self.sample_type.upper() == 'GENOME':  
-            cmd = ("{java} -Xmx{max_mem}g "
-                   "-jar {gatk} "
-                   "-R {ref} "
-                   "-T VariantRecalibrator "
-                   "-L {interval} "
-                   "--log_to_file {log_file} "
-                   "--input {snp_vcf} "
-                   "-an DP -an QD -an FS -an SOR -an MQ -an MQRankSum -an ReadPosRankSum "
-                   "-mode SNP "
-                   "--maxGaussians 4 "
-                   "-tranche 100.0 -tranche 99.9 -tranche 99.0 -tranche 90.0 "
-                   "-recalFile {snp_recal} "
-                   "-tranchesFile {snp_tranches} "
-                   "-rscriptFile {snp_rscript} "
-                   "-resource:hapmap,known=false,training=true,truth=true,prior=15.0 {hapmap} "
-                   "-resource:omni,known=false,training=true,truth=true,prior=12.0 {omni} "
-                   "-resource:1000G,known=false,training=true,truth=false,prior=10.0 {g1000} "
-                   "-resource:dbsnp,known=true,training=false,truth=false,prior=2.0 {dbSNP} "
-                       ).format(java=config().java,
-                                gatk=config().gatk,
-                                max_mem=config().max_mem,
-                                log_file=self.log_file,
-                                ref=config().ref,
-                                interval=config().interval,
-                                snp_vcf=self.snp_vcf,
-                                snp_recal=self.snp_recal,
-                                snp_tranches=self.snp_tranches,
-                                snp_rscript=self.snp_rscript,
-                                dbSNP=config().dbSNP,
-                                hapmap=config().hapmap,
-                                omni=config().omni,
-                                g1000=config().g1000)
-        else: ## Anything other than Genome, i.e. Custom Capture or Exome 
-            cmd = ("{java} -Xmx{max_mem}g "
-                   "-jar {gatk} "
-                   "-R {ref} "
-                   "-T VariantRecalibrator "
-                   "-L {interval} "
-                   "--log_to_file {log_file} "
-                   "--input {snp_vcf} "
-                   "-an QD -an FS -an SOR -an MQ -an MQRankSum -an ReadPosRankSum "
-                   "-mode SNP "
-                   "--maxGaussians 4 "
-                   "-tranche 100.0 -tranche 99.9 -tranche 99.0 -tranche 90.0 "
-                   "-recalFile {snp_recal} "
-                   "-tranchesFile {snp_tranches} "
-                   "-rscriptFile {snp_rscript} "
-                   "-resource:hapmap,known=false,training=true,truth=true,prior=15.0 {hapmap} "
-                   "-resource:omni,known=false,training=true,truth=false,prior=12.0 {omni} "
-                   "-resource:1000G,known=false,training=true,truth=false,prior=10.0 {g1000} "
-                   "-resource:dbsnp,known=true,training=false,truth=false,prior=2.0 {dbSNP} "
-                       ).format(java=config().java,
-                                gatk=config().gatk,
-                                max_mem=config().max_mem,
-                                log_file=self.log_file,
-                                ref=config().ref,
-                                interval=config().interval,
-                                snp_vcf=self.snp_vcf,
-                                snp_recal=self.snp_recal,
-                                snp_tranches=self.snp_tranches,
-                                snp_rscript=self.snp_rscript,
-                                dbSNP=config().dbSNP,
-                                hapmap=config().hapmap,
-                                omni=config().omni,
-                                g1000=config().g1000)
-            
+        cmd = ("{java} -Xmx{max_mem}g "
+               "-jar {gatk} "
+               "-R {ref} "
+               "-T VariantRecalibrator "
+               "-L {interval} "
+               "--log_to_file {log_file} "
+               "--input {snp_vcf} "
+               "-an DP -an QD -an FS -an SOR -an MQ -an MQRankSum -an ReadPosRankSum "
+               "-mode SNP "
+               "--maxGaussians 4 "
+               "-tranche 100.0 -tranche 99.9 -tranche 99.0 -tranche 90.0 "
+               "-recalFile {snp_recal} "
+               "-tranchesFile {snp_tranches} "
+               "-rscriptFile {snp_rscript} "
+               "-resource:hapmap,known=false,training=true,truth=true,prior=15.0 {hapmap} "
+               "-resource:omni,known=false,training=true,truth=true,prior=12.0 {omni} "
+               "-resource:1000G,known=false,training=true,truth=false,prior=10.0 {g1000} "
+               "-resource:ExAc,known=false,training=true,truth=false,prior=10.0 {exac} "
+               "-resource:dbsnp,known=true,training=false,truth=false,prior=2.0 {dbSNP} "
+                   ).format(java=config().java,
+                            gatk=config().gatk,
+                            max_mem=config().max_mem,
+                            log_file=self.log_file,
+                            ref=config().ref,
+                            interval=config().interval,
+                            snp_vcf=self.snp_vcf,
+                            snp_recal=self.snp_recal,
+                            snp_tranches=self.snp_tranches,
+                            snp_rscript=self.snp_rscript,
+                            dbSNP=config().dbSNP,
+                            hapmap=config().hapmap,
+                            omni=config().omni,
+                            g1000=config().g1000,
+                            exac=config().exac)
 
         try:
             db = get_connection("seqdb")
