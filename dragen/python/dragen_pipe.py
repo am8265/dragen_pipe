@@ -63,7 +63,7 @@ def run_sample(sample,dragen_id,dontexecute,parameters,database,debug):
     db = get_cursor(parameters,database)
     curs = db.cursor()
     if os.path.isfile(sample_bam) == False:
-        cmd = ['dragen', '-f', '-v', '--watchdog-active-timeout 30000', '-c', sample.metadata['conf_file']]
+        cmd = ['dragen', '-f', '-v', '-c', sample.metadata['conf_file'], '--watchdog-active-timeout', '30000']
         if debug:
             print ' '.join(cmd)
 
