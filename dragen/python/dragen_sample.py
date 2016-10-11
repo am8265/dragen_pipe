@@ -77,7 +77,6 @@ def get_fastq_loc(curs, sample):
 
             #for externally submitted samples
             if seqsatalocs[0][1][0] == 'X':
-                #for read group folder named as 1,2.3..etc
                 if 'SRR' in sample['sample_name']: #specifically for SRR samples
                     locs.append('/nfs/seqscratch10/SRA/{}/1').format(sample['sample_name'])
                 elif glob(('/nfs/seqsata*/seqfinal/whole_genome/{}/[0-9]'
@@ -127,10 +126,10 @@ def get_fastq_loc(curs, sample):
                         # For samples in the database but stored on the quantum and 
                         # have not had their location properly restored
 
-                        fastq_loc = glob('/nfs/stornext/seqfinal/casava1.8/{0}/{1}/*XX'.format(
-                            corrected_sample_type,sample['sample_name']))
-                        print fastq_loc,'/nfs/stornext/seqfinal/casava1.8/{0}/{1}/*XX'.format(
-                            corrected_sample_type,sample['sample_name'])
+                        fastq_loc = glob('/nfs/stornext/seqfinal/casava1.8/whole_{0}/{1}/*XX'.format(
+                            corrected_sample_type.lower(),sample['sample_name']))
+                        print fastq_loc,'/nfs/stornext/seqfinal/casava1.8/whole_{0}/{1}/*XX'.format(
+                            corrected_sample_type.lower(),sample['sample_name'])
                         if fastq_loc:
                             for flowcell in fastq_loc:
                                 locs.append(os.path.realpath(flowcell))
