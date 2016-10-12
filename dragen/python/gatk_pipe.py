@@ -71,6 +71,7 @@ class config(luigi.Config):
     picard = luigi.Parameter()
     pypy = luigi.Parameter()
     snpEff = luigi.Parameter()
+    snpSift = luigi.Parameter()
     tabix = luigi.Parameter()
     verifybamid = luigi.Parameter()
     vcffilter = luigi.Parameter()
@@ -170,9 +171,9 @@ class CopyBam(SGEJobTask):
         super(CopyBam, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
             config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
-        #self.base_dir = "{0}/{1}/{2}.{3}".format(
-            #config().base,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
-        self.base_dir = "{0}/{1}.{2}".format(config().base,self.sample_name,self.pseudo_prepid) ## For the wierd samples not in fastq16
+        self.base_dir = "{0}/{1}/{2}.{3}".format(
+            config().base,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        #self.base_dir = "{0}/{1}.{2}".format(config().base,self.sample_name,self.pseudo_prepid) ## For the wierd samples not in fastq16
         self.base_log = "{0}/logs".format(self.base_dir)
         self.bam = "{0}/{1}.{2}.bam".format(self.base_dir,
                                             self.sample_name,self.pseudo_prepid)
@@ -1115,7 +1116,8 @@ class VariantRecalibratorSNP(SGEJobTask):
 
     def work(self):
 
-        ## We will exlcude DP from the VQSR model for Exomes/Custom Captures, also note for Exomes omni data , truth is False, but for genomes it is True
+        ## Running both Exomes and Genomes the same way, i.e. we will exlcude DP, omni is set to be a truth set, also added in ExAC SNPs as a training
+        ## set which can contain both TP and FP with the same prior likelihood as the 1000G training set. 
         ## See these links : 
         ## For exomes : 
         ## https://software.broadinstitute.org/gatk/gatkdocs/org_broadinstitute_gatk_tools_walkers_variantrecalibration_VariantRecalibrator.php
@@ -1129,7 +1131,7 @@ class VariantRecalibratorSNP(SGEJobTask):
                "-L {interval} "
                "--log_to_file {log_file} "
                "--input {snp_vcf} "
-               "-an DP -an QD -an FS -an SOR -an MQ -an MQRankSum -an ReadPosRankSum "
+               "-an QD -an FS -an SOR -an MQ -an MQRankSum -an ReadPosRankSum "
                "-mode SNP "
                "--maxGaussians 4 "
                "-tranche 100.0 -tranche 99.9 -tranche 99.0 -tranche 90.0 "
@@ -1246,7 +1248,7 @@ class VariantRecalibratorINDEL(SGEJobTask):
             "-L {interval} "
             "--log_to_file {log_file} "
             "--input {indel_vcf} "
-            "-an QD -an DP -an FS -an SOR -an MQRankSum -an ReadPosRankSum "
+            "-an QD -an FS -an SOR -an MQRankSum -an ReadPosRankSum "
             "-mode INDEL "
             "--maxGaussians 4 "
             "-tranche 100.0 -tranche 99.9 -tranche 99.0 -tranche 90.0 "
@@ -1355,7 +1357,7 @@ class ApplyRecalibrationSNP(SGEJobTask):
             "-tranchesFile {snp_tranches} "
             "-recalFile {snp_recal} "
             "-o {snp_filtered} "
-               "--ts_filter_level 99.0 "  ## Gatk recommendations mention a 99.5 % sensitivity for truth sites, but it is mentioned to be subjective, is this the best number for our dataset ?
+               "--ts_filter_level 90.0 "  ## We will be using a sensitvity filter of 90.0 to get the 90.0to99.0 tranche as well. The resulting vcf will have 4 stratifications , PASS , CONFIDENT, INTERMEDIATE, NOT CONFIDENT
             "-mode SNP ").format(java=config().java,
                 gatk=config().gatk,
                 max_mem=config().max_mem,
@@ -1457,7 +1459,7 @@ class ApplyRecalibrationINDEL(SGEJobTask):
             "-tranchesFile {indel_tranches} "
             "-recalFile {indel_recal} "
             "-o {indel_filtered} "
-            "--ts_filter_level 99.0 "
+            "--ts_filter_level 90.0 "
             "-mode INDEL ").format(java=config().java,
                 gatk=config().gatk,
                 max_mem=config().max_mem,
@@ -1774,7 +1776,8 @@ class CombineVariants(SGEJobTask):
                         if line[0:8] == '##FILTER' and filter_flag == 0 :
                             filter_flag = 1
                             #SNP specific FILTER whether using VQSR or snp filtering
-                            if self.sample_type == 'exome' or self.sample_type =='genome':            ## Will a 90.0to99.00 tranche be needed in the header ? 
+                            if self.sample_type == 'exome' or self.sample_type =='genome':            ## Will a 90.0to99.00 tranche be needed in the header ?
+                                vcf_out.write('##FILTER=<ID=VQSRTrancheSNP90.00to99.00,Description="Truth sensitivity tranche level for SNP model\n')
                                 vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.00to99.90,Description="Truth sensitivity tranche level for SNP model\n')
                                 vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.90to100.00+,Description="Truth sensitivity tranche level for SNP model\n')
                                 vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.90to100.00,Description="Truth sensitivity tranche level for SNP model\n')
@@ -1783,6 +1786,7 @@ class CombineVariants(SGEJobTask):
 
                             #Indel specific filters whether using VQSR or indel filtering
                             if self.sample_type =='genome':
+                                vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL90.00to99.00,Description="Truth sensitivity tranche level for INDEL model\n')
                                 vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.00to99.90,Description="Truth sensitivity tranche level for INDEL model\n')
                                 vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.90to100.00+,Description="Truth sensitivity tranche level for INDEL model\n')
                                 vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.90to100.00,Description="Truth sensitivity tranche level for INDEL model\n')
@@ -1892,18 +1896,31 @@ class AnnotateVCF(SGEJobTask):
                 db.close()
 
     def work(self):
+
+        self.temp_vcf = "{0}/{1}.{2}.analysisReady.vcf.tmp".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        
+        annotate_rsids_cmd = ("{java} -jar {snpSift} annotate "
+                              "{dbsnp} {final_vcf} 2>> {error_file} 1> {temp_vcf}"
+                             ).format(java=config().java,
+                                      snpSift=config().snpSift,
+                                      dbsnp = config().dbSNP,
+                                      final_vcf = self.final_vcf,
+                                      error_file = self.log_file,
+                                      temp_vcf = self.temp_vcf)
         
         snpEff_cmd = ("{java} -Xmx5G -jar {snpEff} eff "
                      "GRCh37.74 -c {snpEff_cfg} "
                      "-v -noMotif -noNextProt -noLog -nodownload -noStats "
-                     "-o vcf {final_vcf}"
+                     "-o vcf {temp_vcf}"
                      ).format(java=config().java,
                               snpEff=config().snpEff,
                               snpEff_cfg=config().snpEff_cfg,
-                              final_vcf=self.final_vcf)
+                              temp_vcf=self.temp_vcf)
         #In case of overwritting previous vcf.gz and vcf.gz.tbi files
         if os.path.isfile(self.annotated_vcf_gz):
             subprocess.check_call(['rm',self.annotated_vcf_gz])
+            
         bgzip_cmd = ("{0} {1}").format(config().bgzip,self.annotated_vcf)
         tabix_cmd = ("{0} -f {1}").format(config().tabix,self.annotated_vcf_gz)
 
@@ -1918,11 +1935,19 @@ class AnnotateVCF(SGEJobTask):
             db.close()
             
             with open(self.script,'w') as o:
+                o.write(annotate_rsids_cmd + "\n")
                 o.write(snpEff_cmd + "\n")
                 o.write(bgzip_cmd + "\n")
                 o.write(tabix_cmd + "\n")
+
+            ## Annotate with rsids first
+            proc = subprocess.Popen(annotate_rsids_cmd,shell=True)
+            proc.wait()
+            if proc.returncode: ## Non zero return code
+                raise subprocess.CalledProcessError(proc.returncode,annotaet_rsids_cmd)
+            
             with open(self.annotated_vcf,'w') as vcf_out, \
-                open(self.log_file, "w") as log_fh:
+                open(self.log_file, "a") as log_fh:
                     p = subprocess.Popen(shlex.split(snpEff_cmd), stdout=vcf_out, stderr=log_fh)
                     p.wait()
             if p.returncode:
@@ -1958,6 +1983,81 @@ class AnnotateVCF(SGEJobTask):
     def output(self):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
             pipeline_step_id=self.pipeline_step_id)
+
+class CleanDirectory(SGEJobTask):
+    """ For samples which have already been archived , the pipeline will be rerun on fastq16 itself,
+    in that case run this task before Archive to clear the temporary files from the directory
+    """
+
+    sample_name = luigi.Parameter()
+    pseudo_prepid = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    ## System Parameters
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    def __init__(self,*args,**kwargs):
+        super(CleanDirectory,self).__init__(*args,**kwargs)
+        ## The scratch and base will be the same directories if this task
+        ## is running
+        self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
+        self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
+        kwargs["sample_name"] = self.sample_name
+        super(CleanDirectory, self).__init__(*args,**kwargs)
+
+        ## The intermediate files created in the pipeline run (note: many of these are wild cards)
+        self.sample_stem = self.sample_name+'.'+self.pseudo_prepid
+        self.analysis_ready_vcf = os.path.join(self.sample_dir,self.sample_stem+'.analysisReady.vcf*')
+        self.indel_vcf = os.path.join(self.sample_dir,self.sample_stem+'.indel*vcf*')
+        self.raw_vcf = os.path.join(self.sample_dir,self.sample_stem+'.raw.vcf*')
+        self.snp_files = os.path.join(self.sample_dir,self.sample_stem+'*snp*')
+        self.tmp_vcf = os.path.join(self.sample_dir,self.sample_stem+'.tmp.vcf')
+        self.eval_vcf = os.path.join(self.sample_dir,'eval.vcf*')
+        self.truth_vcf = os.path.join(self.sample_dir,'truth.vcf*')
+        self.temp_geno_file = os.path.join(self.sample_dir,'temp_geno_concordance.txt')
+        self.targets = os.path.join(self.sample_dir,'targets.interval')                                           
+        self.raw_cvg_files = os.path.join(self.sample_dir,self.sample_stem,'*raw*')
+        self.genomecvg = os.path.join(self.sample_dir,self.sample_name+'.genomecvg.bed')
+        self.dragen_bam = os.path.join(self.sample_dir,self.sample_stem+'.bam*')
+        self.recal_table = os.path.join(self.sample_dir,self.sample_stem+'.recal_table')
+
+        try:
+            db = get_connection("seqdb")
+            cur = db.cursor()
+            cur.execute(GET_PIPELINE_STEP_ID.format(
+                step_name=self.__class__.__name__))
+            self.pipeline_step_id = cur.fetchone()[0]
+        finally:
+            if db.open:
+                db.close()
+
+    def work(self):
+        cmd = ("rm {analysis_ready_vcf} {indel_vcf} {raw_vcf} {snp_files} {tmp_vcf} {eval_vcf} "
+               "{truth_vcf} {temp_geno_file} {targets} {raw_cvg_files} {genomecvg} {dragen_bam} {recal_table}"
+              ).format(**self.__dict__)
+        
+        run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
+                     [cmd],self.sample_name,self.__class__.__name__)
+            
+    def requires(self):
+        """
+        The requirement for this task is the presence of the analysis ready 
+        vcf file from the GATK pipeline
+        """
+        yield self.clone(AnnotateVCF)
+        yield self.clone(GQBinning)
+        yield self.clone(CvgBinning)
+        yield self.clone(UpdateSeqdbMetrics)
+
+    def output(self):
+        """
+        The result from this task is the creation of the metrics file
+        """
+        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
+                         pipeline_step_id=self.pipeline_step_id)
+
 
 class ArchiveSample(SGEJobTask):
     """Archive samples on Amplidata"""
@@ -2070,7 +2170,7 @@ class ArchiveSample(SGEJobTask):
                   ).format(**self.__dict__)
                                 
         try:
-            ## Insert to start time to database
+            ## Insert start time to database
             db = get_connection("seqdb")
             cur = db.cursor()
             cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
@@ -2127,11 +2227,13 @@ class ArchiveSample(SGEJobTask):
         yield self.clone(GQBinning)
         yield self.clone(CvgBinning)
         yield self.clone(UpdateSeqdbMetrics)
+        #return self.clone(CleanDirectory)
         
     def output(self):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
             pipeline_step_id=self.pipeline_step_id)
 
+    
 class SQLTarget(luigi.Target):
     """Target describing verification of the entries in the database"""
     def __init__(self, pseudo_prepid, pipeline_step_id):
@@ -2757,6 +2859,8 @@ class DuplicateMetrics(SGEJobTask):
         self.old_dragen_log_seqscratch = os.path.join(self.log_dir_seqscratch,self.sample_name+'.'+self.pseudo_prepid+'.dragen.log')
         self.output_file = os.path.join(self.sample_dir_seqscratch,self.sample_name+'.{0}.duplicates.txt'.format(self.pseudo_prepid))
 
+        self.super_old_dragen_log = os.path.join(self.log_dir,self.sample_name+'.out')
+        
         ## Check for the dragen log_file in either the seqscratch or the fastq16 directory
         if os.path.isfile(self.dragen_log_seqscratch):
             self.dlog = self.dragen_log_seqscratch
@@ -2767,6 +2871,8 @@ class DuplicateMetrics(SGEJobTask):
             self.dlog = self.old_dragen_log
         elif os.path.isfile(self.old_dragen_log_seqscratch):
             self.dlog = self.old_dragen_log
+        elif os.path.isfile(self.super_old_dragen_log):
+            self.dlog = self.super_old_dragen_log
         else: ## Will fail out anyway when luigi will look for the dependency
             self.dlog = self.dragen_log
     
@@ -3098,10 +3204,10 @@ class ContaminationCheck(SGEJobTask):
                      [self.cmd,self.parser_cmd,self.remove_cmd],
                      self.sample_name,self.__class__.__name__)
 
-
+               
+                
 class UpdateSeqdbMetrics(SGEJobTask):
-    """
-    Populate database with output files
+    """Populate database with output files    
     """
     
     sample_name = luigi.Parameter()
@@ -3745,15 +3851,15 @@ class UpdateSeqdbMetrics(SGEJobTask):
             snv = kwargs['snv']
         
         if sex == True: ## We will always use both snps and indels on the X chromosome
-            self.get_hom_cmd = """ %s -f "MQ > 39 & QD > 1" -g "GQ > 19" %s | grep -v "#" | grep "^X" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1==$2{{print}}'| wc -l"""%(config().vcffilter,self.annotated_vcf_gz)
+            self.get_hom_cmd = """ %s -f "MQ > 39 & QD > 1" -g "GQ > 19" %s | grep -v "#" | grep "^X" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1==$2{print}'| wc -l"""%(config().vcffilter,self.annotated_vcf_gz)
         elif indel == False: ## Only SNPs
-            self.get_hom_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1==$2{{print}}'| wc -l"""%(self.annotated_vcf_gz)
+            self.get_hom_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1==$2{print}'| wc -l"""%(self.annotated_vcf_gz)
         elif snv == False: ## Only Indels
-            self.get_hom_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{if (length($4)!=length($5)){print $0}}' |awk -F ":" '{{print $1}}' | awk -F "/" '$1==$2{{print}}'| wc -l"""%(self.annotated_vcf_gz)
+            self.get_hom_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{if (length($4)!=length($5)){print $0}}' |awk -F ":" '{print $1}' | awk -F "/" '$1==$2{print}'| wc -l"""%(self.annotated_vcf_gz)
         else: ## Both SNPs and Indels
-            self.get_hom_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1==$2{{print}}'| wc -l"""%(self.annotated_vcf_gz)
+            self.get_hom_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1==$2{print}'| wc -l"""%(self.annotated_vcf_gz)
         
-        proc = subprocess.Popen(self.get_hom_cmd.format(self.annotated_vcf_gz),shell=True,stdout=subprocess.PIPE)
+        proc = subprocess.Popen(self.get_hom_cmd,shell=True,stdout=subprocess.PIPE)
         proc.wait()
         if proc.returncode:
             print >> self.LOG_FILE,subprocess.CalledProcessError(proc.returncode,self.get_het_cmd)
@@ -3775,15 +3881,15 @@ class UpdateSeqdbMetrics(SGEJobTask):
         """
 
         if sex == True: ## We will always use both snps and indels on the X chromosome, there are some additional filtering criteria which are being applied, see here for more details : https://redmine.igm.cumc.columbia.edu/projects/biopipeline/wiki/Gender_checks
-            self.get_het_cmd = """ %s -f "MQ > 39 & QD > 1" -g "GQ > 19" %s| grep -v "#" | grep "^X" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1!=$2{{print}}'| wc -l"""%(config().vcffilter,self.annotated_vcf_gz)
+            self.get_het_cmd = """ %s -f "MQ > 39 & QD > 1" -g "GQ > 19" %s| grep -v "#" | grep "^X" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1!=$2{print}'| wc -l"""%(config().vcffilter,self.annotated_vcf_gz)
         elif indel == False: ## Only SNPs
-            self.get_het_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1!=$2{{print}}'| wc -l"""%(self.annotated_vcf_gz)
+            self.get_het_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1!=$2{print}'| wc -l"""%(self.annotated_vcf_gz)
         elif snv == False: ## Only Indels
-            self.get_het_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{if (length($4) == length($5)){print $0}} | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1!=$2{{print}}'| wc -l"""%(self.annotated_vcf_gz)
+            self.get_het_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{if (length($4) == length($5)){print $0}}' | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1!=$2{print}'| wc -l"""%(self.annotated_vcf_gz)
         else: ## Both SNPs and Indels
-            self.get_het_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{{print $NF}}'|awk -F ":" '{{print $1}}' | awk -F "/" '$1!=$2{{print}}'| wc -l"""%(self.annotated_vcf_gz)
+            self.get_het_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1!=$2{print}'| wc -l"""%(self.annotated_vcf_gz)
             
-        proc = subprocess.Popen(self.get_het_cmd.format(self.annotated_vcf_gz),shell=True,stdout=subprocess.PIPE)
+        proc = subprocess.Popen(self.get_het_cmd,shell=True,stdout=subprocess.PIPE)
         proc.wait()
         if proc.returncode:
             print >> self.LOG_FILE,subprocess.CalledProcessError(proc.returncode,self.get_het_cmd)
