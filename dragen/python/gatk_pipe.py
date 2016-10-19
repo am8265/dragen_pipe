@@ -2152,7 +2152,7 @@ class ArchiveSample(SGEJobTask):
         ## the o will not take effect unless run by a superuser and the g will default to your default group, i have removed
         ## the o option for safety. 
         if self.sample_type.upper() != 'GENOME': ## There is another additional capture specificity file 
-            cmd = ("rsync --timeout=25000 -vrltgD"
+            cmd = ("rsync --timeout=25000 -vrltgD "
                    "{script_dir} {log_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
                    "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
                    "{cvg_binned} {gq_binned} {alignment_out} {cvg_out} "
@@ -2160,7 +2160,7 @@ class ArchiveSample(SGEJobTask):
                    "{variant_call_out} {geno_concordance_out} {contamination_out} {fastq_loc} {base_dir}"
                    ).format(**self.__dict__)
         else:
-            cmd = ("rsync --timeout=25000 -vrltgoD"
+            cmd = ("rsync --timeout=25000 -vrltgoD "
                    "{script_dir} {log_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
                    "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
                    "{cvg_binned} {gq_binned} {alignment_out} {cvg_out} "
@@ -2196,8 +2196,8 @@ class ArchiveSample(SGEJobTask):
             subprocess.call(rm_cmd)
             subprocess.call(rm_folder_cmd)
             ## Change folder permissions of base directory
-            subprocess.check_output("chgrp bioinfo {0}".format(self.base_dir),shell=True)
-            subprocess.check_output("chmod -R 755 {0}".format(self.base_dir),shell=True)
+            #subprocess.check_output("chgrp bioinfo {0}".format(self.base_dir),shell=True)
+            #subprocess.check_output("chmod -R 755 {0}".format(self.base_dir),shell=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
@@ -2857,26 +2857,35 @@ class DuplicateMetrics(SGEJobTask):
         self.dragen_log_seqscratch = os.path.join(self.log_dir_seqscratch,self.sample_name+'.'+self.pseudo_prepid+'.dragen.out')
         self.old_dragen_log = os.path.join(self.log_dir,self.sample_name+'.'+self.pseudo_prepid+'.dragen.log')
         self.old_dragen_log_seqscratch = os.path.join(self.log_dir_seqscratch,self.sample_name+'.'+self.pseudo_prepid+'.dragen.log')
+
         self.output_file = os.path.join(self.sample_dir_seqscratch,self.sample_name+'.{0}.duplicates.txt'.format(self.pseudo_prepid))
 
         self.super_old_dragen_log = os.path.join(self.log_dir,self.sample_name+'.out')
         
         ## Check for the dragen log_file in either the seqscratch or the fastq16 directory
-        if os.path.isfile(self.dragen_log_seqscratch):
-            self.dlog = self.dragen_log_seqscratch
-            self.cmd = "grep 'duplicates marked' {0}".format(self.dlog)
-        elif os.path.isfile(self.dragen_log):
-            self.dlog = self.dragen_log
-        elif os.path.isfile(self.old_dragen_log):
-            self.dlog = self.old_dragen_log
-        elif os.path.isfile(self.old_dragen_log_seqscratch):
-            self.dlog = self.old_dragen_log
-        elif os.path.isfile(self.super_old_dragen_log):
-            self.dlog = self.super_old_dragen_log
-        else: ## Will fail out anyway when luigi will look for the dependency
-            self.dlog = self.dragen_log
-    
-            
+        ## Just use a wild card search ;-/ 
+        temp = glob.glob(os.path.join(self.log_dir_seqscratch,'*.dragen.out'))
+        if len(temp) > 0:
+            self.dlog = temp[0]
+        else:
+            temp = glob.glob(os.path.join(self.log_dir_seqscratch,'*.dragen.log'))
+            if len(temp) > 0:
+                self.dlog = temp[0]
+            else:
+                temp = glob.glob(os.path.join(self.log_dir,'*.dragen.out'))
+                if len(temp) > 0:
+                    self.dlog = temp[0]
+                else:
+                    temp = glob.glob(os.path.join(self.log_dir,'*.dragen.log'))
+                    if len(temp) > 0:
+                        self.dlog = temp[0]
+                    else:
+                        temp = glob.glob(os.path.join(self.log_dir,'*.out'))
+                        if len(temp) > 0:
+                            self.dlog = temp[0]
+                        else:
+                            self.dlog = self.dragen_log
+
         self.cmd = "grep 'duplicates marked' {0}".format(self.dlog)
         self.pipeline_step_id = get_pipeline_step_id(
             self.__class__.__name__,"seqdb")
