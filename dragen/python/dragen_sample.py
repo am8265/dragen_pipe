@@ -78,7 +78,7 @@ def get_fastq_loc(curs, sample):
             #for externally submitted samples
             if seqsatalocs[0][1][0] == 'X':
                 if 'SRR' in sample['sample_name']: #specifically for SRR samples
-                    locs.append('/nfs/seqscratch10/SRA/{}/1').format(sample['sample_name'])
+                    locs.append('/nfs/fastq16/SRA/{}/1').format(sample['sample_name'])
                 elif glob(('/nfs/seqsata*/seqfinal/whole_genome/{}/[0-9]'
                     ).format(sample['sample_name'])) != []: # for external seqsata samples with enumerated folders
                     fastq_loc = glob(('/nfs/seqsata*/seqfinal/whole_genome/{}/[0-9]'
@@ -204,7 +204,6 @@ def get_lanes(curs,sample):
             ).format(prepid)
         curs.execute(query)
         lane = curs.fetchall()
-
         if lane:
             lanes.append(lane)
         else:
