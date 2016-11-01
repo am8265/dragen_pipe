@@ -168,7 +168,7 @@ def check_fastq_locs(locs):
 
     valid_locs = []
     for loc in locs:
-        read2 = glob("{loc}/*R2*fastq*".format(loc=loc))
+        read2 = glob("{loc}/*R2_[0-9]*fastq*".format(loc=loc))
         if read2 != []:
             valid_locs.append(loc)
     return valid_locs

@@ -196,25 +196,9 @@ def get_first_read(sample,read_number,debug):
     read = glob('{0}/*L00*_R{1}_001.fastq.gz'.format(first_fastq_loc,read_number))
     #The fastqs might still be on the quantum tapes
     if read == []:
-        stornext_loc =('/stornext/seqfinal/casava1.8/whole_{sample_type}/{sample_name}/{FCIllumID}/*L00{sample_lane}_R{read_number}_001.fastq.gz'
-            ).format(sample_type=sample.metadata['sample_type'].lower(),
-                sample_name=sample.metadata['sample_name'],
-                FCIllumID=sample.metadata['lane'][0][0][1],
-                sample_lane=sample.metadata['lane'][0][0][0],
-                read_number=read_number)
-        read = glob(stornext_loc)
-        if debug:
-            print stornext_loc
-        if read == []:
-            print sample.metadata['sample_name']
-
-            raise Exception, "Fastq file not found!"
-        else:
-            """fastq_loc was based off of database so needs to be set to the
-                quantum location"""
-            sample.set('fastq_loc',glob(('/stornext/seqfinal/casava1.8/whole_exome/{0}/*XX'
-                ).format(sample.metadata['sample_name'])))
-    return sorted(read)[0]
+        raise Exception, "Fastq file not found!"
+    else:
+        return sorted(read)[0]
 
 def get_next_sample(curs,debug):
     #remove any symlinked fastq.gz files 
