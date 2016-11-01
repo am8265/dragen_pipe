@@ -174,7 +174,7 @@ def setup_dir(curs,sample,debug):
             new_fastq_read2 = first_read2.split('/')[-1].replace(
                     '001.fastq.gz','{0:03d}.fastq.gz'.format(fastq_counter))
             ln_cmd1 = ['ln','-s',fastq,sample.metadata['fastq_dir']+'/'+new_fastq_read1]
-            ln_cmd2 = ['ln','-s',fastq.replace('R1','R2'),sample.metadata['fastq_dir']+'/'+new_fastq_read2]
+            ln_cmd2 = ['ln','-s',fastq.replace('_R1_','_R2_'),sample.metadata['fastq_dir']+'/'+new_fastq_read2]
 
             if fastq_counter == 1:
                 sample.set('first_fastq1',sample.metadata['fastq_dir']+'/'+new_fastq_read1)
