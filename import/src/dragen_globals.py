@@ -206,3 +206,13 @@ def get_data_directory(sample_name, sample_type, capture_kit, prep_id):
     return ("/nfs/fastq16/ALIGNMENT/BUILD37/DRAGEN/{sample_type}/{sample_name}"
             ".{prep_id}".format(sample_type=sample_type.upper(),
                                 sample_name=sample_name, prep_id=prep_id))
+
+def strip_prefix(string, prefix):
+    """Strip the given prefix if it's present
+    """
+    return string[len(prefix):] if string.startswith(prefix) else string
+
+def strip_suffix(string, suffix):
+    """Strip the given suffix if it's present
+    """
+    return string[:-len(suffix)] if string.endswith(suffix) else string

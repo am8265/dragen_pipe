@@ -164,7 +164,7 @@ def output_novel_variant(
     transcript_ids_dict = {}
     VariantID = "{CHROM}-{POS}-{REF}-{ALT}".format(
         CHROM=CHROM, POS=POS, REF=REF, ALT=ALT)
-    rs_number = "" if rs_number == "." else rs_number
+    rs_number = "" if rs_number == "." else int(strip_prefix(rs_number, "rs"))
     indel = 1 if indel_length else 0
     anns = []
     for ann in ANNs.split(","):
