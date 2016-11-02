@@ -390,7 +390,7 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, debug=False):
                 if fields["FILTER"] == "PASS":
                     INFO["FILTER"] = "PASS"
                 elif fields["FILTER"] == "INDEL_filter":
-                    INFO["FILTER"] = "PASS"
+                    INFO["FILTER"] = "FAIL"
                 elif fields["FILTER"] == "VQSRTrancheSNP90.00to99.00":
                     INFO["FILTER"] = "LIKELY"
                 elif fields["FILTER"] == "VQSRTrancheSNP99.00to99.90":
