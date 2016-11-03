@@ -100,7 +100,7 @@ def get_variant_id(novel_fh, novel_transcripts_fh, matched_indels_fh, cur,
                    high_impact_effect_ids, moderate_impact_effect_ids,
                    low_impact_effect_ids, modifier_impact_effect_ids,
                    polyphen_matrixes_by_stable_id,
-                   polyphen_stable_ids_to_ignore, QUAL, MQ, FILTER, DP):
+                   polyphen_stable_ids_to_ignore, high_quality_call)
     """return the variant_id of the given variant and output it to novel_fh
     if it's novel
     """
@@ -123,8 +123,7 @@ def get_variant_id(novel_fh, novel_transcripts_fh, matched_indels_fh, cur,
         has_high_quality_call =  rows[0][2]
         # treat the variant as novel if it doesn't have a high quality call in
         # the DB and the new call is high quality, so as to update the field
-        novel = (not has_high_quality and
-                 call_is_high_quality(QUAL, MQ, FILTER, DP))
+        novel = not has_high_quality and high_quality_call
         update_novel_variant_id = False
     else:
         novel = True
@@ -153,7 +152,7 @@ def get_variant_id(novel_fh, novel_transcripts_fh, matched_indels_fh, cur,
             novel_transcripts_id, CHROM, POS,
             REF, alt, indel_length, ALT, rs_number, ANNs, effect_rankings,
             polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore,
-            call_is_high_quality(QUAL, MQ, FILTER, DP))
+            high_quality_call)
     if any(effect_id in high_impact_effect_ids for effect_id in effect_ids):
         highest_impact = "HIGH"
     elif any(effect_id in moderate_impact_effect_ids
@@ -423,6 +422,9 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, debug=False):
                 call_stats = create_call_dict(fields["FORMAT"], fields["call"])
                 call = {"sample_id":sample_id, "GQ":call_stats["GQ"],
                         "QUAL":fields["QUAL"]}
+                high_quality_call = call_is_high_quality(
+                    float(fields["QUAL"]), float(INFO["MQ"]) if "MQ" in INFO else 0,
+                    INFO["FILTER"], int(call["DP"]))
                 variant_ids = []
                 for ALT_allele in ALT_alleles:
                     (variant_id, highest_impact, block_id, novel_variant_id,
@@ -433,9 +435,7 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, debug=False):
                          novel_transcripts_id, effect_rankings, high_impact_effect_ids,
                          moderate_impact_effect_ids, low_impact_effect_ids,
                          modifier_impact_effect_ids, polyphen_matrixes_by_stable_id,
-                         polyphen_stable_ids_to_ignore, float(fields["QUAL"]),
-                         float(INFO["MQ"]) if "MQ" in INFO else 0,
-                         INFO["FILTER"], int(call["DP"]))
+                         polyphen_stable_ids_to_ignore, high_quality_call)
                     variant_ids.append((variant_id, block_id, highest_impact))
                 for variant_stat in (
                     "FS", "MQ", "QD", "ReadPosRankSum", "MQRankSum"):
