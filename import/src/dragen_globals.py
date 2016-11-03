@@ -28,7 +28,8 @@ NOVEL_VARIANT_OUTPUT_FORMAT = (
     "{" + "}\t{".join(
         ["variant_id", "POS", "REF", "ALT", "rs_number", "transcript_stable_id",
          "effect_id", "HGVS_c", "HGVS_p", "polyphen_humdiv",
-         "polyphen_humvar", "gene", "indel", "indel_length"]) + "}")
+         "polyphen_humvar", "gene", "indel", "indel_length",
+         "has_high_quality_call"]) + "}")
 MATCHED_INDEL_OUTPUT_FORMAT = (
     "{CHROM}\t{variant_id}\t{POS}\t{REF}\t{ALT}")
 POLYPHEN_ATTRIB_ID = {"humvar":268, "humdiv":269}

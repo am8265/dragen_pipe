@@ -25,6 +25,12 @@ def format_NULL_value(value):
     """
     return value if value else "\\N"
 
+def call_is_high_quality(QUAL, MQ, FILTER, DP):
+    """return whether the given call is high quality
+    """
+    return (QUAL >= 30 and MQ >= 40 and DP >= 3
+            and FILTER in ("PASS", "LIKELY", "INTERMEDIATE"))
+
 def calculate_polyphen_scores(
     cur, transcript_stable_id, HGVS_p, VariantID,
     polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore):
@@ -93,10 +99,12 @@ def get_variant_id(novel_fh, novel_transcripts_fh, matched_indels_fh, cur,
                    novel_transcripts_id, effect_rankings,
                    high_impact_effect_ids, moderate_impact_effect_ids,
                    low_impact_effect_ids, modifier_impact_effect_ids,
-                   polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore):
+                   polyphen_matrixes_by_stable_id,
+                   polyphen_stable_ids_to_ignore, QUAL, MQ, FILTER, DP):
     """return the variant_id of the given variant and output it to novel_fh
     if it's novel
     """
+def call_is_high_quality(QUAL, MQ, FILTER, DP):
     # can safely overwrite REF, but need original ALT in order to match up with
     # SnpEff annotations
     REF, alt, offset = simplify_REF_ALT_alleles(REF, ALT)
@@ -113,8 +121,15 @@ def get_variant_id(novel_fh, novel_transcripts_fh, matched_indels_fh, cur,
     if rows:
         variant_id = rows[0][0]
         effect_ids = [row[1] for row in rows]
+        has_high_quality_call =  rows[0][2]
+        # treat the variant as novel if it doesn't have a high quality call in
+        # the DB and the new call is high quality, so as to update the field
+        novel = (not has_high_quality and
+                 call_is_high_quality(QUAL, MQ, FILTER, DP))
+        update_novel_variant_id = False
     else:
         novel = True
+        update_novel_variant_id = True
         if indel_length:
             # don't treat as an indel if the length of both is the same, i.e.
             # it's an MNV
@@ -130,14 +145,16 @@ def get_variant_id(novel_fh, novel_transcripts_fh, matched_indels_fh, cur,
                 cur.execute(GET_VARIANT_EFFECTS.format(
                     CHROM=CHROM, variant_id=variant_id))
                 effect_ids = [row[0] for row in cur.fetchall()]
-        if novel:
+    if novel:
+        if update_novel_variant_id:
             variant_id = novel_variant_id
-            effect_ids, novel_transcripts_id = output_novel_variant(
-                novel_fh, novel_transcripts_fh, cur, variant_id,
-                novel_transcripts_id, CHROM, POS,
-                REF, alt, indel_length, ALT, rs_number, ANNs, effect_rankings,
-                polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore)
             novel_variant_id += 1
+        effect_ids, novel_transcripts_id = output_novel_variant(
+            novel_fh, novel_transcripts_fh, cur, variant_id,
+            novel_transcripts_id, CHROM, POS,
+            REF, alt, indel_length, ALT, rs_number, ANNs, effect_rankings,
+            polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore,
+            call_is_high_quality(QUAL, MQ, FILTER, DP))
     if any(effect_id in high_impact_effect_ids for effect_id in effect_ids):
         highest_impact = "HIGH"
     elif any(effect_id in moderate_impact_effect_ids
@@ -157,6 +174,7 @@ def output_novel_variant(
     novel_fh, novel_transcripts_fh, cur, variant_id, novel_transcripts_id, CHROM,
     POS, REF, ALT, indel_length, original_ALT, rs_number, ANNs, effect_rankings,
     polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore,
+    high_quality_call,
     impact_ordering=["HIGH", "MODERATE", "LOW", "MODIFIER"]):
     """output all entries for the novel variant to novel_fh and increment
     variant_id
@@ -303,7 +321,7 @@ def output_novel_variant(
         for annotation_values in annotations.itervalues():
             output_novel_variant_entry(
                 novel_fh, variant_id, POS, REF, ALT, rs_number, indel,
-                indel_length, **annotation_values)
+                indel_length, high_quality_call, **annotation_values)
     else:
         raise ValueError(
             "error: {VariantID} has no SnpEff annotation(s)".
@@ -312,8 +330,8 @@ def output_novel_variant(
 
 def output_novel_variant_entry(
     novel_fh, variant_id, POS, REF, ALT, rs_number, indel, indel_length,
-    transcript_stable_id="", effect_id=None, HGVS_c=None, HGVS_p=None,
-    polyphen_humdiv=None, polyphen_humvar=None, gene=None):
+    high_quality_call, transcript_stable_id="", effect_id=None, HGVS_c=None,
+    HGVS_p=None, polyphen_humdiv=None, polyphen_humvar=None, gene=None):
     """output a specific novel variant entry to novel_fh
     """
     novel_fh.write(NOVEL_VARIANT_OUTPUT_FORMAT.format(
@@ -326,7 +344,8 @@ def output_novel_variant_entry(
         polyphen_humdiv=format_NULL_value(polyphen_humdiv),
         polyphen_humvar=format_NULL_value(polyphen_humvar),
         gene=format_NULL_value(gene), indel=indel,
-        indel_length=indel_length) + "\n")
+        indel_length=indel_length,
+        has_high_quality_call=int(high_quality_call)) + "\n")
 
 def parse_vcf(vcf, CHROM, sample_id, output_base, debug=False):
     if debug:
@@ -402,6 +421,9 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, debug=False):
                         fields["FILTER"], x))
                 ALT_alleles = fields["ALT"].split(",")
                 nalleles = len(ALT_alleles)
+                call_stats = create_call_dict(fields["FORMAT"], fields["call"])
+                call = {"sample_id":sample_id, "GQ":call_stats["GQ"],
+                        "QUAL":fields["QUAL"]}
                 variant_ids = []
                 for ALT_allele in ALT_alleles:
                     (variant_id, highest_impact, block_id, novel_variant_id,
@@ -412,16 +434,15 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, debug=False):
                          novel_transcripts_id, effect_rankings, high_impact_effect_ids,
                          moderate_impact_effect_ids, low_impact_effect_ids,
                          modifier_impact_effect_ids, polyphen_matrixes_by_stable_id,
-                         polyphen_stable_ids_to_ignore)
+                         polyphen_stable_ids_to_ignore, float(fields["QUAL"]),
+                         float(INFO["MQ"]) if "MQ" in INFO else 0,
+                         INFO["FILTER"], int(call["DP"]))
                     variant_ids.append((variant_id, block_id, highest_impact))
                 for variant_stat in (
                     "FS", "MQ", "QD", "ReadPosRankSum", "MQRankSum"):
                     if variant_stat not in INFO:
                         # NULL value for loading
                         INFO[variant_stat] = "\\N"
-                call_stats = create_call_dict(fields["FORMAT"], fields["call"])
-                call = {"sample_id":sample_id, "GQ":call_stats["GQ"],
-                        "QUAL":fields["QUAL"]}
                 if nalleles == 1:
                     call["variant_id"] = variant_ids[0][0]
                     call["block_id"] = variant_ids[0][1]

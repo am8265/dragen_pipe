@@ -213,13 +213,16 @@ class ParseVCF(SGEJobTask):
         db = get_connection("dragen")
         try:
             cur = db.cursor()
-            for table_name, table_file in (
-                ("variant_chr" + self.chromosome, self.novel_variants),
+            for table_name, table_file, is_variant_table in (
+                ("variant_chr" + self.chromosome, self.novel_variants, True),
                 ("custom_transcript_ids_chr" + self.chromosome,
-                 self.novel_transcripts),
-                ("called_variant_chr" + self.chromosome, self.called_variants),
-                ("matched_indels", self.matched_indels)):
-                load_statement = LOAD_TABLE.format(
+                 self.novel_transcripts, False),
+                ("called_variant_chr" + self.chromosome, self.called_variants,
+                 False),
+                ("matched_indels", self.matched_indels, False)):
+                load_statement = (
+                    LOAD_TABLE_REPLACE if is_variant_table else LOAD_TABLE)
+                load_statement = load_statement.format(
                     table_name=table_name, table_file=table_file)
                 try:
                     cur.execute(load_statement)

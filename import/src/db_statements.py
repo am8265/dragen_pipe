@@ -4,7 +4,7 @@ MySQL statements used in the pipeline
 
 # check novelty of variant/get its id
 VARIANT_EXISTS_QUERY = """
-SELECT DISTINCT variant_id, effect_id
+SELECT DISTINCT variant_id, effect_id, has_high_quality_call
 FROM variant_chr{CHROM}
 WHERE POS = {POS} AND REF = "{REF}" AND ALT = "{ALT}"
     AND indel_length = {indel_length}
@@ -39,6 +39,9 @@ WHERE table_name = "variant_chr{CHROM}" AND table_schema = DATABASE()
 """
 LOAD_TABLE = """
 LOAD DATA INFILE '{table_file}' INTO TABLE {table_name}
+"""
+LOAD_TABLE_REPLACE = """
+LOAD DATA INFILE '{table_file}' REPLACE INTO TABLE {table_name}
 """
 GET_ALL_INDELS = """
 SELECT DISTINCT variant_id, POS, REF, ALT, indel_length
