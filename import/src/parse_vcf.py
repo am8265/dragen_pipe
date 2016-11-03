@@ -104,7 +104,6 @@ def get_variant_id(novel_fh, novel_transcripts_fh, matched_indels_fh, cur,
     """return the variant_id of the given variant and output it to novel_fh
     if it's novel
     """
-def call_is_high_quality(QUAL, MQ, FILTER, DP):
     # can safely overwrite REF, but need original ALT in order to match up with
     # SnpEff annotations
     REF, alt, offset = simplify_REF_ALT_alleles(REF, ALT)
