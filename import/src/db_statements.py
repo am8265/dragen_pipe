@@ -148,3 +148,13 @@ SELECT id
 FROM custom_transcript_ids_chr{CHROM}
 WHERE transcript_ids = "{transcript_ids}"
 """
+GET_SAMPLE_PREPID = """
+SELECT pseudo_prepid
+FROM seqdbClone
+WHERE CHGVID = "{sample_name}" AND SeqType = "{sample_type}"
+    AND ExomeSamPrepKit = "{capture_kit}" AND Status <> "Blacklisted"
+"""
+INSERT_INTO_SAMPLE_TABLE = """
+INSERT INTO sample (sample_name, sample_type, capture_kit, prep_id)
+VALUE ("{sample_name}", "{sample_type}", "{capture_kit}", {prep_id})
+"""
