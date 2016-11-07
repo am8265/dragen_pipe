@@ -100,7 +100,7 @@ def get_variant_id(novel_fh, novel_transcripts_fh, matched_indels_fh, cur,
                    high_impact_effect_ids, moderate_impact_effect_ids,
                    low_impact_effect_ids, modifier_impact_effect_ids,
                    polyphen_matrixes_by_stable_id,
-                   polyphen_stable_ids_to_ignore, high_quality_call)
+                   polyphen_stable_ids_to_ignore, high_quality_call):
     """return the variant_id of the given variant and output it to novel_fh
     if it's novel
     """
