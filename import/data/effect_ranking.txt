@@ -8,7 +8,7 @@ HIGH	start_lost
 HIGH	stop_gained
 HIGH	stop_lost
 HIGH	transcript_ablation
-MODERATE	3_prime_UTR_truncation+exon_loss
+MODERATE	3_prime_UTR_truncation+exon_loss_variant
 MODERATE	5_prime_UTR_truncation+exon_loss_variant
 MODERATE	coding_sequence_variant
 MODERATE	disruptive_inframe_deletion
