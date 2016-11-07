@@ -380,7 +380,7 @@ class ImportSample(luigi.Task):
                 self.prep_id = prep_id
             else:
                 raise ValueError("sample_id {sample_id} does not exist".format(
-                    sample_id=sample_id))
+                    sample_id=self.sample_id))
         finally:
             if db.open:
                 db.close()
