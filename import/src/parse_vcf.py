@@ -123,7 +123,7 @@ def get_variant_id(novel_fh, novel_transcripts_fh, matched_indels_fh, cur,
         has_high_quality_call =  rows[0][2]
         # treat the variant as novel if it doesn't have a high quality call in
         # the DB and the new call is high quality, so as to update the field
-        novel = not has_high_quality and high_quality_call
+        novel = not has_high_quality_call and high_quality_call
         update_novel_variant_id = False
     else:
         novel = True
@@ -180,7 +180,8 @@ def output_novel_variant(
     transcript_ids_dict = {}
     VariantID = "{CHROM}-{POS}-{REF}-{ALT}".format(
         CHROM=CHROM, POS=POS, REF=REF, ALT=ALT)
-    rs_number = "" if rs_number == "." else int(strip_prefix(rs_number, "rs"))
+    rs_number = ("" if rs_number == "." else
+                 int(strip_prefix(re.split(";|,", rs_number)[0], "rs")))
     indel = 1 if indel_length else 0
     anns = []
     for ann in ANNs.split(","):
@@ -421,7 +422,7 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, debug=False):
                 nalleles = len(ALT_alleles)
                 call_stats = create_call_dict(fields["FORMAT"], fields["call"])
                 call = {"sample_id":sample_id, "GQ":call_stats["GQ"],
-                        "QUAL":fields["QUAL"]}
+                        "QUAL":fields["QUAL"], "DP":call_stats["DP"]}
                 high_quality_call = call_is_high_quality(
                     float(fields["QUAL"]), float(INFO["MQ"]) if "MQ" in INFO else 0,
                     INFO["FILTER"], int(call["DP"]))
