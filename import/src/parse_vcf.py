@@ -210,7 +210,9 @@ def output_novel_variant(
                 effects = (effects.replace("3_prime_UTR_truncation&exon_loss",
                                            "3_prime_UTR_truncation+exon_loss").
                            replace("5_prime_UTR_truncation&exon_loss_variant",
-                                   "5_prime_UTR_truncation+exon_loss_variant"))
+                                   "5_prime_UTR_truncation+exon_loss_variant").
+                           replace("initiator_codon_variant&non_canonical_start_codon",
+                                   "initiator_codon_variant+non_canonical_start_codon"))
             for effect in effects.split("&"):
                 if effect == "custom":
                     # these correspond to the deprecated INTRON_EXON_BOUNDARY
