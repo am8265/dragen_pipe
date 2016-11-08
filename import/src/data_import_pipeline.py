@@ -368,6 +368,11 @@ class ImportSample(luigi.Task):
         "(doesn't need to be specified")
     run_locally = luigi.BoolParameter(
         description="run locally instead of on the cluster")
+    load_timeout = luigi.IntParameter(
+        default=None, description="set a time out value for loading DP/GQ data")
+    vcf_parse_timeout = luigi.IntParameter(
+        default=None,
+        description="set a time out value for parsing & loading VCF data")
 
     def __init__(self, *args, **kwargs):
         super(ImportSample, self).__init__(*args, **kwargs)
@@ -387,6 +392,12 @@ class ImportSample(luigi.Task):
         finally:
             if db.open:
                 db.close()
+        kwargs["load_timeout"] = (
+            self.load_timeout if self.load_timeout
+            else cfg.getint(self.sequencing_type, "load_timeout"))
+        kwargs["vcf_parse_timeout"] = (
+            self.vcf_parse_timeout if self.vcf_parse_timeout
+            else cfg.getint(self.sequencing_type, "vcf_timeout"))
         kwargs["output_directory"] = cfg.get("pipeline", "scratch_area").format(
             seqscratch=self.seqscratch, sample_name=sample_name,
             sequencing_type=self.sequencing_type.upper())
@@ -415,21 +426,27 @@ class ImportSample(luigi.Task):
                 "could not find the VCF: {vcf}".format(vcf=self.vcf))
 
     def requires(self):
-        return ([self.clone(ParseVCF, chromosome=CHROM, 
-            output_base=self.output_directory + CHROM)
+        return ([self.clone(
+            ParseVCF, chromosome=CHROM, 
+            output_base=self.output_directory + CHROM,
+            worker_timeout=self.vcf_parse_timeout)
             for CHROM in CHROMs.iterkeys()] +
-            [self.clone(LoadGQData, fn=os.path.join(
-                self.data_directory, "gq_binned",
-                "{sample_name}.{prep_id}_gq_binned_10000_chr{chromosome}.txt".format(
-                    sample_name=self.sample_name, prep_id=self.prep_id,
-                    chromosome=CHROM)), chromosome=CHROM)
-             for CHROM in CHROMs.iterkeys()] +
-            [self.clone(LoadDPData, fn=os.path.join(
-                self.data_directory, "cvg_binned",
-                "{sample_name}.{prep_id}_coverage_binned_10000_chr{chromosome}.txt".format(
-                    sample_name=self.sample_name, prep_id=self.prep_id,
-                    chromosome=CHROM)), chromosome=CHROM)
-             for CHROM in CHROMs.iterkeys()])
+            [self.clone(
+                LoadGQData, worker_timeout=self.load_timeout,
+                fn=os.path.join(
+                    self.data_directory, "gq_binned",
+                    "{sample_name}.{prep_id}_gq_binned_10000_chr{chromosome}.txt".format(
+                        sample_name=self.sample_name, prep_id=self.prep_id,
+                        chromosome=CHROM)), chromosome=CHROM)
+                for CHROM in CHROMs.iterkeys()] +
+            [self.clone(
+                LoadDPData, worker_timeout=self.load_timeout,
+                fn=os.path.join(
+                    self.data_directory, "cvg_binned",
+                    "{sample_name}.{prep_id}_coverage_binned_10000_chr{chromosome}.txt".format(
+                        sample_name=self.sample_name, prep_id=self.prep_id,
+                        chromosome=CHROM)), chromosome=CHROM)
+                for CHROM in CHROMs.iterkeys()])
     
     def run(self):
         variant_id_header = cfg.get("pipeline", "variant_id_header") + "\n"
