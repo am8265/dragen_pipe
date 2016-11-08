@@ -346,7 +346,8 @@ def output_novel_variant_entry(
         indel_length=indel_length,
         has_high_quality_call=int(high_quality_call)) + "\n")
 
-def parse_vcf(vcf, CHROM, sample_id, output_base, debug=False):
+def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None,
+              ParseVCF_instance=None, debug=False):
     if debug:
         import sys
         sys.stderr.write("starting CHROM {}\n".format(CHROM))
@@ -393,6 +394,9 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, debug=False):
                 open(calls, "w") as calls_fh, \
                 open(variant_id_vcf, "w") as vcf_out, \
                 open(matched_indels, "w") as matched_indels_fh:
+            if ParseVCF_instance:
+                last_POS_update = -1
+                chromosome_len = chromosome_length / 1000000
             for x, line_fields in enumerate(vcf_tabix.querys(CHROM)):
                 if not x % 100:
                     if debug:
@@ -404,6 +408,16 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, debug=False):
                         "error: encountered chromosome {chromosome} when "
                         "{CHROM} was expected".format(
                             CHROM=CHROM, chromosome=fields["CHROM"]))
+                POS = int(fields["POS"])
+                if ParseVCF_instance:
+                    current_POS = POS / 1000000
+                    if (current_POS - last_POS_update) >= 1:
+                        # update status every million bases
+                        last_POS_update = current_POS
+                        ParseVCF_instance.set_status_message = (
+                            "Progress: {current_POS}/{chromosome_len}".format(
+                                current_POS=current_POS,
+                                chromosome_len=chromosome_len))
                 INFO = create_INFO_dict(fields["INFO"])
                 if fields["FILTER"] == "PASS":
                     INFO["FILTER"] = "PASS"
@@ -431,7 +445,7 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, debug=False):
                     (variant_id, highest_impact, block_id, novel_variant_id,
                      novel_transcripts_id) = get_variant_id(
                          novel_fh, novel_transcripts_fh, matched_indels_fh,
-                         cur, CHROM, int(fields["POS"]), fields["REF"], ALT_allele,
+                         cur, CHROM, POS, fields["REF"], ALT_allele,
                          fields["rs_number"], INFO["ANN"], novel_variant_id,
                          novel_transcripts_id, effect_rankings, high_impact_effect_ids,
                          moderate_impact_effect_ids, low_impact_effect_ids,
@@ -520,4 +534,4 @@ if __name__ == "__main__":
     if not os.path.isdir(os.path.dirname(output_base_rp)):
         os.makedirs(os.path.dirname(output_base_rp))
     parse_vcf(
-        args.VCF, args.CHROMOSOME, args.SAMPLE_ID, output_base_rp, args.debug)
+        args.VCF, args.CHROMOSOME, args.SAMPLE_ID, output_base_rp, debug=args.debug)
