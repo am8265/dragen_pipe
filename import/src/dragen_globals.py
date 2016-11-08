@@ -10,7 +10,7 @@ from operator import lt, le
 from ConfigParser import ConfigParser
 
 cfg = ConfigParser()
-cfg.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "anno.cnf"))
+cfg.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "anno.cfg"))
 
 CNF = "/nfs/goldstein/software/dragen/dragen.cnf" # defaults file for pipeline
 VCF_COLUMNS = ["CHROM", "POS", "rs_number", "REF", "ALT", "QUAL", "FILTER",
