@@ -21,8 +21,8 @@ from db_statements import *
 from sys import maxsize
 
 cfg = get_cfg()
-CHROMs = OrderedDict([CHROM, x] for x, CHROM in enumerate(
-    cfg.get("ref", "CHROMs").split(",")))
+CHROMs = OrderedDict([[chromosome.upper(), int(length)]
+                      for chromosome, length in cfg.items("chromosomes")])
 
 def get_num_lines_from_vcf(vcf, region=None, header=True):
     """return the number of variant lines in the specified VCF, gzipped optional
@@ -184,10 +184,13 @@ class ParseVCF(SGEJobTask):
         finally:
             if db.open:
                 db.close()
+        self.set_status_message = "Progress: Parsing VCF!"
         parse_vcf(
             vcf=self.copied_files_dict["vcf"],
             CHROM=self.chromosome, sample_id=self.sample_id,
-            output_base=self.output_base, debug=self.debug)
+            output_base=self.output_base,
+            chromosome_length=CHROMs[self.chromosome], ParseVCF_instance=self,
+            debug=self.debug)
         for fn in (self.novel_variants, self.novel_transcripts,
                    self.called_variants, self.variant_id_vcf,
                    self.matched_indels):
@@ -459,6 +462,11 @@ class ImportSample(luigi.Task):
                     for line in vcf_fh:
                         vcf_out_fh.write(line)
         with open(os.devnull, "w") as devnull:
+            for fn in (vcf_out + ".gz", vcf_out + ".gz.tbi"):
+                # attempting to bgzip if the file already exists will cause this
+                # to hang indefinitely
+                if os.path.isfile(fn):
+                    os.remove(fn)
             cmd = "bgzip " + vcf_out
             p = subprocess.Popen(
                 shlex.split(cmd), stdout=devnull, stderr=devnull)
