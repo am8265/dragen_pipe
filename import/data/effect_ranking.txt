@@ -22,6 +22,7 @@ MODERATE	splice_region_variant
 MODERATE	TFBS_ablation
 LOW	5_prime_UTR_premature_start_codon_gain_variant
 LOW	initiator_codon_variant
+LOW	initiator_codon_variant+non_canonical_start_codon
 LOW	splice_region_variant+synonymous_variant
 LOW	splice_region_variant
 LOW	start_retained
