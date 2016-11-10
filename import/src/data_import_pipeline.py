@@ -374,6 +374,9 @@ class ImportSample(luigi.Task):
         default=None,
         description="set a time out value for parsing & loading VCF data")
 
+    #def complete(self):
+    #    blah
+
     def __init__(self, *args, **kwargs):
         super(ImportSample, self).__init__(*args, **kwargs)
         db = get_connection("dragen")
@@ -421,7 +424,25 @@ class ImportSample(luigi.Task):
                 "annotated.vcf.gz".format(
                     sample_name=sample_name, prep_id=self.prep_id))
         super(ImportSample, self).__init__(*args, **kwargs)
-        if not os.path.isfile(self.vcf):
+        if os.path.isfile(self.vcf):
+            if self.sequencing_type == "exome" and os.path.getsize(self.vcf) > 200000000:
+                db = get_connection("dragen")
+                try:
+                    cur = db.cursor()
+                    cur.execute(
+                        "DELETE FROM sample_pipeline_step where sample_id = {sample_id}".
+                        format(sample_id=self.sample_id))
+                    cur.execute(
+                        "DELETE FROM sample where sample_id = {sample_id}".
+                        format(sample_id=self.sample_id))
+                    db.close()
+                    raise ValueError(
+                        "{sample_name} appears to be a genome sample".
+                        format(sample_name=self.sample_name))
+                finally:
+                    if db.open:
+                        db.close()
+        else:
             raise OSError(
                 "could not find the VCF: {vcf}".format(vcf=self.vcf))
 
