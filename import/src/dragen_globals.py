@@ -10,7 +10,7 @@ from operator import lt, le
 from ConfigParser import ConfigParser
 
 cfg = ConfigParser()
-cfg.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "anno.cnf"))
+cfg.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "anno.cfg"))
 
 CNF = "/nfs/goldstein/software/dragen/dragen.cnf" # defaults file for pipeline
 VCF_COLUMNS = ["CHROM", "POS", "rs_number", "REF", "ALT", "QUAL", "FILTER",
@@ -28,7 +28,8 @@ NOVEL_VARIANT_OUTPUT_FORMAT = (
     "{" + "}\t{".join(
         ["variant_id", "POS", "REF", "ALT", "rs_number", "transcript_stable_id",
          "effect_id", "HGVS_c", "HGVS_p", "polyphen_humdiv",
-         "polyphen_humvar", "gene", "indel", "indel_length"]) + "}")
+         "polyphen_humvar", "gene", "indel", "indel_length",
+         "has_high_quality_call"]) + "}")
 MATCHED_INDEL_OUTPUT_FORMAT = (
     "{CHROM}\t{variant_id}\t{POS}\t{REF}\t{ALT}")
 POLYPHEN_ATTRIB_ID = {"humvar":268, "humdiv":269}
@@ -206,3 +207,13 @@ def get_data_directory(sample_name, sample_type, capture_kit, prep_id):
     return ("/nfs/fastq16/ALIGNMENT/BUILD37/DRAGEN/{sample_type}/{sample_name}"
             ".{prep_id}".format(sample_type=sample_type.upper(),
                                 sample_name=sample_name, prep_id=prep_id))
+
+def strip_prefix(string, prefix):
+    """Strip the given prefix if it's present
+    """
+    return string[len(prefix):] if string.startswith(prefix) else string
+
+def strip_suffix(string, suffix):
+    """Strip the given suffix if it's present
+    """
+    return string[:-len(suffix)] if string.endswith(suffix) else string

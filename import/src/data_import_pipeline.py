@@ -21,8 +21,8 @@ from db_statements import *
 from sys import maxsize
 
 cfg = get_cfg()
-CHROMs = OrderedDict([CHROM, x] for x, CHROM in enumerate(
-    cfg.get("ref", "CHROMs").split(",")))
+CHROMs = OrderedDict([[chromosome.upper(), int(length)]
+                      for chromosome, length in cfg.items("chromosomes")])
 
 def get_num_lines_from_vcf(vcf, region=None, header=True):
     """return the number of variant lines in the specified VCF, gzipped optional
@@ -184,10 +184,13 @@ class ParseVCF(SGEJobTask):
         finally:
             if db.open:
                 db.close()
+        self.set_status_message = "Progress: Parsing VCF!"
         parse_vcf(
             vcf=self.copied_files_dict["vcf"],
             CHROM=self.chromosome, sample_id=self.sample_id,
-            output_base=self.output_base, debug=self.debug)
+            output_base=self.output_base,
+            chromosome_length=CHROMs[self.chromosome], ParseVCF_instance=self,
+            debug=self.debug)
         for fn in (self.novel_variants, self.novel_transcripts,
                    self.called_variants, self.variant_id_vcf,
                    self.matched_indels):
@@ -213,13 +216,16 @@ class ParseVCF(SGEJobTask):
         db = get_connection("dragen")
         try:
             cur = db.cursor()
-            for table_name, table_file in (
-                ("variant_chr" + self.chromosome, self.novel_variants),
+            for table_name, table_file, is_variant_table in (
+                ("variant_chr" + self.chromosome, self.novel_variants, True),
                 ("custom_transcript_ids_chr" + self.chromosome,
-                 self.novel_transcripts),
-                ("called_variant_chr" + self.chromosome, self.called_variants),
-                ("matched_indels", self.matched_indels)):
-                load_statement = LOAD_TABLE.format(
+                 self.novel_transcripts, False),
+                ("called_variant_chr" + self.chromosome, self.called_variants,
+                 False),
+                ("matched_indels", self.matched_indels, False)):
+                load_statement = (
+                    LOAD_TABLE_REPLACE if is_variant_table else LOAD_TABLE)
+                load_statement = load_statement.format(
                     table_name=table_name, table_file=table_file)
                 try:
                     cur.execute(load_statement)
@@ -362,6 +368,14 @@ class ImportSample(luigi.Task):
         "(doesn't need to be specified")
     run_locally = luigi.BoolParameter(
         description="run locally instead of on the cluster")
+    load_timeout = luigi.IntParameter(
+        default=None, description="set a time out value for loading DP/GQ data")
+    vcf_parse_timeout = luigi.IntParameter(
+        default=None,
+        description="set a time out value for parsing & loading VCF data")
+
+    #def complete(self):
+    #    blah
 
     def __init__(self, *args, **kwargs):
         super(ImportSample, self).__init__(*args, **kwargs)
@@ -377,10 +391,16 @@ class ImportSample(luigi.Task):
                 self.prep_id = prep_id
             else:
                 raise ValueError("sample_id {sample_id} does not exist".format(
-                    sample_id=sample_id))
+                    sample_id=self.sample_id))
         finally:
             if db.open:
                 db.close()
+        kwargs["load_timeout"] = (
+            self.load_timeout if self.load_timeout
+            else cfg.getint(self.sequencing_type, "load_timeout"))
+        kwargs["vcf_parse_timeout"] = (
+            self.vcf_parse_timeout if self.vcf_parse_timeout
+            else cfg.getint(self.sequencing_type, "vcf_timeout"))
         kwargs["output_directory"] = cfg.get("pipeline", "scratch_area").format(
             seqscratch=self.seqscratch, sample_name=sample_name,
             sequencing_type=self.sequencing_type.upper())
@@ -404,26 +424,50 @@ class ImportSample(luigi.Task):
                 "annotated.vcf.gz".format(
                     sample_name=sample_name, prep_id=self.prep_id))
         super(ImportSample, self).__init__(*args, **kwargs)
-        if not os.path.isfile(self.vcf):
+        if os.path.isfile(self.vcf):
+            if self.sequencing_type == "exome" and os.path.getsize(self.vcf) > 200000000:
+                db = get_connection("dragen")
+                try:
+                    cur = db.cursor()
+                    cur.execute(
+                        "DELETE FROM sample_pipeline_step where sample_id = {sample_id}".
+                        format(sample_id=self.sample_id))
+                    cur.execute(
+                        "DELETE FROM sample where sample_id = {sample_id}".
+                        format(sample_id=self.sample_id))
+                    db.close()
+                    raise ValueError(
+                        "{sample_name} appears to be a genome sample".
+                        format(sample_name=self.sample_name))
+                finally:
+                    if db.open:
+                        db.close()
+        else:
             raise OSError(
                 "could not find the VCF: {vcf}".format(vcf=self.vcf))
 
     def requires(self):
-        return ([self.clone(ParseVCF, chromosome=CHROM, 
-            output_base=self.output_directory + CHROM)
+        return ([self.clone(
+            ParseVCF, chromosome=CHROM, 
+            output_base=self.output_directory + CHROM,
+            worker_timeout=self.vcf_parse_timeout)
             for CHROM in CHROMs.iterkeys()] +
-            [self.clone(LoadGQData, fn=os.path.join(
-                self.data_directory, "gq_binned",
-                "{sample_name}.{prep_id}_gq_binned_10000_chr{chromosome}.txt".format(
-                    sample_name=self.sample_name, prep_id=self.prep_id,
-                    chromosome=CHROM)), chromosome=CHROM)
-             for CHROM in CHROMs.iterkeys()] +
-            [self.clone(LoadDPData, fn=os.path.join(
-                self.data_directory, "cvg_binned",
-                "{sample_name}.{prep_id}_coverage_binned_10000_chr{chromosome}.txt".format(
-                    sample_name=self.sample_name, prep_id=self.prep_id,
-                    chromosome=CHROM)), chromosome=CHROM)
-             for CHROM in CHROMs.iterkeys()])
+            [self.clone(
+                LoadGQData, worker_timeout=self.load_timeout,
+                fn=os.path.join(
+                    self.data_directory, "gq_binned",
+                    "{sample_name}.{prep_id}_gq_binned_10000_chr{chromosome}.txt".format(
+                        sample_name=self.sample_name, prep_id=self.prep_id,
+                        chromosome=CHROM)), chromosome=CHROM)
+                for CHROM in CHROMs.iterkeys()] +
+            [self.clone(
+                LoadDPData, worker_timeout=self.load_timeout,
+                fn=os.path.join(
+                    self.data_directory, "cvg_binned",
+                    "{sample_name}.{prep_id}_coverage_binned_10000_chr{chromosome}.txt".format(
+                        sample_name=self.sample_name, prep_id=self.prep_id,
+                        chromosome=CHROM)), chromosome=CHROM)
+                for CHROM in CHROMs.iterkeys()])
     
     def run(self):
         variant_id_header = cfg.get("pipeline", "variant_id_header") + "\n"
@@ -456,6 +500,11 @@ class ImportSample(luigi.Task):
                     for line in vcf_fh:
                         vcf_out_fh.write(line)
         with open(os.devnull, "w") as devnull:
+            for fn in (vcf_out + ".gz", vcf_out + ".gz.tbi"):
+                # attempting to bgzip if the file already exists will cause this
+                # to hang indefinitely
+                if os.path.isfile(fn):
+                    os.remove(fn)
             cmd = "bgzip " + vcf_out
             p = subprocess.Popen(
                 shlex.split(cmd), stdout=devnull, stderr=devnull)
