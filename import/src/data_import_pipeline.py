@@ -139,9 +139,6 @@ class ParseVCF(SGEJobTask):
     output_directory = luigi.Parameter(
         description="the scratch directory for outputting files")
     sample_name = luigi.Parameter(description="the name of the sample")
-    task_name_format = luigi.Parameter(
-        significant=False, default="{task_family}_{sample_name}_{chromosome}",
-        description="how to format the job name submitted to the cluster")
 
     def __init__(self, *args, **kwargs):
         super(ParseVCF, self).__init__(*args, **kwargs)
@@ -261,6 +258,7 @@ class LoadGQData(SGEJobTask):
         description="the sample_id for the sample")
     output_directory = luigi.Parameter(
         description="the scratch directory for outputting files")
+    sample_name = luigi.Parameter(description="the name of the sample")
 
     def __init__(self, *args, **kwargs):
         super(LoadGQData, self).__init__(*args, **kwargs)
@@ -309,6 +307,7 @@ class LoadDPData(SGEJobTask):
         description="the sample_id for the sample")
     output_directory = luigi.Parameter(
         description="the scratch directory for outputting files")
+    sample_name = luigi.Parameter(description="the name of the sample")
 
     def __init__(self, *args, **kwargs):
         super(LoadDPData, self).__init__(*args, **kwargs)
@@ -368,11 +367,6 @@ class ImportSample(luigi.Task):
         "(doesn't need to be specified")
     run_locally = luigi.BoolParameter(
         description="run locally instead of on the cluster")
-    load_timeout = luigi.IntParameter(
-        default=None, description="set a time out value for loading DP/GQ data")
-    vcf_parse_timeout = luigi.IntParameter(
-        default=None,
-        description="set a time out value for parsing & loading VCF data")
 
     #def complete(self):
     #    blah
@@ -395,12 +389,6 @@ class ImportSample(luigi.Task):
         finally:
             if db.open:
                 db.close()
-        kwargs["load_timeout"] = (
-            self.load_timeout if self.load_timeout
-            else cfg.getint(self.sequencing_type, "load_timeout"))
-        kwargs["vcf_parse_timeout"] = (
-            self.vcf_parse_timeout if self.vcf_parse_timeout
-            else cfg.getint(self.sequencing_type, "vcf_timeout"))
         kwargs["output_directory"] = cfg.get("pipeline", "scratch_area").format(
             seqscratch=self.seqscratch, sample_name=sample_name,
             sequencing_type=self.sequencing_type.upper())
@@ -449,11 +437,10 @@ class ImportSample(luigi.Task):
     def requires(self):
         return ([self.clone(
             ParseVCF, chromosome=CHROM, 
-            output_base=self.output_directory + CHROM,
-            worker_timeout=self.vcf_parse_timeout)
+            output_base=self.output_directory + CHROM)
             for CHROM in CHROMs.iterkeys()] +
             [self.clone(
-                LoadGQData, worker_timeout=self.load_timeout,
+                LoadGQData,
                 fn=os.path.join(
                     self.data_directory, "gq_binned",
                     "{sample_name}.{prep_id}_gq_binned_10000_chr{chromosome}.txt".format(
@@ -461,7 +448,7 @@ class ImportSample(luigi.Task):
                         chromosome=CHROM)), chromosome=CHROM)
                 for CHROM in CHROMs.iterkeys()] +
             [self.clone(
-                LoadDPData, worker_timeout=self.load_timeout,
+                LoadDPData,
                 fn=os.path.join(
                     self.data_directory, "cvg_binned",
                     "{sample_name}.{prep_id}_coverage_binned_10000_chr{chromosome}.txt".format(
