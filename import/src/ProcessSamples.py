@@ -10,10 +10,11 @@ from BreakHandler import BreakHandler
 import signal
 import Command
 import re
+import os
 
-def preexec_function():
-    # ignore SIGINT by setting to SIG_IGN
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
+#def preexec_function():
+#    # ignore SIGINT by setting to SIG_IGN
+#    signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 class ProcessSamples(object):
     def __init__(self, max_samples_concurrently, qdel_jobs=True,
@@ -60,7 +61,7 @@ class ProcessSamples(object):
         job_name = re.compile(self.pattern.format(
             sample_name=sample_name, *args, **self.kwargs))
         proc = subprocess.Popen(["qstat", "-r", "-ne"], stdout=subprocess.PIPE,
-                                preexec_fn=preexec_function)
+                                preexec_fn=os.setpgrp)
         qstat_output = proc.communicate()[0]
         job_ids = []
         for x, line in enumerate(qstat_output):
@@ -78,15 +79,14 @@ class ProcessSamples(object):
         with open(self.stdout, self.stdout_mode) as stdout, \
                 open(self.stderr, self.stderr_mode) as stderr:
             command = Command.Command(
-                cmd, preexec_fn=preexec_function, stdout=stdout,
-                stderr=stderr)
+                cmd, preexec_fn=os.setpgrp, stdout=stdout, stderr=stderr)
             try:
                 exit_code = command.run(timeout=timeout)
             except Command.TimeoutException:
                 if self.qdel_jobs:
                     for sge_job in self.get_sge_job_ids(sample_name, *args):
                         p = subprocess.Popen(
-                            ["qdel", sge_job], preexec_fn=preexec_function)
+                            ["qdel", sge_job], preexec_fn=os.setpgrp)
                         p.communicate()
                 sys.stderr.write("timed out processing {sample_name}\n".format(
                     sample_name=sample_name))
@@ -106,7 +106,6 @@ class ProcessSamples(object):
                     sys.stderr.write("CTRL+C pressed: will exit when all "
                                      "currently running samples are done\n")
                     # need to confirm all threads are done prior to exiting
-                    all_threads_done = False
                     while self.all_threads:
                         sys.stderr.write(
                             "Waiting 10 seconds for current threads to close...\n")
@@ -140,3 +139,4 @@ class ProcessSamples(object):
                     target=self.run_command, args=sample_metadata)
                 self.all_threads.append(thread)
                 thread.start()
+        self.bh.disable()
