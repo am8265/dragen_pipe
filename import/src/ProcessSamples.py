@@ -76,26 +76,41 @@ class ProcessSamples(object):
         # overwrite to run one or more commands
         cmd, timeout = self._get_command(sample_name, *args)
         print(cmd)
-        with open(self.stdout, self.stdout_mode) as stdout, \
-                open(self.stderr, self.stderr_mode) as stderr:
-            command = Command.Command(
-                cmd, preexec_fn=os.setpgrp, stdout=stdout, stderr=stderr)
-            try:
-                exit_code = command.run(timeout=timeout)
-            except Command.TimeoutException:
-                if self.qdel_jobs:
-                    for sge_job in self.get_sge_job_ids(sample_name, *args):
-                        p = subprocess.Popen(
-                            ["qdel", sge_job], preexec_fn=os.setpgrp)
-                        p.communicate()
-                sys.stderr.write("timed out processing {sample_name}\n".format(
-                    sample_name=sample_name))
-            if exit_code:
-                sys.stderr.write("failed processing {sample_name}\n".format(
-                    sample_name=sample_name))
-            else:
-                sys.stderr.write("succeeded processing {sample_name}\n".format(
-                    sample_name=sample_name))
+        if type(self.stdout) is file:
+            close_stdout = False
+            stdout = self.stdout
+        else:
+            close_stdout = True
+            stdout = open(self.stdout, self.stdout_mode)
+        if type(self.stderr) is file:
+            close_stderr = False
+            stderr = self.stderr
+        else:
+            close_stderr = True
+            stderr = open(self.stderr, self.stderr_mode)
+        command = Command.Command(
+            cmd, preexec_fn=os.setpgrp, stdout=stdout, stderr=stderr)
+        try:
+            exit_code = command.run(timeout=timeout)
+        except Command.TimeoutException:
+            if self.qdel_jobs:
+                for sge_job in self.get_sge_job_ids(sample_name, *args):
+                    p = subprocess.Popen(
+                        ["qdel", sge_job], preexec_fn=os.setpgrp)
+                    p.communicate()
+            sys.stderr.write("timed out processing {sample_name}\n".format(
+                sample_name=sample_name))
+        if close_stdout:
+            stdout.close()
+        if close_stderr:
+            stderr.close()
+        if exit_code:
+            sys.stderr.write("failed processing {sample_name}\n".format(
+                sample_name=sample_name))
+        else:
+            sys.stderr.write("succeeded processing {sample_name}\n".format(
+                sample_name=sample_name))
+
 
     def process_samples(self):
         done = False
