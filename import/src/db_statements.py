@@ -166,6 +166,7 @@ WHERE p.pipeline_step_id = 1 AND p.finished = 0
 UNION
 SELECT s.sample_name, s.priority, s.sample_id, s.sample_type
 FROM sample s
-LEFT JOIN sample_pipeline_step p ON s.sample_id = p.sample_id
+LEFT JOIN sample_pipeline_step p ON s.sample_id = p.sample_id AND
+    p.pipeline_step_id = 1
 WHERE p.sample_id IS NULL
 """
