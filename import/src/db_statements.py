@@ -158,3 +158,14 @@ INSERT_INTO_SAMPLE_TABLE = """
 INSERT INTO sample (sample_name, sample_type, capture_kit, prep_id)
 VALUE ("{sample_name}", "{sample_type}", "{capture_kit}", {prep_id})
 """
+GET_SAMPLES_TO_IMPORT = """
+SELECT s.sample_name, s.priority, s.sample_id, s.sample_type
+FROM sample s
+INNER JOIN sample_pipeline_step p ON s.sample_id = p.sample_id
+WHERE p.pipeline_step_id = 1 AND p.finished = 0
+UNION
+SELECT s.sample_name, s.priority, s.sample_id, s.sample_type
+FROM sample s
+LEFT JOIN sample_pipeline_step p ON s.sample_id = p.sample_id
+WHERE p.sample_id IS NULL
+"""
