@@ -11,6 +11,7 @@ import signal
 import Command
 import re
 import os
+import subprocess
 
 #def preexec_function():
 #    # ignore SIGINT by setting to SIG_IGN
