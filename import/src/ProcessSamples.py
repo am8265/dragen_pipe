@@ -16,9 +16,15 @@ def preexec_function():
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 class ProcessSamples(object):
-    def __init__(self, max_samples_concurrently, qdel_jobs=True, **kwargs):
+    def __init__(self, max_samples_concurrently, qdel_jobs=True,
+                 stdout=sys.stdout, stdout_mode="w", stderr=sys.stderr,
+                 stderr_mode="w", **kwargs):
         self.max_samples_concurrently = max_samples_concurrently
         self.qdel_jobs = qdel_jobs
+        self.stdout = stdout
+        self.stdout_mode = stdout_mode
+        self.stderr = stderr
+        self.stderr_mode = stderr_mode
         self.kwargs = kwargs
         # keep a set of samples processed so we don't try to run it again and
         # again
@@ -69,20 +75,24 @@ class ProcessSamples(object):
         # overwrite to run one or more commands
         cmd, timeout = self._get_command(sample_name, *args)
         print(cmd)
-        command = Command.Command(cmd, preexec_fn=preexec_function)
-        try:
-            exit_code = command.run(timeout=timeout)
-        except Command.TimeoutException:
-            if self.qdel_jobs:
-                for sge_job in self.get_sge_job_ids(sample_name, *args):
-                    p = subprocess.Popen(
-                        ["qdel", sge_job], preexec_fn=preexec_function)
-                    p.communicate()
-            sys.stderr("timed out processing {sample_name}\n".format(
-                sample_name=sample_name))
-        if exit_code:
-            sys.stderr("failed processing {sample_name}\n".format(
-                sample_name=sample_name))
+        with open(self.stdout, self.stdout_mode) as stdout, \
+                open(self.stderr, self.stderr_mode) as stderr:
+            command = Command.Command(
+                cmd, preexec_fn=preexec_function, stdout=stdout,
+                stderr=stderr)
+            try:
+                exit_code = command.run(timeout=timeout)
+            except Command.TimeoutException:
+                if self.qdel_jobs:
+                    for sge_job in self.get_sge_job_ids(sample_name, *args):
+                        p = subprocess.Popen(
+                            ["qdel", sge_job], preexec_fn=preexec_function)
+                        p.communicate()
+                sys.stderr.write("timed out processing {sample_name}\n".format(
+                    sample_name=sample_name))
+            if exit_code:
+                sys.stderr.write("failed processing {sample_name}\n".format(
+                    sample_name=sample_name))
 
     def process_samples(self):
         done = False
