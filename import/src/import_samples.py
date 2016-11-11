@@ -49,7 +49,7 @@ class ImportSamples(ProcessSamples.ProcessSamples):
 def main(run_locally):
     import_samples = ImportSamples(
         qdel_jobs=not run_locally, run_locally=run_locally,
-        stdout=os.devnull, stderr=os.devnull)
+        stdout=os.devnull)
     import_samples.process_samples()
 
 if __name__ == "__main__":
