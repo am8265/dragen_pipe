@@ -184,7 +184,33 @@ def setup_dir(curs,sample,debug):
 
             subprocess.call(ln_cmd1)
             subprocess.call(ln_cmd2)
+    check_Fastq_Total_Size(sample)
     set_seqtime(curs,sample)
+
+def check_Fastq_Total_Size(sample):
+    fastq_dir = sample.metadata['fastq_dir']
+    sample_type = sample.metadata['sample_type']
+    fastq_filesize_sum = 0
+    for fastq in glob(fastq_dir + '/*gz'):
+        fastq_filesize = os.stat(os.path.realpath(fastq)).st_size
+        fastq_filesize_sum += fastq_filesize
+
+    if sample_type == 'genome':
+        if fastq_filesize_sum < 53687091200: # < 50GB
+            raise Exception, "Sum of fastq files is too small for a {} sample!".format(sample_type)
+    elif sample_type == 'exome':
+        if fastq_filesize_sum > 32212254720: # > 30GB
+            raise Exception, "Sum of fastq files is too big for a {} sample!".format(sample_type)
+    elif sample_type == 'rnaseq':
+        if fastq_filesize_sum > 32212254720: # > 30GB
+            raise Exception, "Sum of fastq files is too big for a {} sample!".format(sample_type)
+    elif sample_type == 'custom_capture':
+        if fastq_filesize_sum > 10737418240: # > 10GB
+            raise Exception, "Sum of fastq files is too big for a {} sample!".format(sample_type)
+    else:
+        raise Exception, 'Unhandled sample_type found: {}!'.format(sample_type)
+    if debug:
+        print 'Fastq size',fastq_filesize_sum,float(fastq_filesize_sum)/1024/1024/1024
 
 def get_first_read(sample,read_number,debug):
     #Using first fastq as template for all fastq.gz
