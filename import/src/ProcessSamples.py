@@ -93,6 +93,9 @@ class ProcessSamples(object):
             if exit_code:
                 sys.stderr.write("failed processing {sample_name}\n".format(
                     sample_name=sample_name))
+            else:
+                sys.stderr.write("succeeded processing {sample_name}\n".format(
+                    sample_name=sample_name))
 
     def process_samples(self):
         done = False
