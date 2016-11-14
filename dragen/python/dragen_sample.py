@@ -74,39 +74,43 @@ def get_fastq_loc(curs, sample):
 
             Secondly when external samples are archived sometimes the FCIllumID
             is preserved otherwise its enumerated."""
-
+            print "seqsatalocs:", seqsatalocs
             #for externally submitted samples
             if seqsatalocs[0][1][0] == 'X':
-                #for read group folder named as 1,2.3..etc
-                fastq_loc = glob(('/nfs/seqsata*/seqfinal/whole_genome/{}/[0-9]'
-                                ).format(sample['sample_name']))
-                if fastq_loc:
+                if 'SRR' in sample['sample_name']: #specifically for SRR samples
+                    print "SRR sample found"
+                    locs.append('/nfs/fastq16/SRA/{}/1').format(sample['sample_name'])
+                elif glob(('/nfs/seqsata*/seqfinal/whole_genome/{}/[0-9]'
+                    ).format(sample['sample_name'])) != []: # for external seqsata samples with enumerated folders
+                    print "seqsata sample fastq with enumerated flowcell found"
+                    fastq_loc = glob(('/nfs/seqsata*/seqfinal/whole_genome/{}/[0-9]'
+                        ).format(sample['sample_name']))
                     for flowcell in fastq_loc:
                         locs.append(os.path.realpath(flowcell))
                 elif glob(('/nfs/seqsata*/seqfinal/whole_genome/{}/*XX'
-                    ).format(sample['sample_name'])) != []:
-                    #for read group with actual flowcell name
+                    ).format(sample['sample_name'])) != []: #for external seqsata samples with actual flowcell name
+                    print "seqsata sample fastq with Ilummina FCID flowcell found"
                     fastq_loc = glob(('/nfs/seqsata*/seqfinal/whole_genome/{}/*XX'
                         ).format(sample['sample_name']))
                     for flowcell in fastq_loc:
                         locs.append(os.path.realpath(flowcell))
-                #on fastq16
-                else:
+                elif glob(('/nfs/fastq1[0-9]/{}/{}/[0-9]'
+                    ).format(corrected_sample_type,sample['sample_name'])) != []: #for external fastq16 samples with enumerated folders
+                    print "fastqXX sample fastq with enumerated flowcell found"
                     fastq_loc = glob(('/nfs/fastq1[0-9]/{}/{}/[0-9]'
                                 ).format(corrected_sample_type,sample['sample_name']))
                     if fastq_loc:
                         for flowcell in fastq_loc:
                             locs.append(os.path.realpath(flowcell))
-                    elif glob(('/nfs/fastq1[0-9]/{}/{}/*XX'
-                        ).format(corrected_sample_type,sample['sample_name'])):
-                        fastq_loc = glob(('/nfs/fastq1[0-9]/{}/{}/*XX'
-                                ).format(corrected_sample_type,sample['sample_name']))
-                        for flowcell in fastq_loc:
-                            locs.append(os.path.realpath(flowcell))
-                    else:
-                        print '/nfs/seqsata*/seqfinal/whole_genome/{}/[0-9]'.format(sample['sample_name'])
-                        print '/nfs/fastq1*/{}/{}/[0-9]'.format(corrected_sample_type,sample['sample_name'])
-                        raise Exception, 'fastq files not found!'
+                elif glob(('/nfs/fastq1[0-9]/{}/{}/*XX'
+                    ).format(corrected_sample_type,sample['sample_name'])) != []: #for external fastq16 samples with actual flowcell name
+                    print "fastqXX sample fastq with Ilummina FCID flowcell found"
+                    fastq_loc = glob(('/nfs/fastq1[0-9]/{}/{}/*XX'
+                            ).format(corrected_sample_type,sample['sample_name']))
+                    for flowcell in fastq_loc:
+                        locs.append(os.path.realpath(flowcell))
+                else:
+                    raise Exception, 'fastq files not found!'
             else: #For regular samples
                 for flowcell in seqsatalocs:
                     if 'seqsata' in flowcell[0]:
@@ -125,34 +129,34 @@ def get_fastq_loc(curs, sample):
                         # For samples in the database but stored on the quantum and 
                         # have not had their location properly restored
 
-                        fastq_loc = glob('/nfs/fastq16/{0}/{1}/*XX'.format(
-                            corrected_sample_type,sample['sample_name']))
-                        print fastq_loc,'/nfs/fastq16/{0}/{1}/*XX'.format(
-                            corrected_sample_type,sample['sample_name'])
+                        fastq_loc = glob('/nfs/stornext/seqfinal/casava1.8/whole_{0}/{1}/*XX'.format(
+                            corrected_sample_type.lower(),sample['sample_name']))
                         if fastq_loc:
                             for flowcell in fastq_loc:
                                 locs.append(os.path.realpath(flowcell))
 
         else: #For samples with flowcells not in sequenceDB
-            fastq_loc = glob('/nfs/fastq16/{}/{}/*XX'.format(corrected_sample_type,sample['sample_name']))
-
-            if fastq_loc:
+            print "NO flowcells in sequenceDB"
+            if glob('/nfs/fastq16/{}/{}/*XX'.format(corrected_sample_type,sample['sample_name'])):
+                fastq_loc = glob('/nfs/fastq16/{}/{}/*XX'.format(corrected_sample_type,sample['sample_name']))
                 for flowcell in fastq_loc:
                     locs.append(os.path.realpath(flowcell))
             elif glob('/nfs/fastq16/{}/{}/[0-9]'.format(corrected_sample_type,sample['sample_name'])) != []:
                 fastq_loc = glob('/nfs/fastq16/{}/{}/[0-9]'.format(corrected_sample_type,sample['sample_name']))
                 for flowcell in fastq_loc:
                     locs.append(os.path.realpath(flowcell))
-
             elif glob('/nfs/seqsata*/seqfinal/whole_genome/{}/*XX'.format(sample['sample_name'])) != []:
                 fastq_loc = glob('/nfs/seqsata*/seqfinal/whole_genome/{}/*XX'.format(sample['sample_name']))
                 for flowcell in fastq_loc:
                     locs.append(os.path.realpath(flowcell))
+            elif glob('/nfs/stornext/seqfinal/casava1.8/whole_{0}/{1}/*XX'.format(
+                corrected_sample_type.lower(),sample['sample_name'])):
+                fastq_loc = glob('/nfs/stornext/seqfinal/casava1.8/whole_{0}/{1}/*XX'.format(corrected_sample_type.lower(),sample['sample_name']))
+                for flowcell in fastq_loc:
+                    locs.append(flowcell)
+                    #locs.append(os.path.realpath(flowcell))
             else:
-                print '/stornext/seqfinal/casava1.8/whole_{0}/{1}/*XX'.format(
-                corrected_sample_type.lower(),sample['sample_name'])
                 raise Exception, "Sample {0} Fastq files not found!".format(sample['sample_name'])
-
     """For samples in the database we can exclude any samples that only have
     R1 data however for sampels that predate the database we have to manually
     check for R2 existance"""
@@ -164,7 +168,8 @@ def check_fastq_locs(locs):
 
     valid_locs = []
     for loc in locs:
-        read2 = glob("{loc}/*R2*fastq*".format(loc=loc))
+        read2 = glob("{loc}/*R2_00*.fastq*".format(loc=loc))
+        print loc,read2
         if read2 != []:
             valid_locs.append(loc)
     return valid_locs
@@ -175,7 +180,7 @@ def get_output_dir(sample):
     # Custom capture samples need to be partitioned by capture_kit or 
     # pseudo_prepid since they are often sequenced with multiple capture kits.
     # Example: EpiMIR and SchizoEpi
-    output_dir = ('/nfs/qumulo/ALIGNMENT/BUILD37/DRAGEN/{0}/{1}.{2}/'
+    output_dir = ('/nfs/seqscratch_ssd4/ALIGNMENT/BUILD37/DRAGEN/{0}/{1}.{2}/'
         ).format(sample['sample_type'].upper(),sample['sample_name'],sample['pseudo_prepid'])
 
     return output_dir
@@ -200,7 +205,6 @@ def get_lanes(curs,sample):
             ).format(prepid)
         curs.execute(query)
         lane = curs.fetchall()
-
         if lane:
             lanes.append(lane)
         else:
