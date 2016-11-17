@@ -291,7 +291,7 @@ class LoadGQData(SGEJobTask):
                 pipeline_step_id=self.pipeline_step_id))
             db.commit()
         finally:
-            if not db.open:
+            if db.open:
                 db.close()
 
     def output(self):
@@ -340,7 +340,7 @@ class LoadDPData(SGEJobTask):
                 pipeline_step_id=self.pipeline_step_id))
             db.commit()
         finally:
-            if not db.open:
+            if db.open:
                 db.close()
 
     def output(self):
