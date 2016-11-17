@@ -35,9 +35,10 @@ class ImportSamples(ProcessSamples.ProcessSamples):
     def _get_command(self, sample_name, *args):
         sample_id, sample_type = args
         cmd = ("./data_import_pipeline.py ImportSample --sample-id {sample_id} "
-               "--workers 75{run_locally}".format(
-                   sample_id=sample_id, run_locally=" --run-locally" if
-                   self.kwargs["run_locally"] else ""))
+               "--workers 75 --logging-conf-file {logging_conf_file}{run_locally}".
+               format(
+                   sample_id=sample_id, logging_conf_file="logging.conf",
+                   run_locally=" --run-locally" if self.kwargs["run_locally"] else ""))
         if sample_type in ("exome", "custom_capture"):
             # allow 10 minutes for exomes
             timeout = 600
