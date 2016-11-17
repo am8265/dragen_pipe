@@ -8,7 +8,8 @@ import MySQLdb
 import sys
 import os
 from dragen_globals import *
-from db_statements import GET_SAMPLE_PREPID, INSERT_INTO_SAMPLE_TABLE
+from db_statements import (
+    GET_SAMPLE_ID, GET_SAMPLE_PREPID, INSERT_SAMPLE, GET_PREPID)
 
 def initialize_samples(samples_fh):
     """Take the list of samples in the fh and initialize all samples in the
@@ -30,28 +31,35 @@ def initialize_samples(samples_fh):
             seqdb_cur.execute(query)
             rows = seqdb_cur.fetchall()
             if len(rows) == 1:
-                prep_id = rows[0][0]
+                pseudo_prep_id, prep_id = rows[0]
+                if pseudo_prep_id is None:
+                    query_two = GET_PREPID.format(prepid=prep_id)
+                    seqdb_cur.execute(query_two)
+                    row = seqdb_cur.fetchone()
+                    if row:
+                        pseudo_prep_id = row[0]
                 if not os.path.isdir(
                     "/nfs/fastq16/ALIGNMENT/BUILD37/DRAGEN/{sample_type}/"
-                    "{sample_name}.{prep_id}".format(
+                    "{sample_name}.{pseudo_prep_id}".format(
                         sample_type=sample_type.upper(),
-                        sample_name=sample_name, prep_id=prep_id)):
+                        sample_name=sample_name, pseudo_prep_id=pseudo_prep_id)):
                     errors.append((query, -1))
                     continue
                 samples_metadata.append({
                     "sample_name":sample_name,
                     "sample_type":sample_type.lower(), "capture_kit":capture_kit,
-                    "prep_id":prep_id})
+                    "prep_id":pseudo_prep_id})
             else:
                 errors.append((query, len(rows)))
         if errors:
             for query, nrecords in errors:
                 print("error with query ({} records):{}".format(
                     nrecords, query))
-                sys.exit(1)
+            sys.exit(1)
         for sample_metadata in samples_metadata:
-            dragen_cur.execute(
-                INSERT_INTO_SAMPLE_TABLE.format(**sample_metadata))
+            dragen_cur.execute(GET_SAMPLE_ID.format(**sample_metadata))
+            if not dragen_cur.fetchone():
+                dragen_cur.execute(INSERT_SAMPLE.format(**sample_metadata))
         dragen.commit()
     finally:
         samples_fh.close()
