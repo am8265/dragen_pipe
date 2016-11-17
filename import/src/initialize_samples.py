@@ -8,7 +8,7 @@ import MySQLdb
 import sys
 import os
 from dragen_globals import *
-from db_statements import GET_SAMPLE_PREPID, INSERT_INTO_SAMPLE_TABLE
+from db_statements import GET_SAMPLE_ID, GET_SAMPLE_PREPID, INSERT_SAMPLE
 
 def initialize_samples(samples_fh):
     """Take the list of samples in the fh and initialize all samples in the
@@ -48,10 +48,11 @@ def initialize_samples(samples_fh):
             for query, nrecords in errors:
                 print("error with query ({} records):{}".format(
                     nrecords, query))
-                sys.exit(1)
+            sys.exit(1)
         for sample_metadata in samples_metadata:
-            dragen_cur.execute(
-                INSERT_INTO_SAMPLE_TABLE.format(**sample_metadata))
+            dragen_cur.execute(GET_SAMPLE_ID.format(**sample_metadata))
+            if not cur.fetchone():
+                dragen_cur.execute(INSERT_SAMPLE.format(**sample_metadata))
         dragen.commit()
     finally:
         samples_fh.close()
