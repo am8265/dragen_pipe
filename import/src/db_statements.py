@@ -146,8 +146,13 @@ FROM custom_transcript_ids_chr{CHROM}
 WHERE transcript_ids = "{transcript_ids}"
 """
 GET_SAMPLE_PREPID = """
-SELECT pseudo_prepid
+SELECT pseudo_prepid, prepid
 FROM seqdbClone
 WHERE CHGVID = "{sample_name}" AND SeqType = "{sample_type}"
     AND ExomeSamPrepKit = "{capture_kit}" AND Status <> "Blacklisted"
+"""
+GET_PREPID = """
+SELECT pseudo_prepid
+FROM pseudo_prepid
+WHERE prepid = {prepid}
 """
