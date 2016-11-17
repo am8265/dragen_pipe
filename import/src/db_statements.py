@@ -151,7 +151,3 @@ FROM seqdbClone
 WHERE CHGVID = "{sample_name}" AND SeqType = "{sample_type}"
     AND ExomeSamPrepKit = "{capture_kit}" AND Status <> "Blacklisted"
 """
-INSERT_INTO_SAMPLE_TABLE = """
-INSERT INTO sample (sample_name, sample_type, capture_kit, prep_id)
-VALUE ("{sample_name}", "{sample_type}", "{capture_kit}", {prep_id})
-"""
