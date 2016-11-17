@@ -48,7 +48,7 @@ def initialize_samples(samples_fh):
                 samples_metadata.append({
                     "sample_name":sample_name,
                     "sample_type":sample_type.lower(), "capture_kit":capture_kit,
-                    "prep_id":prep_id})
+                    "prep_id":pseudo_prep_id})
             else:
                 errors.append((query, len(rows)))
         if errors:
