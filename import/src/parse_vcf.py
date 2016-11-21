@@ -14,7 +14,7 @@ from collections import defaultdict
 from functools import partial
 from time import time
 import tabix
-from pprint import pprint
+import logging
 
 cfg = get_cfg()
 HGVS_P_REGEX = re.compile(HGVS_P_PATTERN)
@@ -30,6 +30,20 @@ def call_is_high_quality(QUAL, MQ, FILTER, DP):
     """
     return (QUAL >= 30 and MQ >= 40 and DP >= 3
             and FILTER in ("PASS", "LIKELY", "INTERMEDIATE"))
+
+def get_custom_transcript_ids(cur, CHROM):
+    """return a dict of all novel transcript ids and the new value
+    to begin using
+    """
+    custom_transcript_ids = {}
+    cur.execute(GET_CUSTOM_TRANSCRIPT_IDS.format(CHROM=CHROM))
+    for transcript_id, transcript_ids in cur.fetchall():
+        custom_transcript_ids[transcript_ids] = transcript_id
+    cur.execute(GET_MIN_CUSTOM_TRANSCRIPT_ID.format(CHROM=CHROM))
+    min_transcript_id = cur.fetchone()[0]
+    if min_transcript_id is None:
+        min_transcript_id = 0
+    return (custom_transcript_ids, min_transcript_id)
 
 def calculate_polyphen_scores(
     cur, transcript_stable_id, HGVS_p, VariantID,
@@ -100,7 +114,8 @@ def get_variant_id(novel_fh, novel_transcripts_fh, matched_indels_fh, cur,
                    high_impact_effect_ids, moderate_impact_effect_ids,
                    low_impact_effect_ids, modifier_impact_effect_ids,
                    polyphen_matrixes_by_stable_id,
-                   polyphen_stable_ids_to_ignore, high_quality_call):
+                   polyphen_stable_ids_to_ignore, high_quality_call,
+                   custom_transcript_ids, logger):
     """return the variant_id of the given variant and output it to novel_fh
     if it's novel
     """
@@ -152,7 +167,7 @@ def get_variant_id(novel_fh, novel_transcripts_fh, matched_indels_fh, cur,
             novel_transcripts_id, CHROM, POS,
             REF, alt, indel_length, ALT, rs_number, ANNs, effect_rankings,
             polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore,
-            high_quality_call)
+            high_quality_call, custom_transcript_ids, logger)
     if any(effect_id in high_impact_effect_ids for effect_id in effect_ids):
         highest_impact = "HIGH"
     elif any(effect_id in moderate_impact_effect_ids
@@ -172,7 +187,7 @@ def output_novel_variant(
     novel_fh, novel_transcripts_fh, cur, variant_id, novel_transcripts_id, CHROM,
     POS, REF, ALT, indel_length, original_ALT, rs_number, ANNs, effect_rankings,
     polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore,
-    high_quality_call,
+    high_quality_call, custom_transcript_ids, logger,
     impact_ordering=["HIGH", "MODERATE", "LOW", "MODIFIER"]):
     """output all entries for the novel variant to novel_fh and increment
     variant_id
@@ -247,17 +262,14 @@ def output_novel_variant(
                 if feature_id == "":
                     transcript_ids_dict[""] = 0
                 elif "-" in feature_id or feature_id.startswith("ENSG"):
-                    cur.execute(GET_CUSTOM_TRANSCRIPT_ID.format(
-                        CHROM=CHROM, transcript_ids=feature_id))
-                    row = cur.fetchone()
-                    if row:
-                        transcript_ids_dict[feature_id] = row[0]
-                    else:
+                    if feature_id not in custom_transcript_ids:
                         # new transcript id
-                        transcript_ids_dict[feature_id] = novel_transcripts_id
+                        custom_transcript_ids[feature_id] = novel_transcripts_id
                         novel_transcripts_fh.write("{id}\t{feature_id}\n".format(
                             id=novel_transcripts_id, feature_id=feature_id))
                         novel_transcripts_id -= 1
+                    transcript_ids_dict[feature_id] = (
+                        custom_transcript_ids[feature_id])
                 else:
                     if feature_id.startswith("ENST"):
                         transcript_ids_dict[feature_id] = int(feature_id[4:])
@@ -324,7 +336,7 @@ def output_novel_variant(
         for annotation_values in annotations.itervalues():
             output_novel_variant_entry(
                 novel_fh, variant_id, POS, REF, ALT, rs_number, indel,
-                indel_length, high_quality_call, **annotation_values)
+                indel_length, high_quality_call, logger, **annotation_values)
     else:
         raise ValueError(
             "error: {VariantID} has no SnpEff annotation(s)".
@@ -333,8 +345,9 @@ def output_novel_variant(
 
 def output_novel_variant_entry(
     novel_fh, variant_id, POS, REF, ALT, rs_number, indel, indel_length,
-    high_quality_call, transcript_stable_id="", effect_id=None, HGVS_c=None,
-    HGVS_p=None, polyphen_humdiv=None, polyphen_humvar=None, gene=None):
+    high_quality_call, logger, transcript_stable_id="", effect_id=None,
+    HGVS_c=None, HGVS_p=None, polyphen_humdiv=None,
+    polyphen_humvar=None, gene=None):
     """output a specific novel variant entry to novel_fh
     """
     novel_fh.write(NOVEL_VARIANT_OUTPUT_FORMAT.format(
@@ -350,11 +363,19 @@ def output_novel_variant_entry(
         indel_length=indel_length,
         has_high_quality_call=int(high_quality_call)) + "\n")
 
-def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None,
-              ParseVCF_instance=None, debug=False):
-    if debug:
+def parse_vcf(vcf, CHROM, sample_id, output_base, level,
+              chromosome_length=None, ParseVCF_instance=None):
+    logger = logging.getLogger(__name__)
+    logger.setLevel(level)
+    if __name__ == "__main__":
         import sys
-        sys.stderr.write("starting CHROM {}\n".format(CHROM))
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setLevel(level)
+        formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+    logger.info("starting CHROM {}\n".format(CHROM))
     line_count = 0
     start_time = time()
     cfg = get_cfg()
@@ -365,10 +386,6 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None,
         novel_variant_id = cur.fetchone()[0]
         cur.execute(GET_MIN_CUSTOM_TRANSCRIPT_ID.format(
             CHROM=CHROM))
-        novel_transcripts_id = cur.fetchone()[0]
-        if not novel_transcripts_id:
-            novel_transcripts_id = 0
-        novel_transcripts_id -= 1
         effect_rankings = defaultdict(lambda: defaultdict(int))
         high_impact_effect_ids = set()
         moderate_impact_effect_ids = set()
@@ -392,6 +409,8 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None,
         calls = output_base + ".calls.txt"
         variant_id_vcf = output_base + ".variant_id.vcf"
         matched_indels = output_base + ".matched_indels.txt"
+        custom_transcript_ids, novel_transcripts_id = get_custom_transcript_ids(
+            cur, CHROM)
         vcf_tabix = tabix.open(vcf)
         with open(novel_variants, "w") as novel_fh, \
                 open(novel_transcripts, "w") as novel_transcripts_fh, \
@@ -403,9 +422,8 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None,
                 chromosome_len = chromosome_length / 1000000
             for x, line_fields in enumerate(vcf_tabix.querys(CHROM)):
                 if not x % 100:
-                    if debug:
-                        sys.stderr.write(("line #{} after {} seconds\n".format(
-                            x, time() - start_time)))
+                    logger.info("line #{} after {} seconds\n".format(
+                        x, time() - start_time))
                 fields = VCF_fields_dict(line_fields)
                 if fields["CHROM"] != CHROM:
                     raise ValueError(
@@ -447,14 +465,15 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None,
                 variant_ids = []
                 for ALT_allele in ALT_alleles:
                     (variant_id, highest_impact, block_id, novel_variant_id,
-                     novel_transcripts_id) = get_variant_id(
+                     novel_transcripts_id, novel_) = get_variant_id(
                          novel_fh, novel_transcripts_fh, matched_indels_fh,
                          cur, CHROM, POS, fields["REF"], ALT_allele,
                          fields["rs_number"], INFO["ANN"], novel_variant_id,
                          novel_transcripts_id, effect_rankings, high_impact_effect_ids,
                          moderate_impact_effect_ids, low_impact_effect_ids,
                          modifier_impact_effect_ids, polyphen_matrixes_by_stable_id,
-                         polyphen_stable_ids_to_ignore, high_quality_call)
+                         polyphen_stable_ids_to_ignore, high_quality_call,
+                         custom_transcript_ids, logger)
                     variant_ids.append((variant_id, block_id, highest_impact))
                 for variant_stat in (
                     "FS", "MQ", "QD", "ReadPosRankSum", "MQRankSum"):
@@ -513,9 +532,8 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None,
                     ";" + fields["INFO"])
                 vcf_out.write("\t".join(line_fields) + "\n")
     finally:
-        if debug:
-            sys.stderr.write("elapsed time: {} seconds\n".format(
-                time() - start_time))
+        logger.info("elapsed time: {} seconds\n".format(
+            time() - start_time))
         if db.open:
             db.close()
 
@@ -525,17 +543,20 @@ if __name__ == "__main__":
         formatter_class=CustomFormatter, description=__doc__)
     parser.add_argument("VCF", type=file_exists,
                         help="the chromosome VCF to parse")
-    parser.add_argument("CHROMOSOME", choices=cfg.get("ref", "CHROMs").split(","),
+    parser.add_argument("CHROMOSOME",
+                        choices=[chrom[0].upper() for chrom in cfg.items("chromosomes")],
                         help="the chromosome that is being processed")
     parser.add_argument("SAMPLE_ID",
                         type=partial(valid_numerical_argument, arg_name="sample_id"),
                         help="the id of the sample")
     parser.add_argument("OUTPUT_BASE", help="the base output file name structure")
-    parser.add_argument("-d", "--debug", default=False, action="store_true",
-                        help="output timing statements to stderr")
+    parser.add_argument("-l", "--level", default="ERROR",
+                        choices=LOGGING_LEVELS.keys(),
+                        help="specify the logging level to use")
     args = parser.parse_args()
     output_base_rp = os.path.realpath(args.OUTPUT_BASE)
     if not os.path.isdir(os.path.dirname(output_base_rp)):
         os.makedirs(os.path.dirname(output_base_rp))
     parse_vcf(
-        args.VCF, args.CHROMOSOME, args.SAMPLE_ID, output_base_rp, debug=args.debug)
+        args.VCF, args.CHROMOSOME, args.SAMPLE_ID, output_base_rp,
+        level=LOGGING_LEVELS[args.level])
