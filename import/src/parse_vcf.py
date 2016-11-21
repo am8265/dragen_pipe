@@ -371,8 +371,7 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, level,
         import sys
         handler = logging.StreamHandler(sys.stderr)
         handler.setLevel(level)
-        formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        formatter = logging.Formatter(cfg.get("logging", "format"))
         handler.setFormatter(formatter)
         logger.addHandler(handler)
     logger.info("starting CHROM {}\n".format(CHROM))
