@@ -7,10 +7,10 @@ import MySQLdb
 import argparse
 import sys
 from operator import lt, le
-from ConfigParser import ConfigParser
+from ConfigParser import RawConfigParser
 import logging
 
-cfg = ConfigParser()
+cfg = RawConfigParser()
 cfg.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "anno.cfg"))
 
 CNF = "/nfs/goldstein/software/dragen/dragen.cnf" # defaults file for pipeline
