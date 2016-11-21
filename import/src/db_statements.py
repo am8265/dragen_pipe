@@ -143,10 +143,9 @@ GET_MIN_CUSTOM_TRANSCRIPT_ID = """
 SELECT MIN(id)
 FROM custom_transcript_ids_chr{CHROM}
 """
-GET_CUSTOM_TRANSCRIPT_ID = """
-SELECT id
+GET_CUSTOM_TRANSCRIPT_IDS = """
+SELECT id, transcript_ids
 FROM custom_transcript_ids_chr{CHROM}
-WHERE transcript_ids = "{transcript_ids}"
 """
 GET_SAMPLE_PREPID = """
 SELECT pseudo_prepid, prepid
