@@ -12,10 +12,12 @@ import Command
 import re
 import os
 import subprocess
+import logging
 
 #def preexec_function():
 #    # ignore SIGINT by setting to SIG_IGN
 #    signal.signal(signal.SIGINT, signal.SIG_IGN)
+logger = logging.getLogger(__name__)
 
 class ProcessSamples(object):
     def __init__(self, max_samples_concurrently, qdel_jobs=True,
@@ -63,13 +65,13 @@ class ProcessSamples(object):
             sample_name=sample_name, *args, **self.kwargs))
         proc = subprocess.Popen(["qstat", "-r", "-ne"], stdout=subprocess.PIPE,
                                 preexec_fn=os.setpgrp)
-        qstat_output = proc.communicate()[0]
+        qstat_output = proc.communicate()[0].splitlines()
         job_ids = []
         for x, line in enumerate(qstat_output):
             m = p.match(line)
             if m:
                 job_id = m.group(1)
-                if job_name == qstat_output[x + 1].split()[-1]:
+                if job_name.match(qstat_output[x + 1].split()[-1]):
                     job_ids.append(job_id)
         return job_ids
 
@@ -96,22 +98,32 @@ class ProcessSamples(object):
         except Command.TimeoutException:
             if self.qdel_jobs:
                 for sge_job in self.get_sge_job_ids(sample_name, *args):
+                    logger.debug("Killing job ID: {}".format(sge_job))
                     p = subprocess.Popen(
                         ["qdel", sge_job], preexec_fn=os.setpgrp)
                     p.communicate()
             sys.stderr.write("timed out processing {sample_name}\n".format(
                 sample_name=sample_name))
+            if close_stdout:
+                stdout.close()
+            if close_stderr:
+                stderr.close()
+            return
         if close_stdout:
             stdout.close()
         if close_stderr:
             stderr.close()
         if exit_code:
+            if self.qdel_jobs:
+                for sge_job in self.get_sge_job_ids(sample_name, *args):
+                    p = subprocess.Popen(
+                        ["qdel", sge_job], preexec_fn=os.setpgrp)
+                    p.communicate()
             sys.stderr.write("failed processing {sample_name}\n".format(
                 sample_name=sample_name))
         else:
             sys.stderr.write("succeeded processing {sample_name}\n".format(
                 sample_name=sample_name))
-
 
     def process_samples(self):
         done = False
