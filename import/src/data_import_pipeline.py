@@ -18,11 +18,34 @@ from collections import OrderedDict
 from parse_vcf import parse_vcf
 from dragen_globals import *
 from db_statements import *
-from sys import maxsize
+import sys
+import logging
+from time import sleep
 
 cfg = get_cfg()
 CHROMs = OrderedDict([[chromosome.upper(), int(length)]
                       for chromosome, length in cfg.items("chromosomes")])
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+handler = logging.StreamHandler(sys.stderr)
+formatter = logging.Formatter(cfg.get("logging", "format"))
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+
+def check_if_sample_importing(cur):
+    """check if a sample was presumably stuck previously so we don't try to
+    import until the previous one is finished/killed
+    """
+    cur.execute("SHOW FULL PROCESSLIST")
+    for row in cur.fetchall():
+        (sql_id, user, host, db, command, time,
+         state, info, rows_sent, rows_examined) = row
+        if info and user == "bc2675" and "LOAD DATA" in info.upper():
+            logger.warning("Job still committing:\n" + "\t".join(
+                [str(value) for value in row]))
+            return True
+        logger.debug("No jobs waiting")
+    return False
 
 def get_num_lines_from_vcf(vcf, region=None, header=True):
     """return the number of variant lines in the specified VCF, gzipped optional
@@ -132,13 +155,16 @@ class ParseVCF(SGEJobTask):
     vcf = luigi.InputFileParameter(description="the VCF to parse")
     chromosome = luigi.Parameter(description="the chromosome to process")
     sample_id = luigi.NumericalParameter(
-        min_value=1, max_value=maxsize, var_type=int,
+        min_value=1, max_value=sys.maxsize, var_type=int,
         description="the sample_id for this sample")
     output_base = luigi.Parameter(
         default=None, description="specify a custom output file name")
     output_directory = luigi.Parameter(
         description="the scratch directory for outputting files")
     sample_name = luigi.Parameter(description="the name of the sample")
+    level = luigi.ChoiceParameter(
+        choices=LOGGING_LEVELS, significant=False,
+        default="DEBUG", description="the logging level to use")
 
     def __init__(self, *args, **kwargs):
         super(ParseVCF, self).__init__(*args, **kwargs)
@@ -187,7 +213,7 @@ class ParseVCF(SGEJobTask):
             CHROM=self.chromosome, sample_id=self.sample_id,
             output_base=self.output_base,
             chromosome_length=CHROMs[self.chromosome], ParseVCF_instance=self,
-            debug=self.debug)
+            level=self.level)
         for fn in (self.novel_variants, self.novel_transcripts,
                    self.called_variants, self.variant_id_vcf,
                    self.matched_indels):
@@ -227,9 +253,9 @@ class ParseVCF(SGEJobTask):
                 try:
                     cur.execute(load_statement)
                 except (MySQLdb.IntegrityError, MySQLdb.OperationalError):
-                    print("error with:")
-                    print(load_statement)
-                    raise
+                    logger.error(
+                        "error with:\n" + load_statement, exc_info=True)
+                    sys.exit(1)
             cur.execute(GET_NUM_CALLS_FOR_SAMPLE.format(
                 CHROM=self.chromosome, sample_id=self.sample_id))
             db_count = cur.fetchone()[0]
@@ -354,7 +380,7 @@ class ImportSample(luigi.Task):
         default=None,
         description="the VCF to parse (optional - only sample_id is required)")
     sample_id = luigi.NumericalParameter(
-        min_value=1, max_value=maxsize, var_type=int,
+        min_value=1, max_value=sys.maxsize, var_type=int,
         description="the sample_id for this sample")
     seqscratch = luigi.ChoiceParameter(
         choices=["09", "10", "11"], default="09",
@@ -367,9 +393,9 @@ class ImportSample(luigi.Task):
         "(doesn't need to be specified")
     run_locally = luigi.BoolParameter(
         description="run locally instead of on the cluster")
-
-    #def complete(self):
-    #    blah
+    level = luigi.ChoiceParameter(
+        choices=LOGGING_LEVELS, significant=False,
+        default="DEBUG", description="the logging level to use")
 
     def __init__(self, *args, **kwargs):
         super(ImportSample, self).__init__(*args, **kwargs)
@@ -401,6 +427,8 @@ class ImportSample(luigi.Task):
         db = get_connection("dragen")
         try:
             cur = db.cursor()
+            while check_if_sample_importing(cur):
+                sleep(10)
             cur.execute(GET_PIPELINE_FINISHED_ID)
             self.pipeline_step_id = cur.fetchone()[0]
         finally:
