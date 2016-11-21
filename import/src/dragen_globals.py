@@ -8,11 +8,15 @@ import argparse
 import sys
 from operator import lt, le
 from ConfigParser import ConfigParser
+import logging
 
 cfg = ConfigParser()
 cfg.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "anno.cfg"))
 
 CNF = "/nfs/goldstein/software/dragen/dragen.cnf" # defaults file for pipeline
+LOGGING_LEVELS = {
+    "CRITICAL":logging.CRITICAL, "ERROR":logging.ERROR,
+    "WARNING":logging.WARNING, "INFO":logging.INFO, "DEBUG":logging.DEBUG}
 VCF_COLUMNS = ["CHROM", "POS", "rs_number", "REF", "ALT", "QUAL", "FILTER",
                "INFO", "FORMAT", "call"]
 VCF_COLUMNS_DICT = dict([(column, x) for x, column in enumerate(VCF_COLUMNS)])
