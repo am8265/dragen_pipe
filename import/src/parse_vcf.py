@@ -43,7 +43,7 @@ def get_custom_transcript_ids(cur, CHROM):
     min_transcript_id = cur.fetchone()[0]
     if min_transcript_id is None:
         min_transcript_id = 0
-    return (custom_transcript_ids, min_transcript_id)
+    return (custom_transcript_ids, min_transcript_id - 1)
 
 def calculate_polyphen_scores(
     cur, transcript_stable_id, HGVS_p, VariantID,
@@ -363,17 +363,9 @@ def output_novel_variant_entry(
         indel_length=indel_length,
         has_high_quality_call=int(high_quality_call)) + "\n")
 
-def parse_vcf(vcf, CHROM, sample_id, output_base, level,
+def parse_vcf(vcf, CHROM, sample_id, output_base, 
               chromosome_length=None, ParseVCF_instance=None):
     logger = logging.getLogger(__name__)
-    logger.setLevel(level)
-    if __name__ == "__main__":
-        import sys
-        handler = logging.StreamHandler(sys.stderr)
-        handler.setLevel(level)
-        formatter = logging.Formatter(cfg.get("logging", "format"))
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
     logger.info("starting CHROM {}\n".format(CHROM))
     line_count = 0
     start_time = time()
@@ -383,8 +375,6 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, level,
         cur = db.cursor()
         cur.execute(GET_MAX_VARIANT_ID.format(CHROM=CHROM))
         novel_variant_id = cur.fetchone()[0]
-        cur.execute(GET_MIN_CUSTOM_TRANSCRIPT_ID.format(
-            CHROM=CHROM))
         effect_rankings = defaultdict(lambda: defaultdict(int))
         high_impact_effect_ids = set()
         moderate_impact_effect_ids = set()
@@ -420,9 +410,9 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, level,
                 last_POS_update = -1
                 chromosome_len = chromosome_length / 1000000
             for x, line_fields in enumerate(vcf_tabix.querys(CHROM)):
-                if not x % 100:
-                    logger.info("line #{} after {} seconds\n".format(
-                        x, time() - start_time))
+                #if not x % 100:
+                #    logger.info("line #{} after {} seconds\n".format(
+                #        x, time() - start_time))
                 fields = VCF_fields_dict(line_fields)
                 if fields["CHROM"] != CHROM:
                     raise ValueError(
@@ -464,7 +454,7 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, level,
                 variant_ids = []
                 for ALT_allele in ALT_alleles:
                     (variant_id, highest_impact, block_id, novel_variant_id,
-                     novel_transcripts_id, novel_) = get_variant_id(
+                     novel_transcripts_id) = get_variant_id(
                          novel_fh, novel_transcripts_fh, matched_indels_fh,
                          cur, CHROM, POS, fields["REF"], ALT_allele,
                          fields["rs_number"], INFO["ANN"], novel_variant_id,
@@ -556,6 +546,13 @@ if __name__ == "__main__":
     output_base_rp = os.path.realpath(args.OUTPUT_BASE)
     if not os.path.isdir(os.path.dirname(output_base_rp)):
         os.makedirs(os.path.dirname(output_base_rp))
-    parse_vcf(
-        args.VCF, args.CHROMOSOME, args.SAMPLE_ID, output_base_rp,
-        level=LOGGING_LEVELS[args.level])
+    level = LOGGING_LEVELS[args.level]
+    import sys
+    logger = logging.getLogger(__name__)
+    logger.setLevel(level)
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setLevel(level)
+    formatter = logging.Formatter(cfg.get("logging", "format"))
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    parse_vcf(args.VCF, args.CHROMOSOME, args.SAMPLE_ID, output_base_rp)
