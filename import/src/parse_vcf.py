@@ -374,7 +374,8 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
     try:
         cur = db.cursor()
         cur.execute(GET_MAX_VARIANT_ID.format(CHROM=CHROM))
-        novel_variant_id = cur.fetchone()[0]
+        max_variant_id = cur.fetchone()[0]
+        novel_variant_id = max_variant_id
         effect_rankings = defaultdict(lambda: defaultdict(int))
         high_impact_effect_ids = set()
         moderate_impact_effect_ids = set()
@@ -520,6 +521,18 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                         str(variant_id[0]) for variant_id in variant_ids) +
                     ";" + fields["INFO"])
                 vcf_out.write("\t".join(line_fields) + "\n")
+        # confirm the highest variant_id is still the same; otherwise something
+        # else (e.g. another job added a variant and we can run into collisions)
+        # we won't get new results unless we commit/reconnect
+        db.commit()
+        cur.execute(GET_MAX_VARIANT_ID.format(CHROM=CHROM))
+        current_max_variant_id = cur.fetchone()[0]
+        if max_variant_id != current_max_variant_id:
+            raise ValueError(
+                "The max variant_id while starting, {max_variant_id}, does not "
+                "match the current max variant_id, {current_max_variant_id}".
+                format(max_variant_id=max_variant_id,
+                       current_max_variant_id=current_max_variant_id))
     finally:
         logger.info("elapsed time: {} seconds\n".format(
             time() - start_time))
