@@ -5,8 +5,9 @@ from utilities import is_gzipped,fh
 
 ###############################################################################
 ###       Script to convert dragen bed file to binned coverage format       ###
-###       Run as : pypy dragen_coverage_binner.py <block size>              ###
-###                <input_bed_file>                                         ###
+###       Run as : "Run as : python/pypy dragen_coverage_binner.py          ###
+###       <Block_Size> <Sample_ID> <Bed_File> <Output_Dir>                  ###
+###                                                                         ###
 ###       Author : Raghav                                                   ###
 ###       Note : For faster run times, use pypy instead of standard python  ###
 ###              interpreter                                                ###
@@ -130,8 +131,8 @@ def main():
 
     if len(sys.argv) != 5:
         print "Invalid Command Line Arguments !"
-        print ("Run as : python/pypy dragen_coverage_binner.py <Block Size>"
-               "<Input Bed File> <Ouptut Dir>")
+        print ("Run as : python/pypy dragen_coverage_binner.py <Block_Size>"
+               "<Sample_ID> <Bed_File> <Output_Dir>")
         sys.exit(1)
 
     else:
