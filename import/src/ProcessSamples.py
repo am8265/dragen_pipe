@@ -4,7 +4,7 @@ amount of time given
 """
 import sys
 from Queue import PriorityQueue
-from time import sleep
+from time import sleep, time
 from threading import Thread
 from BreakHandler import BreakHandler
 import signal
@@ -78,7 +78,8 @@ class ProcessSamples(object):
     def run_command(self, sample_name, *args):
         # overwrite to run one or more commands
         cmd, timeout = self._get_command(sample_name, *args)
-        print(cmd)
+        logger.info(cmd)
+        start_time = time()
         if type(self.stdout) is file:
             close_stdout = False
             stdout = self.stdout
@@ -102,7 +103,7 @@ class ProcessSamples(object):
                     p = subprocess.Popen(
                         ["qdel", sge_job], preexec_fn=os.setpgrp)
                     p.communicate()
-            sys.stderr.write("timed out processing {sample_name}\n".format(
+            logger.warning("timed out processing {sample_name}\n".format(
                 sample_name=sample_name))
             if close_stdout:
                 stdout.close()
@@ -113,17 +114,24 @@ class ProcessSamples(object):
             stdout.close()
         if close_stderr:
             stderr.close()
+        elapsed_seconds = int(round(time() - start_time))
+        minutes, seconds = divmod(elapsed_seconds, 60)
+        hours, minutes = divmod(minutes, 60)
         if exit_code:
             if self.qdel_jobs:
                 for sge_job in self.get_sge_job_ids(sample_name, *args):
                     p = subprocess.Popen(
                         ["qdel", sge_job], preexec_fn=os.setpgrp)
                     p.communicate()
-            sys.stderr.write("failed processing {sample_name}\n".format(
-                sample_name=sample_name))
+                logger.error("failed processing {sample_name} after "
+                             "{h}:{m:0>2}:{s:0>2}".format(
+                                 sample_name=sample_name, h=hours,
+                                 m=minutes, s=seconds))
         else:
-            sys.stderr.write("succeeded processing {sample_name}\n".format(
-                sample_name=sample_name))
+            logger.info("succeeded processing {sample_name} after "
+                        "{h}:{m:0>2}:{s:0>2}".format(
+                            sample_name=sample_name, h=hours, m=minutes,
+                            s=seconds))
 
     def process_samples(self):
         done = False
@@ -131,12 +139,12 @@ class ProcessSamples(object):
             while True:
                 self._delete_finished_threads()
                 if self.bh.trapped:
-                    sys.stderr.write("CTRL+C pressed: will exit when all "
-                                     "currently running samples are done\n")
+                    logger.info("CTRL+C pressed: will exit when all "
+                                "currently running samples are done")
                     # need to confirm all threads are done prior to exiting
                     while self.all_threads:
-                        sys.stderr.write(
-                            "Waiting 10 seconds for current threads to close...\n")
+                        logger.info(
+                            "Waiting 10 seconds for current threads to close...")
                         sleep(10)
                         self._delete_finished_threads()
                     done = True
@@ -157,7 +165,7 @@ class ProcessSamples(object):
                         (sample_name, sample_metadata))
             if self.samples_queue.empty():
                 # sleep for a while since we don't have any samples to run
-                print("waiting for 300 seconds for new samples...")
+                logger.info("waiting for 300 seconds for new samples...")
                 sleep(300)
             else:
                 priority, sample_metadata = self.samples_queue.get()
