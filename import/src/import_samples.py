@@ -8,14 +8,24 @@ import re
 import os
 import ProcessSamples
 import logging
+from logging import handlers
 from dragen_globals import *
 from db_statements import *
 
+cfg = get_cfg()
+formatter = logging.Formatter(cfg.get("logging", "format"))
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.DEBUG)
+root_handler = handlers.TimedRotatingFileHandler(
+    "/nfs/seqscratch09/dragen_import/dragen_import_log.txt", when="midnight",
+    backupCount=10)
+root_handler.setLevel(logging.DEBUG)
+root_handler.setFormatter(formatter)
+root_logger.addHandler(root_handler)
 logger = logging.getLogger("ProcessSamples")
 logger.setLevel(logging.DEBUG)
 handler = logging.StreamHandler(sys.stderr)
 handler.setLevel(logging.DEBUG)
-formatter = logging.Formatter(cfg.get("logging", "format"))
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
