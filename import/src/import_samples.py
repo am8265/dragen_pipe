@@ -7,8 +7,17 @@ import argparse
 import re
 import os
 import ProcessSamples
+import logging
 from dragen_globals import *
 from db_statements import *
+
+logger = logging.getLogger("ProcessSamples")
+logger.setLevel(logging.DEBUG)
+handler = logging.StreamHandler(sys.stderr)
+handler.setLevel(logging.DEBUG)
+formatter = logging.Formatter(cfg.get("logging", "format"))
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 class ImportSamples(ProcessSamples.ProcessSamples):
     def __init__(self, qdel_jobs=True, **kwargs):
@@ -49,8 +58,7 @@ class ImportSamples(ProcessSamples.ProcessSamples):
 
 def main(run_locally):
     import_samples = ImportSamples(
-        qdel_jobs=not run_locally, run_locally=run_locally,
-        stdout=os.devnull)
+        qdel_jobs=not run_locally, run_locally=run_locally)
     import_samples.process_samples()
 
 if __name__ == "__main__":
