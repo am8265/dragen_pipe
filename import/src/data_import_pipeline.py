@@ -208,10 +208,11 @@ class ParseVCF(SGEJobTask):
             if db.open:
                 db.close()
         self.set_status_message = "Progress: Parsing VCF!"
+        level = LOGGING_LEVELS[self.level]
         parse_logger = logging.getLogger("parse_vcf")
-        parse_logger.setLevel(self.level)
+        parse_logger.setLevel(level)
         handler = logging.StreamHandler(sys.stdout)
-        handler.setLevel(self.level)
+        handler.setLevel(level)
         formatter = logging.Formatter(cfg.get("logging", "format"))
         handler.setFormatter(formatter)
         parse_logger.addHandler(handler)
