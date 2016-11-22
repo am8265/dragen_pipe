@@ -208,12 +208,18 @@ class ParseVCF(SGEJobTask):
             if db.open:
                 db.close()
         self.set_status_message = "Progress: Parsing VCF!"
+        parse_logger = logging.getLogger("parse_vcf")
+        parse_logger.setLevel(self.level)
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setLevel(self.level)
+        formatter = logging.Formatter(cfg.get("logging", "format"))
+        handler.setFormatter(formatter)
+        parse_logger.addHandler(handler)
         parse_vcf(
             vcf=self.copied_files_dict["vcf"],
             CHROM=self.chromosome, sample_id=self.sample_id,
             output_base=self.output_base,
-            chromosome_length=CHROMs[self.chromosome], ParseVCF_instance=self,
-            level=self.level)
+            chromosome_length=CHROMs[self.chromosome], ParseVCF_instance=self)
         for fn in (self.novel_variants, self.novel_transcripts,
                    self.called_variants, self.variant_id_vcf,
                    self.matched_indels):
@@ -395,7 +401,7 @@ class ImportSample(luigi.Task):
         description="run locally instead of on the cluster")
     level = luigi.ChoiceParameter(
         choices=LOGGING_LEVELS, significant=False,
-        default="DEBUG", description="the logging level to use")
+        default="ERROR", description="the logging level to use")
 
     def __init__(self, *args, **kwargs):
         super(ImportSample, self).__init__(*args, **kwargs)
