@@ -17,6 +17,25 @@ CNF = "/nfs/goldstein/software/dragen/dragen.cnf" # defaults file for pipeline
 LOGGING_LEVELS = {
     "CRITICAL":logging.CRITICAL, "ERROR":logging.ERROR,
     "WARNING":logging.WARNING, "INFO":logging.INFO, "DEBUG":logging.DEBUG}
+
+class DereferenceKeyAction(argparse.Action):
+    """Define a class for automatically converting the key specified from
+    choices to its corresponding value
+    """
+    def __init__(self, option_strings, dest, nargs=None, default=None,
+                 choices=None, **kwargs):
+        if nargs is not None:
+            raise ValueError("nargs should not be specified")
+        if type(choices) is not dict:
+            raise TypeError("choices must be a dict")
+        super(DereferenceKeyAction, self).__init__(
+            option_strings, dest, choices=choices, **kwargs)
+        if default:
+            self.default = choices[default]
+
+    def __call__(self, parser, namespace, values, option_string):
+        setattr(namespace, self.dest, self.choices[values])
+
 VCF_COLUMNS = ["CHROM", "POS", "rs_number", "REF", "ALT", "QUAL", "FILTER",
                "INFO", "FORMAT", "call"]
 VCF_COLUMNS_DICT = dict([(column, x) for x, column in enumerate(VCF_COLUMNS)])
