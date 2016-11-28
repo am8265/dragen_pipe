@@ -8,33 +8,20 @@ import re
 import os
 import ProcessSamples
 import logging
+import sys
 from logging import handlers
 from dragen_globals import *
 from db_statements import *
 
 cfg = get_cfg()
-formatter = logging.Formatter(cfg.get("logging", "format"))
-root_logger = logging.getLogger()
-root_logger.setLevel(logging.DEBUG)
-root_handler = handlers.TimedRotatingFileHandler(
-    "/nfs/seqscratch09/dragen_import/dragen_import_log.txt", when="midnight",
-    backupCount=10)
-root_handler.setLevel(logging.DEBUG)
-root_handler.setFormatter(formatter)
-root_logger.addHandler(root_handler)
-logger = logging.getLogger("ProcessSamples")
-logger.setLevel(logging.DEBUG)
-handler = logging.StreamHandler(sys.stderr)
-handler.setLevel(logging.DEBUG)
-handler.setFormatter(formatter)
-logger.addHandler(handler)
 
 class ImportSamples(ProcessSamples.ProcessSamples):
-    def __init__(self, run_locally=False, qdel_jobs=True,
-                 local_scheduler=False, **kwargs):
+    def __init__(self, force_failed_samples=False, run_locally=False,
+                 qdel_jobs=True, local_scheduler=False, **kwargs):
         super(ImportSamples, self).__init__(
-            max_samples_concurrently=1, run_locally=run_locally,
-            qdel_jobs=qdel_jobs, local_scheduler=local_scheduler, **kwargs)
+            max_samples_concurrently=1, force_failed_samples=force_failed_samples,
+            run_locally=run_locally, qdel_jobs=qdel_jobs,
+            local_scheduler=local_scheduler, **kwargs)
         self.pattern = (
             r"^(?:ParseVCF|LoadGQData|LoadDPData)\.{sample_name}\."
             r"{0}\.chr(?:1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|"
@@ -44,10 +31,13 @@ class ImportSamples(ProcessSamples.ProcessSamples):
         db = get_connection("dragen")
         try:
             cur = db.cursor()
-            cur.execute(GET_SAMPLES_TO_IMPORT)
+            query = GET_SAMPLES_TO_IMPORT.format(
+                failed_samples_clause="" if self.force_failed_samples
+                else " AND s.failure = 0")
+            cur.execute(query)
             samples = []
             for row in cur.fetchall():
-                samples.append((row[0], row[1], row[2:]))
+                samples.append((row[0], row[1], row[2:4]))
         finally:
             if db.open:
                 db.close()
@@ -71,8 +61,26 @@ class ImportSamples(ProcessSamples.ProcessSamples):
             timeout = 7200
         return cmd, timeout
 
-def main(run_locally, local_scheduler):
+def main(force_failed_samples, run_locally, local_scheduler, debug_level):
+    # set up logging
+    formatter = logging.Formatter(cfg.get("logging", "format"))
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    root_handler = handlers.TimedRotatingFileHandler(
+        "/nfs/seqscratch09/dragen_import/dragen_import_log.txt",
+        when="midnight", backupCount=10)
+    root_handler.setLevel(logging.DEBUG)
+    root_handler.setFormatter(formatter)
+    root_logger.addHandler(root_handler)
+    logger = logging.getLogger("ProcessSamples")
+    logger.setLevel(debug_level)
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setLevel(debug_level)
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    # import samples
     import_samples = ImportSamples(
+        force_failed_samples=force_failed_samples,
         qdel_jobs=not run_locally, run_locally=run_locally,
         local_scheduler=local_scheduler)
     import_samples.process_samples()
@@ -80,10 +88,18 @@ def main(run_locally, local_scheduler):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=CustomFormatter)
+    parser.add_argument("--force_failed_samples", default=False,
+                        action="store_true",
+                        help="try to import a sample even if it failed in a "
+                        "previous run (otherwise such samples are ignored)")
     parser.add_argument("--run_locally", default=False, action="store_true",
                         help="run locally instead of on the cluster")
     parser.add_argument("--local_scheduler", default=False, action="store_true",
                         help="use the local luigi scheduler instead of "
                         "luigi daemon")
+    parser.add_argument("--level", default="INFO", choices=LOGGING_LEVELS,
+                        action=DereferenceKeyAction,
+                        help="specify the logging level to use")
     args = parser.parse_args()
-    main(args.run_locally, args.local_scheduler)
+    main(args.force_failed_samples, args.run_locally, args.local_scheduler,
+         args.level)
