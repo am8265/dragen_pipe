@@ -456,11 +456,9 @@ class ImportSample(luigi.Task):
                 try:
                     cur = db.cursor()
                     cur.execute(
-                        "DELETE FROM sample_pipeline_step where sample_id = {sample_id}".
-                        format(sample_id=self.sample_id))
-                    cur.execute(
-                        "DELETE FROM sample where sample_id = {sample_id}".
-                        format(sample_id=self.sample_id))
+                        "UPDATE sample SET failure = 1 WHERE sample_id = "
+                        "{sample_id}".format(sample_id=self.sample_id))
+                    db.commit()
                     db.close()
                     raise ValueError(
                         "{sample_name} appears to be a genome sample".
