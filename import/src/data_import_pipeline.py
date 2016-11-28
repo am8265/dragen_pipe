@@ -403,6 +403,9 @@ class ImportSample(luigi.Task):
     level = luigi.ChoiceParameter(
         choices=LOGGING_LEVELS, significant=False,
         default="ERROR", description="the logging level to use")
+    dont_remove_tmp_dir_if_failure = luigi.BoolParameter(
+        significant=False,
+        description="don't remove the tmp dir if there's a failure")
 
     def __init__(self, *args, **kwargs):
         super(ImportSample, self).__init__(*args, **kwargs)

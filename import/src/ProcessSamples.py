@@ -20,11 +20,14 @@ import logging
 logger = logging.getLogger(__name__)
 
 class ProcessSamples(object):
-    def __init__(self, max_samples_concurrently, qdel_jobs=True,
+    def __init__(self, max_samples_concurrently, run_locally=False,
+                 qdel_jobs=True, local_scheduler=False,
                  stdout=sys.stdout, stdout_mode="w", stderr=sys.stderr,
                  stderr_mode="w", **kwargs):
         self.max_samples_concurrently = max_samples_concurrently
+        self.run_locally = run_locally
         self.qdel_jobs = qdel_jobs
+        self.local_scheduler = local_scheduler
         self.stdout = stdout
         self.stdout_mode = stdout_mode
         self.stderr = stderr
