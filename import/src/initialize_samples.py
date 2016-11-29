@@ -27,6 +27,13 @@ def initialize_samples(samples_fh, logging_level):
         for line in samples_fh:
             (family_id, sample_name, paternal_id, maternal_id, sex, phenotype,
              sample_type, capture_kit) = line.strip().split("\t")
+            sample_metadata = {
+                "sample_name":sample_name, "sample_type":sample_type.lower(),
+                "capture_kit":capture_kit}
+            dragen_cur.execute(GET_SAMPLE_ID.format(**sample_metadata))
+            if dragen_cur.fetchone():
+                logging.debug("{sample_name} is in DB".format(**sample_metadata))
+                continue
             query = GET_SAMPLE_PREPID.format(
                 sample_name=sample_name, sample_type=sample_type,
                 capture_kit=capture_kit)
@@ -49,21 +56,13 @@ def initialize_samples(samples_fh, logging_level):
                     logging.warning("couldn't find data directory {}".format(
                         data_directory))
                     continue
-                samples_metadata.append({
-                    "sample_name":sample_name,
-                    "sample_type":sample_type.lower(), "capture_kit":capture_kit,
-                    "prep_id":pseudo_prep_id})
+                samples_metadata["prep_id"] = pseudo_prep_id
+                logging.info("inserting {sample_name}".format(**sample_metadata))
+                dragen_cur.execute(INSERT_SAMPLE.format(**sample_metadata))
+                dragen.commit()
             else:
                 logging.warning("Found {} records with query:{}".format(
                     len(rows), query))
-        for sample_metadata in samples_metadata:
-            dragen_cur.execute(GET_SAMPLE_ID.format(**sample_metadata))
-            if dragen_cur.fetchone():
-                logging.debug("{sample_name} is in DB".format(**sample_metadata))
-            else:
-                logging.info("inserting {sample_name}".format(**sample_metadata))
-                dragen_cur.execute(INSERT_SAMPLE.format(**sample_metadata))
-        dragen.commit()
     finally:
         samples_fh.close()
         if seqdb.open:
