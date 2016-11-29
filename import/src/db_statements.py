@@ -68,7 +68,7 @@ GET_SAMPLE_ID = """
 SELECT sample_id
 FROM sample
 WHERE sample_name = "{sample_name}" AND sample_type = "{sample_type}"
-    AND capture_kit = "{capture_kit}" AND prep_id = {prep_id}
+    AND capture_kit = "{capture_kit}"
 """
 INSERT_SAMPLE = """
 INSERT INTO sample (sample_name, sample_type, capture_kit, prep_id)
