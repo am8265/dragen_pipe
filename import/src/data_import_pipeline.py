@@ -480,6 +480,15 @@ class ImportSample(luigi.Task):
                 for CHROM in CHROMs.iterkeys()])
     
     def run(self):
+        seqdb = get_connection("seqdb")
+        try:
+            seq_cur = seqdb.cursor()
+            seq_cur.execute(INCREMENT_TIMES_STEP_RUN.format(
+                prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
+            seqdb.commit()
+        finally:
+            if seqdb.open:
+                seqdb.close()
         variant_id_header = cfg.get("pipeline", "variant_id_header") + "\n"
         header = []
         info_encountered = False
