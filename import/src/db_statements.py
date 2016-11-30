@@ -148,7 +148,12 @@ INNER JOIN (
         ({pipeline_step_id}, {sample_initialized_id})
     GROUP BY pseudo_prepid) AS p2
 ON p1.pseudo_prepid = p2.pseudo_prepid AND p1.pipeline_step_id = {pipeline_step_id}
-SET s1.submit_time = s2.st
+SET p1.submit_time = p2.st
+"""
+SET_SAMPLE_FINISHED = """
+UPDATE sample
+SET sample_finished = 1
+WHERE sample_id = {sample_id}
 """
 INSERT_BIN_STATEMENT = """
 LOAD DATA INFILE '{data_file}' INTO TABLE {data_type}_bins_chr{chromosome}
