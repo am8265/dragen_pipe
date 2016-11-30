@@ -470,6 +470,11 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                         nalleles = 1
                         # need to change the GT to 1/1 instead of 1/2
                         call_stats["GT"] = call_stats["GT"].replace("2", "1")
+                        # also need to change AD from x,y,z to x,y+z
+                        ads = call_stats["AD"].split(",")
+                        ads[1] = str(int(ads[1]) + int(ads[2]))
+                        del ads[2]
+                        call_stats["AD"] = ",".join(ads)
                 high_quality_call = call_is_high_quality(
                     float(fields["QUAL"]), float(INFO["MQ"]) if "MQ" in INFO else 0,
                     INFO["FILTER"], int(call["DP"]))
