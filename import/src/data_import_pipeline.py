@@ -121,32 +121,32 @@ class CopyDataToScratch(luigi.Task):
 class SQLTarget(luigi.Target):
     """Target describing verification of the entries in the database
     """
-    def __init__(self, sample_id, pipeline_step_id):
-        self.sample_id = sample_id
+    def __init__(self, prep_id, pipeline_step_id):
+        self.prep_id = prep_id
         self.pipeline_step_id = pipeline_step_id
 
     def exists(self):
-        db = get_connection("dragen")
+        seqdb = get_connection("seqdb")
         try:
-            cur = db.cursor()
-            cur.execute(GET_STEP_STATUS.format(
-                sample_id=self.sample_id,
+            seq_cur = seqdb.cursor()
+            seq_cur.execute(GET_STEP_STATUS.format(
+                prep_id=self.prep_id,
                 pipeline_step_id=self.pipeline_step_id))
-            row = cur.fetchone()
+            row = seq_cur.fetchone()
             if row:
                 if row[0] == 1:
                     return True
                 else:
                     return False
             else:
-                cur.execute(INSERT_PIPELINE_STEP.format(
-                    sample_id=self.sample_id,
+                seq_cur.execute(INSERT_PIPELINE_STEP.format(
+                    prep_id=self.prep_id,
                     pipeline_step_id=self.pipeline_step_id))
-                db.commit()
+                seqdb.commit()
                 return False
         finally:
-            if db.open:
-                db.close()
+            if seqdb.open:
+                seqdb.close()
 
 class ParseVCF(SGEJobTask):
     """parse the specified VCF, output text files for the data, and
@@ -162,6 +162,8 @@ class ParseVCF(SGEJobTask):
     output_directory = luigi.Parameter(
         description="the scratch directory for outputting files")
     sample_name = luigi.Parameter(description="the name of the sample")
+    prep_id = luigi.IntParameter(
+        description="the (pseudo) prep_id for the sample")
     level = luigi.ChoiceParameter(
         choices=LOGGING_LEVELS, significant=False,
         default="DEBUG", description="the logging level to use")
@@ -183,30 +185,33 @@ class ParseVCF(SGEJobTask):
         self.called_variants = self.output_base + ".calls.txt"
         self.variant_id_vcf = self.output_base + ".variant_id.vcf"
         self.matched_indels = self.output_base + ".matched_indels.txt"
-        db = get_connection("dragen")
+        seqdb = get_connection("seqdb")
         try:
-            cur = db.cursor()
-            cur.execute(GET_PIPELINE_STEP_ID.format(
+            seq_cur = seqdb.cursor()
+            seq_cur.execute(GET_PIPELINE_STEP_ID.format(
                 chromosome=self.chromosome, data_type="Variant Data"))
-            self.pipeline_step_id = cur.fetchone()[0]
+            self.pipeline_step_id = seq_cur.fetchone()[0]
         finally:
-            if db.open:
-                db.close()
+            if seqdb.open:
+                seqdb.close()
 
     def requires(self):
         return self.clone(CopyDataToScratch)
 
     def work(self):
-        db = get_connection("dragen")
+        seqdb = get_connection("seqdb")
         try:
-            cur = db.cursor()
-            cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
-                sample_id=self.sample_id,
+            seq_cur = seqdb.cursor()
+            seq_cur.execute(GET_TIMES_STEP_RUN.format(
+                prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
+            times_run = seq_cur.fetchone()[0] + 1
+            seq_cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
+                prep_id=self.prep_id, times_run=times_run,
                 pipeline_step_id=self.pipeline_step_id))
-            db.commit()
+            seqdb.commit()
         finally:
-            if db.open:
-                db.close()
+            if seqdb.open:
+                seqdb.close()
         self.set_status_message = "Progress: Parsing VCF!"
         level = LOGGING_LEVELS[self.level]
         parse_logger = logging.getLogger("parse_vcf")
@@ -244,8 +249,10 @@ class ParseVCF(SGEJobTask):
             raise ValueError(
                 "incorrect number of lines in variant_id annotated VCF")
         db = get_connection("dragen")
+        seqdb = get_connection("seqdb")
         try:
             cur = db.cursor()
+            seq_cur = seqdb.cursor()
             for table_name, table_file, is_variant_table in (
                 ("variant_chr" + self.chromosome, self.novel_variants, True),
                 ("custom_transcript_ids_chr" + self.chromosome,
@@ -270,20 +277,22 @@ class ParseVCF(SGEJobTask):
                 db.rollback()
                 raise ValueError(
                     "incorrect number of calls in the called_variant table")
-            cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
-                sample_id=self.sample_id,
-                pipeline_step_id=self.pipeline_step_id))
             db.commit()
+            seq_cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
+                prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
+            seqdb.commit()
         finally:
             if db.open:
                 db.close()
+            if seqdb.open:
+                seqdb.close()
 
     def output(self):
-        return SQLTarget(sample_id=self.sample_id,
-                         pipeline_step_id=self.pipeline_step_id)
+        return SQLTarget(
+            prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id)
 
-class LoadGQData(SGEJobTask):
-    """Import the GQ binning data for a single chromosome for a sample
+class LoadBinData(SGEJobTask):
+    """Import the DP/GQ binning data for a single chromosome for a sample
     """
     fn = luigi.Parameter(description="the file to import")
     chromosome = luigi.Parameter(description="the chromosome")
@@ -292,93 +301,56 @@ class LoadGQData(SGEJobTask):
     output_directory = luigi.Parameter(
         description="the scratch directory for outputting files")
     sample_name = luigi.Parameter(description="the name of the sample")
+    prep_id = luigi.IntParameter(
+        description="the (pseudo) prep_id for the sample")
+    bin_type = luigi.ChoiceParameter(
+        choices=["DP", "GQ"], help="the type of binned data to load")
 
     def __init__(self, *args, **kwargs):
-        super(LoadGQData, self).__init__(*args, **kwargs)
-        db = get_connection("dragen")
+        super(LoadBinData, self).__init__(*args, **kwargs)
+        seqdb = get_connection("seqdb")
         try:
-            cur = db.cursor()
-            cur.execute(GET_PIPELINE_STEP_ID.format(
-                chromosome=self.chromosome, data_type="GQ Data"))
-            self.pipeline_step_id = cur.fetchone()[0]
+            seq_cur = db.cursor()
+            seq_cur.execute(GET_PIPELINE_STEP_ID.format(
+                chromosome=self.chromosome, data_type="{bin_type} Data".format(
+                self.bin_type)))
+            self.pipeline_step_id = seq_cur.fetchone()[0]
         finally:
-            if db.open:
-                db.close()
+            if seqdb.open:
+                seqdb.close()
 
     def work(self):
         db = get_connection("dragen")
-        cur = db.cursor()
-        cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
-            sample_id=self.sample_id,
-            pipeline_step_id=self.pipeline_step_id))
-        db.commit()
-        copy(self.fn, self.output_directory)
-        temp_fn = os.path.join(self.output_directory, os.path.basename(self.fn))
-        try:
-            cur.execute(
-                INSERT_BIN_STATEMENT.format(
-                    data_file=temp_fn, bin_type="GQ",
-                    chromosome=self.chromosome, sample_id=self.sample_id))
-            cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
-                sample_id=self.sample_id,
-                pipeline_step_id=self.pipeline_step_id))
-            db.commit()
-        finally:
-            if db.open:
-                db.close()
-
-    def output(self):
-        return SQLTarget(sample_id=self.sample_id,
-                         pipeline_step_id=self.pipeline_step_id)
-
-class LoadDPData(SGEJobTask):
-    """Import the DP binning data for a single chromosome for a sample
-    """
-    fn = luigi.Parameter(description="the file to import")
-    chromosome = luigi.Parameter(description="the chromosome")
-    sample_id = luigi.IntParameter(
-        description="the sample_id for the sample")
-    output_directory = luigi.Parameter(
-        description="the scratch directory for outputting files")
-    sample_name = luigi.Parameter(description="the name of the sample")
-
-    def __init__(self, *args, **kwargs):
-        super(LoadDPData, self).__init__(*args, **kwargs)
-        db = get_connection("dragen")
+        seqdb = get_connection("seqdb")
         try:
             cur = db.cursor()
-            cur.execute(GET_PIPELINE_STEP_ID.format(
-                chromosome=self.chromosome, data_type="DP Data"))
-            self.pipeline_step_id = cur.fetchone()[0]
-        finally:
-            if db.open:
-                db.close()
-
-    def work(self):
-        db = get_connection("dragen")
-        cur = db.cursor()
-        cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
-            sample_id=self.sample_id,
-            pipeline_step_id=self.pipeline_step_id))
-        db.commit()
-        copy(self.fn, self.output_directory)
-        temp_fn = os.path.join(self.output_directory, os.path.basename(self.fn))
-        try:
+            seq_cur = seqdb.cursor()
+            seq_cur.execute(GET_TIMES_STEP_RUN.format(
+                prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
+            times_run = seq_cur.fetchone()[0] + 1
+            seq_cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
+                times_run=times_run, prep_id=self.prep_id,
+                pipeline_step_id=self.pipeline_step_id))
+            seqdb.commit()
+            copy(self.fn, self.output_directory)
+            temp_fn = os.path.join(self.output_directory, os.path.basename(self.fn))
             cur.execute(
                 INSERT_BIN_STATEMENT.format(
-                    data_file=temp_fn, bin_type="DP",
+                    data_file=temp_fn, bin_type=self.bin_type,
                     chromosome=self.chromosome, sample_id=self.sample_id))
-            cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
-                sample_id=self.sample_id,
-                pipeline_step_id=self.pipeline_step_id))
             db.commit()
+            seq_cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
+                prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
+            seqdb.commit()
         finally:
             if db.open:
                 db.close()
+            if seqdb.open:
+                seqdb.close()
 
     def output(self):
-        return SQLTarget(sample_id=self.sample_id,
-                         pipeline_step_id=self.pipeline_step_id)
+        return SQLTarget(
+            prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id)
 
 class ImportSample(luigi.Task):
     """import a sample by requiring() a ParseVCF Task for each chromosome
@@ -389,6 +361,9 @@ class ImportSample(luigi.Task):
     sample_id = luigi.NumericalParameter(
         min_value=1, max_value=sys.maxsize, var_type=int,
         description="the sample_id for this sample")
+    prep_id = luigi.IntParameter(
+        default=None,
+        description="the (pseudo) prep_id for the sample")
     seqscratch = luigi.ChoiceParameter(
         choices=["09", "10", "11"], default="09",
         description="the seqscratch to use for temporary file creation")
@@ -419,6 +394,8 @@ class ImportSample(luigi.Task):
                 kwargs["sample_name"] = sample_name
                 self.sequencing_type = sequencing_type
                 self.prep_id = prep_id
+                if not self.kwargs["prep_id"]:
+                    kwargs["prep_id"] = prep_id
             else:
                 raise ValueError("sample_id {sample_id} does not exist".format(
                     sample_id=self.sample_id))
@@ -439,11 +416,15 @@ class ImportSample(luigi.Task):
             cur = db.cursor()
             while check_if_sample_importing(cur):
                 sleep(10)
-            cur.execute(GET_PIPELINE_FINISHED_ID)
-            self.pipeline_step_id = cur.fetchone()[0]
+            seqdb = get_connection("seqdb")
+            seq_cur = seqdb.cursor()
+            seq_cur.execute(GET_PIPELINE_FINISHED_ID)
+            self.pipeline_step_id = seq_cur.fetchone()[0]
         finally:
             if db.open:
                 db.close()
+            if seqdb.open:
+                seqdb.close()
         if not self.vcf:
             kwargs["vcf"] = os.path.join(
                 self.data_directory, "{sample_name}.{prep_id}.analysisReady."
@@ -476,20 +457,20 @@ class ImportSample(luigi.Task):
             output_base=self.output_directory + CHROM)
             for CHROM in CHROMs.iterkeys()] +
             [self.clone(
-                LoadGQData,
+                LoadBinData,
                 fn=os.path.join(
                     self.data_directory, "gq_binned",
                     "{sample_name}.{prep_id}_gq_binned_10000_chr{chromosome}.txt".format(
                         sample_name=self.sample_name, prep_id=self.prep_id,
-                        chromosome=CHROM)), chromosome=CHROM)
+                        chromosome=CHROM)), chromosome=CHROM, bin_type="GQ")
                 for CHROM in CHROMs.iterkeys()] +
             [self.clone(
-                LoadDPData,
+                LoadBinData,
                 fn=os.path.join(
                     self.data_directory, "cvg_binned",
                     "{sample_name}.{prep_id}_coverage_binned_10000_chr{chromosome}.txt".format(
                         sample_name=self.sample_name, prep_id=self.prep_id,
-                        chromosome=CHROM)), chromosome=CHROM)
+                        chromosome=CHROM)), chromosome=CHROM, bin_type="DP")
                 for CHROM in CHROMs.iterkeys()])
     
     def run(self):
@@ -546,23 +527,24 @@ class ImportSample(luigi.Task):
         copy(vcf_out + ".tbi", os.path.join(
             self.data_directory, os.path.basename(vcf_out) + ".tbi"))
         # copy other stuff/delete scratch directory, etc.
-        db = get_connection("dragen")
+        seqdb = get_connection("seqdb")
         try:
-            cur = db.cursor()
-            cur.execute(UPDATE_PIPELINE_FINISH_SUBMIT_TIME.format(
-                sample_id=self.sample_id,
-                pipeline_step_id=self.pipeline_step_id))
-            cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
-                sample_id=self.sample_id,
-                pipeline_step_id=self.pipeline_step_id))
-            db.commit()
+            seq_cur = seqdb.cursor()
+            seq_cur.execute(GET_SAMPLE_INITIALIZED_STEP_ID)
+            sample_initialized_id = seq_cur.fetchone()[0]
+            seq_cur.execute(UPDATE_PIPELINE_FINISH_SUBMIT_TIME.format(
+                prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id,
+                sample_initialized_id=sample_initialized_id))
+            seq_cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
+                prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
+            seqdb.commit()
         finally:
-            if db.open:
-                db.close()
+            if seqdb.open:
+                seqdb.close()
                 
     def output(self):
-        return SQLTarget(sample_id=self.sample_id,
-                         pipeline_step_id=self.pipeline_step_id)
+        return SQLTarget(
+            prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id)
 
 if __name__ == "__main__":
     luigi.run()

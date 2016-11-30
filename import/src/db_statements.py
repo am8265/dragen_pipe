@@ -97,41 +97,47 @@ WHERE sample_id = {sample_id}
 """
 GET_PIPELINE_STEP_ID = """
 SELECT id
-FROM pipeline_step
-WHERE description = "Imported Chromosome {chromosome} {data_type}"
+FROM dragen_pipeline_step_desc
+WHERE step_name = "Imported Chromosome {chromosome} {data_type}"
 """
 GET_PIPELINE_FINISHED_ID = """
 SELECT id
-FROM pipeline_step
+FROM dragen_pipeline_step_desc
 WHERE description = "Sample Finished"
 """
 GET_STEP_STATUS = """
 SELECT finished
-FROM sample_pipeline_step
-WHERE sample_id = {sample_id} AND pipeline_step_id = {pipeline_step_id}
+FROM dragen_pipeline_step
+WHERE pseudo_prepid = {prep_id} AND pipeline_step_id = {pipeline_step_id}
 """
 INSERT_PIPELINE_STEP = """
-INSERT INTO sample_pipeline_step (sample_id, pipeline_step_id)
-VALUE ({sample_id}, {pipeline_step_id})
+INSERT INTO dragen_pipeline_step (pseudo_prepid, pipeline_step_id)
+VALUE ({prep_id}, {pipeline_step_id})
+"""
+GET_TIMES_STEP_RUN = """
+SELECT times_ran
+FROM dragen_pipeline_step
+WHERE pseudo_prepid = {prep_id} AND pipeline_step_id = {pipeline_step_id}
 """
 UPDATE_PIPELINE_STEP_SUBMIT_TIME = """
-UPDATE sample_pipeline_step
-SET submit_time = NOW()
-WHERE sample_id = {sample_id} AND pipeline_step_id = {pipeline_step_id}
+UPDATE dragen_pipeline_step
+SET submit_time = NOW(), times_ran = {times_run}
+WHERE prep_id = {prep_id} AND pipeline_step_id = {pipeline_step_id}
 """
 UPDATE_PIPELINE_STEP_FINISH_TIME = """
-UPDATE sample_pipeline_step
+UPDATE dragen_pipeline_step
 SET finish_time = NOW(), finished = 1
 WHERE sample_id = {sample_id} AND pipeline_step_id = {pipeline_step_id}
 """
 UPDATE_PIPELINE_FINISH_SUBMIT_TIME = """
-UPDATE sample_pipeline_step s1
+UPDATE dragen_pipeline_step p1
 INNER JOIN (
-    SELECT sample_id, MIN(submit_time) as st
-    FROM sample_pipeline_step
-    WHERE sample_id = {sample_id} AND pipeline_step_id <> {pipeline_step_id}
-    GROUP BY sample_id) AS s2
-    ON s1.sample_id = s2.sample_id AND s1.pipeline_step_id = {pipeline_step_id}
+    SELECT pseudo_prepid, MIN(submit_time) as st
+    FROM dragen_pipeline_step
+    WHERE pseudo_prepid = {prep_id} AND pipeline_step_id NOT IN
+        ({pipeline_step_id}, {sample_initialized_id})
+    GROUP BY pseudo_prepid) AS p2
+ON p1.pseudo_prepid = p2.pseudo_prepid AND p1.pipeline_step_id = {pipeline_step_id}
 SET s1.submit_time = s2.st
 """
 INSERT_BIN_STATEMENT = """
@@ -173,4 +179,9 @@ FROM (
     WHERE p.sample_id IS NULL{failed_samples_clause}
 ) AS S
 ORDER BY initialization_time DESC
+"""
+GET_SAMPLE_INITIALIZED_STEP_ID = """
+SELECT id
+FROM dragen_pipeline_step_desc
+WHERE step_name = "Sample Initialized In DB"
 """
