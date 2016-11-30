@@ -411,9 +411,6 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                 last_POS_update = -1
                 chromosome_len = chromosome_length / 1000000
             for x, line_fields in enumerate(vcf_tabix.querys(CHROM)):
-                #if not x % 100:
-                #    logger.info("line #{} after {} seconds\n".format(
-                #        x, time() - start_time))
                 fields = VCF_fields_dict(line_fields)
                 if fields["CHROM"] != CHROM:
                     raise ValueError(
@@ -450,11 +447,29 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                 else:
                     raise ValueError("invalid FILTER {} @ line {}".format(
                         fields["FILTER"], x))
-                ALT_alleles = fields["ALT"].split(",")
-                nalleles = len(ALT_alleles)
                 call_stats = create_call_dict(fields["FORMAT"], fields["call"])
                 call = {"sample_id":sample_id, "GQ":call_stats["GQ"],
                         "QUAL":fields["QUAL"], "DP":call_stats["DP"]}
+                ALT_alleles = fields["ALT"].split(",")
+                nalleles = len(ALT_alleles)
+                if nalleles > 2:
+                    raise ValueError("{CHROM}-{POS} has {nalleles} alternate "
+                                     "alleles".format(
+                                         CHROM=CHROM, POS=POS, nalleles=len(ALT_alleles)))
+                # we truncate these to 255 characters, so if they differ after
+                # that we'll get different variants that have the same
+                # "alternate" - our solution is to just retain the first entry
+                # in such a rare instance
+                elif nalleles == 2:
+                    if ALT_alleles[0][:255] == ALT_alleles[1][:255]:
+                        logger.debug(
+                            "{CHROM}-{POS} has two alternate alleles with > 255 "
+                            "length that are identical to that point".format(
+                                CHROM=CHROM, POS=POS))
+                        del ALT_alleles[1]
+                        nalleles = 1
+                        # need to change the GT to 1/1 instead of 1/2
+                        call["GT"] = call["GT"].replace("2", "1")
                 high_quality_call = call_is_high_quality(
                     float(fields["QUAL"]), float(INFO["MQ"]) if "MQ" in INFO else 0,
                     INFO["FILTER"], int(call["DP"]))
