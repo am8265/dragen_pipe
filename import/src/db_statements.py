@@ -180,20 +180,10 @@ FROM pseudo_prepid
 WHERE prepid = {prepid}
 """
 GET_SAMPLES_TO_IMPORT = """
-SELECT *
-FROM (
-    SELECT s.sample_name, s.priority, s.sample_id, s.sample_type, s.initialization_time
-    FROM sample s
-    INNER JOIN sample_pipeline_step p ON s.sample_id = p.sample_id
-    WHERE p.pipeline_step_id = 1 AND p.finished = 0{failed_samples_clause}
-    UNION
-    SELECT s.sample_name, s.priority, s.sample_id, s.sample_type, s.initialization_time
-    FROM sample s
-    LEFT JOIN sample_pipeline_step p ON s.sample_id = p.sample_id AND
-    p.pipeline_step_id = 1
-    WHERE p.sample_id IS NULL{failed_samples_clause}
-) AS S
-ORDER BY initialization_time DESC
+SELECT sample_name, priority, sample_id, sample_type
+FROM sample
+WHERE sample_finished = 0{failed_samples_clause}
+ORDER BY initialization_time
 """
 GET_SAMPLE_INITIALIZED_STEP_ID = """
 SELECT id

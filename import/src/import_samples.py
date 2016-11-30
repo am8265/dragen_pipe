@@ -33,11 +33,11 @@ class ImportSamples(ProcessSamples.ProcessSamples):
             cur = db.cursor()
             query = GET_SAMPLES_TO_IMPORT.format(
                 failed_samples_clause="" if self.force_failed_samples
-                else " AND s.failure = 0")
+                else " AND sample_failure = 0")
             cur.execute(query)
             samples = []
             for row in cur.fetchall():
-                samples.append((row[0], row[1], row[2:4]))
+                samples.append((row[0], row[1], row[2:]))
         finally:
             if db.open:
                 db.close()
