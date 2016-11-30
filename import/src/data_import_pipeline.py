@@ -528,8 +528,10 @@ class ImportSample(luigi.Task):
             self.data_directory, os.path.basename(vcf_out) + ".tbi"))
         # copy other stuff/delete scratch directory, etc.
         seqdb = get_connection("seqdb")
+        db = get_connection("dragen")
         try:
             seq_cur = seqdb.cursor()
+            cur = db.cursor()
             seq_cur.execute(GET_SAMPLE_INITIALIZED_STEP_ID)
             sample_initialized_id = seq_cur.fetchone()[0]
             seq_cur.execute(UPDATE_PIPELINE_FINISH_SUBMIT_TIME.format(
@@ -537,10 +539,15 @@ class ImportSample(luigi.Task):
                 sample_initialized_id=sample_initialized_id))
             seq_cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                 prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
+            cur.execute(SET_SAMPLE_FINISHED.format(
+                sample_id=self.sample_id))
             seqdb.commit()
+            db.commit()
         finally:
             if seqdb.open:
                 seqdb.close()
+            if db.open:
+                db.close()
                 
     def output(self):
         return SQLTarget(
