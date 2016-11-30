@@ -303,17 +303,17 @@ class LoadBinData(SGEJobTask):
     sample_name = luigi.Parameter(description="the name of the sample")
     prep_id = luigi.IntParameter(
         description="the (pseudo) prep_id for the sample")
-    bin_type = luigi.ChoiceParameter(
-        choices=["DP", "GQ"], help="the type of binned data to load")
+    data_type = luigi.ChoiceParameter(
+        choices=["DP", "GQ"], description="the type of binned data to load")
 
     def __init__(self, *args, **kwargs):
         super(LoadBinData, self).__init__(*args, **kwargs)
         seqdb = get_connection("seqdb")
         try:
-            seq_cur = db.cursor()
+            seq_cur = seqdb.cursor()
             seq_cur.execute(GET_PIPELINE_STEP_ID.format(
-                chromosome=self.chromosome, data_type="{bin_type} Data".format(
-                self.bin_type)))
+                chromosome=self.chromosome, data_type="{data_type} Data".format(
+                data_type=self.data_type)))
             self.pipeline_step_id = seq_cur.fetchone()[0]
         finally:
             if seqdb.open:
@@ -336,7 +336,7 @@ class LoadBinData(SGEJobTask):
             temp_fn = os.path.join(self.output_directory, os.path.basename(self.fn))
             cur.execute(
                 INSERT_BIN_STATEMENT.format(
-                    data_file=temp_fn, bin_type=self.bin_type,
+                    data_file=temp_fn, data_type=self.data_type,
                     chromosome=self.chromosome, sample_id=self.sample_id))
             db.commit()
             seq_cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
@@ -394,7 +394,7 @@ class ImportSample(luigi.Task):
                 kwargs["sample_name"] = sample_name
                 self.sequencing_type = sequencing_type
                 self.prep_id = prep_id
-                if not self.kwargs["prep_id"]:
+                if "prep_id" not in kwargs:
                     kwargs["prep_id"] = prep_id
             else:
                 raise ValueError("sample_id {sample_id} does not exist".format(
@@ -462,7 +462,7 @@ class ImportSample(luigi.Task):
                     self.data_directory, "gq_binned",
                     "{sample_name}.{prep_id}_gq_binned_10000_chr{chromosome}.txt".format(
                         sample_name=self.sample_name, prep_id=self.prep_id,
-                        chromosome=CHROM)), chromosome=CHROM, bin_type="GQ")
+                        chromosome=CHROM)), chromosome=CHROM, data_type="GQ")
                 for CHROM in CHROMs.iterkeys()] +
             [self.clone(
                 LoadBinData,
@@ -470,7 +470,7 @@ class ImportSample(luigi.Task):
                     self.data_directory, "cvg_binned",
                     "{sample_name}.{prep_id}_coverage_binned_10000_chr{chromosome}.txt".format(
                         sample_name=self.sample_name, prep_id=self.prep_id,
-                        chromosome=CHROM)), chromosome=CHROM, bin_type="DP")
+                        chromosome=CHROM)), chromosome=CHROM, data_type="DP")
                 for CHROM in CHROMs.iterkeys()])
     
     def run(self):

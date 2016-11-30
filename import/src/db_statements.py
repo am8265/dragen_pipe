@@ -71,8 +71,8 @@ WHERE sample_name = "{sample_name}" AND sample_type = "{sample_type}"
     AND capture_kit = "{capture_kit}"
 """
 INSERT_SAMPLE = """
-INSERT INTO sample (sample_name, sample_type, capture_kit, prep_id)
-VALUE ("{sample_name}", "{sample_type}", "{capture_kit}", {prep_id})
+INSERT INTO sample (sample_name, sample_type, capture_kit, prep_id, priority)
+VALUE ("{sample_name}", "{sample_type}", "{capture_kit}", {prep_id}, {priority})
 """
 GET_DATA_DIRECTORY_FOR_SAMPLE = """
 SELECT DragenFileLoc
@@ -95,6 +95,11 @@ SELECT sample_name, sample_type, capture_kit, prep_id
 FROM sample
 WHERE sample_id = {sample_id}
 """
+GET_PIPELINE_SAMPLE_INITIALIZED_ID = """
+SELECT id
+FROM dragen_pipeline_step_desc
+WHERE step_name = "Sample Initialized in DB"
+"""
 GET_PIPELINE_STEP_ID = """
 SELECT id
 FROM dragen_pipeline_step_desc
@@ -103,12 +108,17 @@ WHERE step_name = "Imported Chromosome {chromosome} {data_type}"
 GET_PIPELINE_FINISHED_ID = """
 SELECT id
 FROM dragen_pipeline_step_desc
-WHERE description = "Sample Finished"
+WHERE step_name = "Sample Finished"
 """
 GET_STEP_STATUS = """
 SELECT finished
 FROM dragen_pipeline_step
 WHERE pseudo_prepid = {prep_id} AND pipeline_step_id = {pipeline_step_id}
+"""
+INITIALIZE_SAMPLE_PIPELINE_STEP = """
+INSERT INTO dragen_pipeline_step 
+    (pseudo_prepid, pipeline_step_id, finish_time, times_ran, finished)
+VALUE ({prep_id}, {pipeline_step_id}, NOW(), 1, 1)
 """
 INSERT_PIPELINE_STEP = """
 INSERT INTO dragen_pipeline_step (pseudo_prepid, pipeline_step_id)
@@ -122,12 +132,12 @@ WHERE pseudo_prepid = {prep_id} AND pipeline_step_id = {pipeline_step_id}
 UPDATE_PIPELINE_STEP_SUBMIT_TIME = """
 UPDATE dragen_pipeline_step
 SET submit_time = NOW(), times_ran = {times_run}
-WHERE prep_id = {prep_id} AND pipeline_step_id = {pipeline_step_id}
+WHERE pseudo_prepid = {prep_id} AND pipeline_step_id = {pipeline_step_id}
 """
 UPDATE_PIPELINE_STEP_FINISH_TIME = """
 UPDATE dragen_pipeline_step
 SET finish_time = NOW(), finished = 1
-WHERE sample_id = {sample_id} AND pipeline_step_id = {pipeline_step_id}
+WHERE pseudo_prepid = {prep_id} AND pipeline_step_id = {pipeline_step_id}
 """
 UPDATE_PIPELINE_FINISH_SUBMIT_TIME = """
 UPDATE dragen_pipeline_step p1
@@ -141,9 +151,9 @@ ON p1.pseudo_prepid = p2.pseudo_prepid AND p1.pipeline_step_id = {pipeline_step_
 SET s1.submit_time = s2.st
 """
 INSERT_BIN_STATEMENT = """
-LOAD DATA INFILE '{data_file}' INTO TABLE {bin_type}_bins_chr{chromosome}
+LOAD DATA INFILE '{data_file}' INTO TABLE {data_type}_bins_chr{chromosome}
     (@block_id, @bin_string)
-    SET sample_id={sample_id}, block_id=@block_id, {bin_type}_string=@bin_string
+    SET sample_id={sample_id}, block_id=@block_id, {data_type}_string=@bin_string
 """
 GET_MIN_CUSTOM_TRANSCRIPT_ID = """
 SELECT MIN(id)
@@ -154,7 +164,7 @@ SELECT id, transcript_ids
 FROM custom_transcript_ids_chr{CHROM}
 """
 GET_SAMPLE_PREPID = """
-SELECT pseudo_prepid, prepid
+SELECT pseudo_prepid, prepid, BioInfoPriority
 FROM seqdbClone
 WHERE CHGVID = "{sample_name}" AND SeqType = "{sample_type}"
     AND ExomeSamPrepKit = "{capture_kit}" AND Status <> "Blacklisted"
