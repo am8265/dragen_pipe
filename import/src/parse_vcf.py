@@ -469,7 +469,7 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                         del ALT_alleles[1]
                         nalleles = 1
                         # need to change the GT to 1/1 instead of 1/2
-                        call["GT"] = call["GT"].replace("2", "1")
+                        call_stats["GT"] = call_stats["GT"].replace("2", "1")
                 high_quality_call = call_is_high_quality(
                     float(fields["QUAL"]), float(INFO["MQ"]) if "MQ" in INFO else 0,
                     INFO["FILTER"], int(call["DP"]))
