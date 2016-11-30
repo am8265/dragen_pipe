@@ -237,7 +237,13 @@ class ParseVCF(SGEJobTask):
         vcf_tabix = tabix.open(self.copied_files_dict["vcf"])
         for vcf_fields in vcf_tabix.querys(self.chromosome):
             vcf_lines += 1
-            vcf_extra_calls += vcf_fields[VCF_COLUMNS_DICT["ALT"]].count(",")
+            ALT = vcf_fields[VCF_COLUMNS_DICT["ALT"]]
+            if "," in ALT:
+                allele_one, allele_two = ALT.split(",")
+                # only increment the number of extra calls if the two alleles
+                # are actually distinct up to 255 characters
+                if allele_one[:255] != allele_two[:255]:
+                    vcf_extra_calls += 1
         vcf_variants_count = vcf_lines + vcf_extra_calls
         calls_line_count = get_num_lines_from_vcf(
             self.called_variants, header=False)
