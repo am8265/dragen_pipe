@@ -14,6 +14,7 @@ from dragen_sample import dragen_sample
 import re
 import time 
 import glob
+import warnings
 
 """
 Run samples through a luigized GATK pipeline after finishing the
@@ -84,6 +85,8 @@ class config(luigi.Config):
     relatedness_markers = luigi.Parameter()
     relatedness_refs = luigi.Parameter()
     binner_loc = luigi.Parameter()
+    gq_binner = luigi.Parameter()
+    coverage_binner = luigi.Parameter()
     snpEff_cfg = luigi.Parameter()
     target_file = luigi.Parameter()
     target_file_X = luigi.Parameter()
@@ -91,6 +94,7 @@ class config(luigi.Config):
     transpose_awk = luigi.Parameter()
     subset_vcf_awk = luigi.Parameter()
     #gatk resources
+    contam1000g_vcf = luigi.Parameter(description="The 1000g vcf file subsetted to SeqCap Regions to be used for contamination check")
     ref = luigi.Parameter()
     seqdict_file = luigi.Parameter()
     interval = luigi.Parameter()
@@ -99,6 +103,7 @@ class config(luigi.Config):
     Mills1000g = luigi.Parameter()
     omni = luigi.Parameter()
     dbSNP = luigi.Parameter()
+    annotatedbSNP = luigi.Parameter()
     exac = luigi.Parameter()
     #variables
     create_targetfile = luigi.BooleanParameter()
@@ -106,7 +111,7 @@ class config(luigi.Config):
     block_size = luigi.Parameter(description='The block size over which to do the binning')
     #locations
     python_path = luigi.Parameter()
-    scratch = luigi.Parameter()
+    #scratch = luigi.Parameter()
     base = luigi.Parameter()
 
 class db(luigi.Config):
@@ -161,6 +166,7 @@ class CopyBam(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
+    scratch = luigi.Parameter()
 
     n_cpu = 1
     parallel_env = "threaded"
@@ -170,7 +176,7 @@ class CopyBam(SGEJobTask):
     def __init__(self, *args, **kwargs):
         super(CopyBam, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+            self.scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.base_dir = "{0}/{1}/{2}.{3}".format(
             config().base,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         #self.base_dir = "{0}/{1}.{2}".format(config().base,self.sample_name,self.pseudo_prepid) ## For the wierd samples not in fastq16
@@ -266,6 +272,7 @@ class RealignerTargetCreator(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
+    scratch = luigi.Parameter()
 
     n_cpu = 4
     parallel_env = "threaded"
@@ -274,7 +281,7 @@ class RealignerTargetCreator(SGEJobTask):
     def __init__(self, *args, **kwargs):
         super(RealignerTargetCreator, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+            self.scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.interval_list = "{0}/{1}.{2}.interval_list".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid)
         self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
@@ -365,6 +372,7 @@ class IndelRealigner(SGEJobTask):
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    scratch = luigi.Parameter()
 
     n_cpu = 1
     parallel_env = "threaded"
@@ -373,7 +381,7 @@ class IndelRealigner(SGEJobTask):
     def __init__(self, *args, **kwargs):
         super(IndelRealigner, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+            self.scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
         self.scratch_bam = "{0}/{1}.{2}.bam".format(
@@ -468,6 +476,7 @@ class BaseRecalibrator(SGEJobTask):
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    scratch = luigi.Parameter()
 
     n_cpu = 4
     parallel_env = "threaded"
@@ -476,7 +485,7 @@ class BaseRecalibrator(SGEJobTask):
     def __init__(self, *args, **kwargs):
         super(BaseRecalibrator, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+            self.scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
         self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
@@ -567,7 +576,8 @@ class PrintReads(SGEJobTask):
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-
+    scratch = luigi.Parameter()
+    
     n_cpu = 4
     parallel_env = "threaded"
     shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
@@ -575,7 +585,7 @@ class PrintReads(SGEJobTask):
     def __init__(self, *args, **kwargs):
         super(PrintReads, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+            self.scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
         self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
@@ -668,6 +678,7 @@ class HaplotypeCaller(SGEJobTask):
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    scratch = luigi.Parameter()
 
     n_cpu = 4
     parallel_env = "threaded"
@@ -676,7 +687,7 @@ class HaplotypeCaller(SGEJobTask):
     def __init__(self, *args, **kwargs):
         super(HaplotypeCaller, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+            self.scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
         self.realn_bam = "{0}/{1}.{2}.realn.bam".format(
@@ -783,7 +794,8 @@ class GenotypeGVCFs(SGEJobTask):
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-
+    scratch = luigi.Parameter()
+    
     n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
@@ -791,7 +803,7 @@ class GenotypeGVCFs(SGEJobTask):
     def __init__(self, *args, **kwargs):
         super(GenotypeGVCFs, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+            self.scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
         self.recal_table = "{0}/{1}.{2}.recal_table".format(
@@ -883,6 +895,7 @@ class SelectVariantsSNP(SGEJobTask):
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    scratch = luigi.Parameter()
 
     n_cpu = 1
     parallel_env = "threaded"
@@ -891,7 +904,7 @@ class SelectVariantsSNP(SGEJobTask):
     def __init__(self, *args, **kwargs):
         super(SelectVariantsSNP, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+            self.scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
         self.recal_table = "{0}/{1}.{2}.recal_table".format(
@@ -978,6 +991,7 @@ class SelectVariantsINDEL(SGEJobTask):
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    scratch = luigi.Parameter()
 
     n_cpu = 1
     parallel_env = "threaded"
@@ -986,7 +1000,7 @@ class SelectVariantsINDEL(SGEJobTask):
     def __init__(self, *args, **kwargs):
         super(SelectVariantsINDEL, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+            self.scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
         self.recal_table = "{0}/{1}.{2}.recal_table".format(
@@ -1063,11 +1077,11 @@ class SelectVariantsINDEL(SGEJobTask):
                 db.close()
 
     def requires(self):
-        if self.sample_type == 'exome':
+        if self.sample_type.lower() == 'exome':
             return self.clone(ApplyRecalibrationSNP)
-        if self.sample_type == 'genome':
+        if self.sample_type.lower() == 'genome':
             return self.clone(ApplyRecalibrationSNP)
-        elif self.sample_type == 'custom_capture':
+        elif self.sample_type.lower() == 'custom_capture':
             return self.clone(VariantFiltrationSNP)
         else:
             raise Exception, "Sample type: %s not supported in this module" % self.sample_type
@@ -1082,6 +1096,7 @@ class VariantRecalibratorSNP(SGEJobTask):
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    scratch = luigi.Parameter()
 
     n_cpu = 1
     parallel_env = "threaded"
@@ -1090,7 +1105,7 @@ class VariantRecalibratorSNP(SGEJobTask):
     def __init__(self, *args, **kwargs):
         super(VariantRecalibratorSNP, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+            self.scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
         self.snp_vcf = "{0}/{1}.{2}.snp.vcf".format(
@@ -1208,6 +1223,7 @@ class VariantRecalibratorINDEL(SGEJobTask):
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    scratch = luigi.Parameter()
 
     n_cpu = 1
     parallel_env = "threaded"
@@ -1216,7 +1232,7 @@ class VariantRecalibratorINDEL(SGEJobTask):
     def __init__(self, *args, **kwargs):
         super(VariantRecalibratorINDEL, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+            self.scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
         self.indel_vcf = "{0}/{1}.{2}.indel.vcf".format(
@@ -1281,7 +1297,7 @@ class VariantRecalibratorINDEL(SGEJobTask):
             with open(os.devnull, 'w') as DEVNULL:
                 subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
-            db = get_conection("seqdb")
+            db = get_connection("seqdb")
             cur = db.cursor()
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
@@ -1314,6 +1330,7 @@ class ApplyRecalibrationSNP(SGEJobTask):
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    scratch = luigi.Parameter()
 
     n_cpu = 1
     parallel_env = "threaded"
@@ -1322,7 +1339,7 @@ class ApplyRecalibrationSNP(SGEJobTask):
     def __init__(self, *args, **kwargs):
         super(ApplyRecalibrationSNP, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+            self.scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
         self.vcf = "{0}/{1}.{2}.snp.vcf".format(
@@ -1416,7 +1433,8 @@ class ApplyRecalibrationINDEL(SGEJobTask):
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-
+    scratch = luigi.Parameter()
+    
     n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
@@ -1424,7 +1442,7 @@ class ApplyRecalibrationINDEL(SGEJobTask):
     def __init__(self, *args, **kwargs):
         super(ApplyRecalibrationINDEL, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+            self.scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
         self.indel_vcf = "{0}/{1}.{2}.indel.vcf".format(
@@ -1522,7 +1540,8 @@ class VariantFiltrationSNP(SGEJobTask):
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-
+    scratch = luigi.Parameter()
+    
     n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
@@ -1530,7 +1549,7 @@ class VariantFiltrationSNP(SGEJobTask):
     def __init__(self, *args, **kwargs):
         super(VariantFiltrationSNP, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+            self.scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
         self.snp_vcf = "{0}/{1}.{2}.snp.vcf".format(
@@ -1619,6 +1638,7 @@ class VariantFiltrationINDEL(SGEJobTask):
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    scratch = luigi.Parameter()
 
     n_cpu = 1
     parallel_env = "threaded"
@@ -1627,7 +1647,7 @@ class VariantFiltrationINDEL(SGEJobTask):
     def __init__(self, *args, **kwargs):
         super(VariantFiltrationINDEL, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+            self.scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
         self.indel_vcf = "{0}/{1}.{2}.indel.vcf".format(
@@ -1717,6 +1737,7 @@ class CombineVariants(SGEJobTask):
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    scratch = luigi.Parameter()
 
     n_cpu = 1
     parallel_env = "threaded"
@@ -1725,7 +1746,7 @@ class CombineVariants(SGEJobTask):
     def __init__(self, *args, **kwargs):
         super(CombineVariants, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+            self.scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
         self.snp_filtered = "{0}/{1}.{2}.snp.filtered.vcf".format(
@@ -1776,7 +1797,7 @@ class CombineVariants(SGEJobTask):
                         if line[0:8] == '##FILTER' and filter_flag == 0 :
                             filter_flag = 1
                             #SNP specific FILTER whether using VQSR or snp filtering
-                            if self.sample_type == 'exome' or self.sample_type =='genome':            ## Will a 90.0to99.00 tranche be needed in the header ?
+                            if self.sample_type == 'exome'.lower() or self.sample_type.lower() =='genome':            ## Will a 90.0to99.00 tranche be needed in the header ?
                                 vcf_out.write('##FILTER=<ID=VQSRTrancheSNP90.00to99.00,Description="Truth sensitivity tranche level for SNP model\n')
                                 vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.00to99.90,Description="Truth sensitivity tranche level for SNP model\n')
                                 vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.90to100.00+,Description="Truth sensitivity tranche level for SNP model\n')
@@ -1785,7 +1806,7 @@ class CombineVariants(SGEJobTask):
                                 vcf_out.write('##FILTER=<ID=SNP_filter,Description="QD < 2.0 || FS > 60.0 || MQ < 40.0 || MQRankSum < -12.5 || ReadPosRankSum < -8.0">\n')
 
                             #Indel specific filters whether using VQSR or indel filtering
-                            if self.sample_type =='genome':
+                            if self.sample_type.lower() =='genome':
                                 vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL90.00to99.00,Description="Truth sensitivity tranche level for INDEL model\n')
                                 vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.00to99.90,Description="Truth sensitivity tranche level for INDEL model\n')
                                 vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.90to100.00+,Description="Truth sensitivity tranche level for INDEL model\n')
@@ -1843,14 +1864,15 @@ class CombineVariants(SGEJobTask):
                 db.close()
 
     def requires(self):
-        if self.sample_type == 'exome':
+        if self.sample_type.lower() == 'exome':
             return self.clone(VariantFiltrationINDEL)
-        elif self.sample_type == 'custom_capture':
+        elif self.sample_type.lower() == 'custom_capture':
             return self.clone(VariantFiltrationINDEL)
-        elif self.sample_type == 'genome':
+        elif self.sample_type.lower() == 'genome':
             return self.clone(ApplyRecalibrationINDEL)
         else:
             raise Exception, "Sample type: %s not supported in this module" % self.sample_type
+        
     def output(self):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
             pipeline_step_id=self.pipeline_step_id)
@@ -1861,6 +1883,7 @@ class AnnotateVCF(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
     sample_type = luigi.Parameter()
+    scratch = luigi.Parameter()
 
     n_cpu = 1
     parallel_env = "threaded"
@@ -1869,7 +1892,7 @@ class AnnotateVCF(SGEJobTask):
     def __init__(self, *args, **kwargs):
         super(AnnotateVCF, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+            self.scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
         self.snp_filtered = "{0}/{1}.{2}.snp.filtered.vcf".format(
@@ -1904,7 +1927,7 @@ class AnnotateVCF(SGEJobTask):
                               "{dbsnp} {final_vcf} 2>> {error_file} 1> {temp_vcf}"
                              ).format(java=config().java,
                                       snpSift=config().snpSift,
-                                      dbsnp = config().dbSNP,
+                                      dbsnp = config().annotatedbSNP,
                                       final_vcf = self.final_vcf,
                                       error_file = self.log_file,
                                       temp_vcf = self.temp_vcf)
@@ -1993,6 +2016,8 @@ class CleanDirectory(SGEJobTask):
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
+    scratch = luigi.Parameter()
+    
     ## System Parameters
     n_cpu = 1
     parallel_env = "threaded"
@@ -2002,7 +2027,7 @@ class CleanDirectory(SGEJobTask):
         super(CleanDirectory,self).__init__(*args,**kwargs)
         ## The scratch and base will be the same directories if this task
         ## is running
-        self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
+        self.seqtype_dir = os.path.join(self.scratch,self.sample_type.upper())
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
         kwargs["sample_name"] = self.sample_name
         super(CleanDirectory, self).__init__(*args,**kwargs)
@@ -2066,7 +2091,8 @@ class ArchiveSample(SGEJobTask):
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-
+    scratch = luigi.Parameter()
+    
     n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
@@ -2074,7 +2100,7 @@ class ArchiveSample(SGEJobTask):
     def __init__(self, *args, **kwargs):
         super(ArchiveSample, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
-            config().scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+            self.scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.base_dir = "{0}/{1}/{2}.{3}".format(
             config().base,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
@@ -2187,6 +2213,10 @@ class ArchiveSample(SGEJobTask):
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
             #os.system(cmd)
             subprocess.check_call(['touch',self.copy_complete])
+            ## Change folder permissions of base directory
+            subprocess.check_output("chgrp bioinfo {0}".format(self.base_dir),shell=True)
+            subprocess.check_output("chmod -R 775 {0}".format(self.base_dir),shell=True)
+
             """Original dragen BAM could be technically deleted earlier after the
             realigned BAM has been created on scratch space but it is safer to
             delete after the final realigned, recalculated BAM has been archived
@@ -2195,9 +2225,6 @@ class ArchiveSample(SGEJobTask):
             rm_folder_cmd = ['rm','-rf',self.scratch_dir]
             subprocess.call(rm_cmd)
             subprocess.call(rm_folder_cmd)
-            ## Change folder permissions of base directory
-            #subprocess.check_output("chgrp bioinfo {0}".format(self.base_dir),shell=True)
-            #subprocess.check_output("chmod -R 755 {0}".format(self.base_dir),shell=True)
 
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
@@ -2406,8 +2433,8 @@ def get_productionvcf(pseudo_prepid,sample_name,sample_type):
     query_statement = (
                        """ SELECT AlignSeqFileLoc FROM seqdbClone WHERE"""
                        """ CHGVID = '{0}' AND seqType = '{1}' AND """
-                       """ prepid = '{2}'""".format(
-                           sample_name,sample_type,prepID)
+                       """ pseudo_prepid = '{2}'""".format(
+                           sample_name,sample_type,pseudo_prepid)
                       )
     tries = 5
     for i in range(tries):
@@ -2420,11 +2447,11 @@ def get_productionvcf(pseudo_prepid,sample_name,sample_type):
                 return None ## Pass control back, note the finally clause is still executed 
             if len(db_val) > 1:
                 warnings.warn("More than 1 entry , warning :" 
-                              "duplicate prepids !")
+                              "duplicate pseudo_prepids !")
             alignseqfileloc = db_val[-1][0] ## Get the last result
             vcf_loc = os.path.join(alignseqfileloc,'combined')
             temp_vcf = glob.glob(os.path.join(vcf_loc,
-                                         '*analysisReady.annotated*vcf*'))
+                                         '*analysisReady.annotated.vcf'))
             if len(temp_vcf) == 0:
                 return None 
             vcf = temp_vcf[0]
@@ -2461,7 +2488,7 @@ class CreateGenomeBed(SGEJobTask):
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-
+    scratch = luigi.Parameter()
     ## System Parameters
     n_cpu = 1
     parallel_env = "threaded"
@@ -2470,7 +2497,7 @@ class CreateGenomeBed(SGEJobTask):
    
     def __init__(self,*args,**kwargs):
         super(CreateGenomeBed,self).__init__(*args,**kwargs)
-        self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
+        self.seqtype_dir = os.path.join(self.scratch,self.sample_type.upper())
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
         kwargs["sample_name"] = self.sample_name
         super(CreateGenomeBed, self).__init__(*args, **kwargs)
@@ -2519,7 +2546,7 @@ class CvgBinning(SGEJobTask):
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-    
+    scratch = luigi.Parameter()
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
@@ -2528,7 +2555,7 @@ class CvgBinning(SGEJobTask):
     def __init__(self,*args,**kwargs):
 
         super(CvgBinning,self).__init__(*args,**kwargs)
-        self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
+        self.seqtype_dir = os.path.join(self.scratch,self.sample_type.upper())
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
         kwargs["sample_name"] = self.sample_name
         super(CvgBinning,self).__init__(*args, **kwargs)
@@ -2546,9 +2573,11 @@ class CvgBinning(SGEJobTask):
         self.human_chromosomes = [str(x) for x in self.human_chromosomes]
         self.human_chromosomes.extend(['X', 'Y','MT'])
 
-        self.binning_cmd = "{0} {1} --sample_id {2} --block_size {3} --output_dir {4} {5} --mode coverage &> {6}".format(
-            config().pypy,config().binner_loc,self.sample_name+'.'+self.pseudo_prepid,config().block_size,self.output_dir,
-            self.genomecov_bed,self.log_file)
+        #self.binning_cmd = "{0} {1} --sample_id {2} --block_size {3} --output_dir {4} {5} --mode coverage &> {6}".format(
+            #config().pypy,config().binner_loc,self.sample_name+'.'+self.pseudo_prepid,config().block_size,self.output_dir,
+            #self.genomecov_bed,self.log_file)
+
+        self.binning_cmd = "{0} {1} 10000 {2} {3} {4}".format(config().pypy,config().coverage_binner,self.sample_name+'.'+self.pseudo_prepid,self.genomecov_bed,self.output_dir)
         
         self.pipeline_step_id = get_pipeline_step_id(
             self.__class__.__name__,"seqdb")  
@@ -2586,7 +2615,7 @@ class GQBinning(SGEJobTask):
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-   
+    scratch = luigi.Parameter()
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
@@ -2594,7 +2623,7 @@ class GQBinning(SGEJobTask):
     
     def __init__(self,*args,**kwargs):
         super(GQBinning,self).__init__(*args,**kwargs)
-        self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
+        self.seqtype_dir = os.path.join(self.scratch,self.sample_type.upper())
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
         kwargs["sample_name"] = self.sample_name
         super(GQBinning,self).__init__(*args, **kwargs)
@@ -2612,9 +2641,13 @@ class GQBinning(SGEJobTask):
         self.human_chromosomes = [str(x) for x in self.human_chromosomes]
         self.human_chromosomes.extend(['X', 'Y','MT'])
                        
-        self.binning_cmd = "{0} {1} --sample_id {2} --block_size {3} --output_dir {4} {5} --mode gq &> {6}".format(
-            config().pypy,config().binner_loc,self.sample_name+'.'+self.pseudo_prepid,config().block_size,self.output_dir,
-            self.gvcf,self.log_file)
+        #self.binning_cmd = "{0} {1} --sample_id {2} --block_size {3} --output_dir {4} {5} --mode gq &> {6}".format(
+            #config().pypy,config().binner_loc,self.sample_name+'.'+self.pseudo_prepid,config().block_size,self.output_dir,
+            #self.gvcf,self.log_file)
+
+        self.binning_cmd = """ {0} {1} 10000 {2} {3} {4} &> {5} """.format(
+            config().pypy,config().gq_binner,self.gvcf,self.sample_name+'.'+self.pseudo_prepid,self.output_dir,self.log_file)
+        
         self.pipeline_step_id = get_pipeline_step_id(
             self.__class__.__name__,"seqdb")
         
@@ -2649,7 +2682,7 @@ class AlignmentMetrics(SGEJobTask):
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
-        
+    scratch = luigi.Parameter()
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
@@ -2658,7 +2691,7 @@ class AlignmentMetrics(SGEJobTask):
 
     def __init__(self,*args,**kwargs):
         super(AlignmentMetrics,self).__init__(*args,**kwargs)
-        self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
+        self.seqtype_dir = os.path.join(self.scratch,self.sample_type.upper())
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
         kwargs["sample_name"] = self.sample_name
         super(AlignmentMetrics, self).__init__(*args, **kwargs)
@@ -2707,7 +2740,8 @@ class RunCvgMetrics(SGEJobTask):
     sample_name = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
-    sample_type = luigi.Parameter()    
+    sample_type = luigi.Parameter()
+    scratch = luigi.Parameter()
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
@@ -2719,7 +2753,7 @@ class RunCvgMetrics(SGEJobTask):
         """
         super(RunCvgMetrics,self).__init__(*args,**kwargs)
         ## Define on the fly parameters
-        self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
+        self.seqtype_dir = os.path.join(self.scratch,self.sample_type.upper())
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
         kwargs["sample_name"] = self.sample_name
         super(RunCvgMetrics, self).__init__(*args, **kwargs)
@@ -2753,7 +2787,7 @@ class RunCvgMetrics(SGEJobTask):
         
         if self.sample_type.upper() == "GENOME":
             ## Define shell commands to be run
-            self.cvg_cmd = """{0} -Xmx{1}g -XX:ParallelGCThreads=4 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={3} I={4} INTERVALS={5} O={6}MQ=20 Q=10 &>>{6}"""
+            self.cvg_cmd = """{0} -Xmx{1}g -XX:ParallelGCThreads=4 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={3} I={4} INTERVALS={5} O={6} MQ=20 Q=10 &>>{6}"""
             ## Run on the ccds regions only
             self.cvg_cmd1 = self.cvg_cmd.format(config().java,config().max_mem,config().picard,config().ref,self.recal_bam,config().target_file,self.raw_output_file_ccds,self.log_file)
             ## Run across the genome
@@ -2837,7 +2871,8 @@ class DuplicateMetrics(SGEJobTask):
     sample_name = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
-    sample_type = luigi.Parameter()    
+    sample_type = luigi.Parameter()
+    scratch = luigi.Parameter()
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
@@ -2845,9 +2880,9 @@ class DuplicateMetrics(SGEJobTask):
     
     def __init__(self,*args,**kwargs):
         super(DuplicateMetrics,self).__init__(*args,**kwargs)
-        self.seqtype_dir_seqscratch = os.path.join(config().scratch,self.sample_type.upper())
+        self.seqtype_dir_seqscratch = os.path.join(self.scratch,self.sample_type.upper())
         self.sample_dir_seqscratch = os.path.join(self.seqtype_dir_seqscratch,self.sample_name+'.'+self.pseudo_prepid)
-        self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
+        self.seqtype_dir = os.path.join(self.scratch,self.sample_type.upper())
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
         kwargs["sample_name"] = self.sample_name
         super(DuplicateMetrics, self).__init__(*args, **kwargs)
@@ -2861,6 +2896,9 @@ class DuplicateMetrics(SGEJobTask):
         self.output_file = os.path.join(self.sample_dir_seqscratch,self.sample_name+'.{0}.duplicates.txt'.format(self.pseudo_prepid))
 
         self.super_old_dragen_log = os.path.join(self.log_dir,self.sample_name+'.out')
+                
+        self.log_file = os.path.join(self.log_dir_seqscratch,self.sample_name+'.{0}.dups.log'.format(self.pseudo_prepid))
+        
         
         ## Check for the dragen log_file in either the seqscratch or the fastq16 directory
         ## Just use a wild card search ;-/ 
@@ -2886,7 +2924,9 @@ class DuplicateMetrics(SGEJobTask):
                         else:
                             self.dlog = self.dragen_log
 
-        self.cmd = "grep 'duplicates marked' {0}".format(self.dlog)
+        self.cmd = """grep 'duplicates marked' %s"""%(self.dlog)
+        self.cmd2 = """grep 'Number of duplicate reads' %s|head -1"""%(self.dlog)
+        
         self.pipeline_step_id = get_pipeline_step_id(
             self.__class__.__name__,"seqdb")
         
@@ -2909,8 +2949,9 @@ class DuplicateMetrics(SGEJobTask):
         Execute this task
         """
         ## The regular expression to catch the percentage duplicates in the grep string
-        catch_dup = re.compile('.*\((.*)%\).*')       
-
+        catch_dup = re.compile('.*\((.*)%\).*')
+        catch_dup2 = re.compile('.*\[(.*)\].*')
+        flag = 0 
         ## Try to find a more elegant way to do this
         tries = 5
         for i in range(tries):
@@ -2923,20 +2964,45 @@ class DuplicateMetrics(SGEJobTask):
                 db.commit()
                 db.close()
                 
+                
                 proc=subprocess.Popen(self.cmd,shell=True,stdout=subprocess.PIPE)
                 proc.wait()
                 if proc.returncode: ## Non zero return code
-                    raise subprocess.CalledProcessError(proc.returncode,self.cmd)
+                    flag = 1                        
+                    #raise subprocess.CalledProcessError(proc.returncode,self.cmd)
 
-                dragen_output = proc.stdout.read()
-                match = re.match(catch_dup,dragen_output)
-                if match:
-                    perc_duplicates = match.group(1)
-                    with open(self.output_file,'w') as OUT_HANDLE:
-                        print >> OUT_HANDLE,perc_duplicates
+                if flag == 0:
+                    dragen_output = proc.stdout.read()
+                    match = re.match(catch_dup,dragen_output)
+                    if match:
+                        perc_duplicates = match.group(1)
+                        with open(self.output_file,'w') as OUT_HANDLE:
+                            print >> OUT_HANDLE,perc_duplicates
+                    else:
+                        flag = 1
 
-                else: 
-                    raise Exception("Could not find duplicate metrics in dragen log!")
+                if flag == 1: ## Either the match was unsucessful or the grep was unsucessful
+                    
+                    proc=subprocess.Popen(self.cmd2,shell=True,stdout=subprocess.PIPE)
+                    proc.wait()
+                        
+                    if proc.returncode: ## Non zero return code
+                        with open(self.log_file,'w') as LOG:
+                            print >> LOG,"Error in : {0} {1}".format(self.cmd2,str(proc.returncode))
+                            raise subprocess.CalledProcessError(proc.returncode,self.cmd)
+                    dragen_output = proc.stdout.read().strip('\n')
+                    match = re.match(catch_dup2,dragen_output)                   
+
+                    if match:
+                        with open(self.log_file,'w') as LOG:
+                            print >> LOG,match.group(1)
+                            
+                        prec_duplicates = match.group(1)
+                        with open(self.output_file,'w') as OUT_HANDLE:
+                            print >> OUT_HANDLE,match.group(1)
+                    else:
+                        with open(self.log_file,'w') as LOG:
+                            print >> LOG,"Could not find duplicate metrics in dragen log!"
 
                 db = get_connection("seqdb")
                 cur = db.cursor()
@@ -2966,7 +3032,8 @@ class VariantCallingMetrics(SGEJobTask):
     sample_name = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
-    sample_type = luigi.Parameter()    
+    sample_type = luigi.Parameter()
+    scratch = luigi.Parameter()
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
@@ -2974,7 +3041,7 @@ class VariantCallingMetrics(SGEJobTask):
       
     def __init__(self,*args,**kwargs):
         super(VariantCallingMetrics,self).__init__(*args,**kwargs)
-        self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
+        self.seqtype_dir = os.path.join(self.scratch,self.sample_type.upper())
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
         kwargs["sample_name"] = self.sample_name
         super(VariantCallingMetrics, self).__init__(*args, **kwargs)
@@ -3029,7 +3096,8 @@ class GenotypeConcordance(SGEJobTask):
     sample_name = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
-    sample_type = luigi.Parameter()    
+    sample_type = luigi.Parameter()
+    scratch = luigi.Parameter()
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
@@ -3037,7 +3105,7 @@ class GenotypeConcordance(SGEJobTask):
 
     def __init__(self,*args,**kwargs):
         super(GenotypeConcordance,self).__init__(*args,**kwargs)
-        self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
+        self.seqtype_dir = os.path.join(self.scratch,self.sample_type.upper())
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
         kwargs["sample_name"] = self.sample_name
         super(GenotypeConcordance, self).__init__(*args, **kwargs)
@@ -3155,7 +3223,8 @@ class ContaminationCheck(SGEJobTask):
     sample_name = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
-    sample_type = luigi.Parameter()    
+    sample_type = luigi.Parameter()
+    scratch = luigi.Parameter()
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
@@ -3163,7 +3232,7 @@ class ContaminationCheck(SGEJobTask):
 
     def __init__(self,*args,**kwargs):
         super(ContaminationCheck,self).__init__(*args,**kwargs)
-        self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
+        self.seqtype_dir = os.path.join(self.scratch,self.sample_type.upper())
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
         kwargs["sample_name"] = self.sample_name
         super(ContaminationCheck, self).__init__(*args, **kwargs)
@@ -3176,15 +3245,20 @@ class ContaminationCheck(SGEJobTask):
                                         .format(self.sample_name,self.pseudo_prepid))
         self.annotated_vcf_gz = os.path.join(self.sample_dir,"{0}.{1}.analysisReady.annotated.vcf.gz".format(self.sample_name,self.pseudo_prepid))
 
+        self.snp_vcf = os.path.join(self.sample_dir,"{0}.{1}.snpcontam.vcf.gz".format(self.sample_name,self.pseudo_prepid))
+
         self.log_dir = os.path.join(self.sample_dir,'logs')
+        
         self.log_file = os.path.join(self.log_dir,
                                      self.sample_name+
                                      '.{0}.samplecontamination.log'.format(self.pseudo_prepid))
+        
+
         self.recal_bam = os.path.join(self.sample_dir,self.sample_name+'.{0}.realn.recal.bam'.format(self.pseudo_prepid)) 
-        self.cmd = "{0} --vcf {1} --bam {2} --out {3} --verbose -ignoreRG &> {4}".format(
-            config().verifybamid,self.annotated_vcf_gz,self.recal_bam,self.output_stem,self.log_file)
+        self.cmd = "{0} --vcf {1} --bam {2} --out {3} --verbose --ignoreRG --maxDepth 1000 --precise &>> {4}".format(
+            config().verifybamid,config().contam1000g_vcf,self.recal_bam,self.output_stem,self.log_file)
         self.parser_cmd = "awk -f {0} {1}.selfSM > {2}".format(config().transpose_awk,self.output_stem,self.output_file)
-        self.remove_cmd = "rm {0}*".format(self.output_stem)
+        self.remove_cmd = "rm {0}".format(self.snp_vcf)        
         
         self.pipeline_step_id = get_pipeline_step_id(
             self.__class__.__name__,"seqdb")
@@ -3210,7 +3284,7 @@ class ContaminationCheck(SGEJobTask):
         Run this task
         """
         run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
-                     [self.cmd,self.parser_cmd,self.remove_cmd],
+                     [self.cmd,self.parser_cmd],
                      self.sample_name,self.__class__.__name__)
 
                
@@ -3222,7 +3296,8 @@ class UpdateSeqdbMetrics(SGEJobTask):
     sample_name = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
-    sample_type = luigi.Parameter()    
+    sample_type = luigi.Parameter()
+    scratch = luigi.Parameter()
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
@@ -3230,7 +3305,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
        
     def __init__(self,*args,**kwargs):
         super(UpdateSeqdbMetrics,self).__init__(*args,**kwargs)
-        self.seqtype_dir = os.path.join(config().scratch,self.sample_type.upper())
+        self.seqtype_dir = os.path.join(self.scratch,self.sample_type.upper())
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
         kwargs["sample_name"] = self.sample_name
         super(UpdateSeqdbMetrics, self).__init__(*args, **kwargs)
@@ -3242,7 +3317,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         self.annotated_vcf_gz = os.path.join(self.sample_dir,"{0}.{1}.analysisReady.annotated.vcf.gz".format(self.sample_name,self.pseudo_prepid))
         self.recal_bam = os.path.join(self.sample_dir,"{0}.{1}.realn.recal.bam".format(self.sample_name,self.pseudo_prepid))         
         ## Generic query to be used for updates 
-        self.update_statement = """ UPDATE {0} SET {1} = '{2}' WHERE CHGVID = '{3}' AND seqType = '{4}' AND prepid = '{5}'"""
+        self.update_statement = """ UPDATE {0} SET {1} = '{2}' WHERE CHGVID = '{3}' AND seqType = '{4}' AND pseudo_prepid = '{5}'"""
         self.query_statement = """ SELECT {0} FROM {1} WHERE CHGVID = '{2}' AND seqType = '{3}' AND prepid = {4}"""
 
         self.issue_contamination_warning = False
@@ -3258,7 +3333,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         self.geno_concordance_out = os.path.join(self.sample_dir,"{0}.{1}.genotype_concordance_metrics".format(self.sample_name,self.pseudo_prepid))
         self.contamination_out = os.path.join(self.sample_dir,"{0}.{1}.contamination.selfSM".format(self.sample_name,self.pseudo_prepid))
         ## The qc table to update
-        self.qc_table = "qcTable"
+        self.qc_table = "dragenQCMetrics"
         ## The new lean equivalent of seqdbClone 
         self.master_table = "seqdbClone"
         self.DBID,self.prepID = getDBIDMaxPrepID(self.pseudo_prepid)        
@@ -3312,14 +3387,15 @@ class UpdateSeqdbMetrics(SGEJobTask):
                 self.update_coverage_metrics('ccds')
                 self.update_coverage_metrics('X')
                 self.update_coverage_metrics('Y')
-                self.update_coverage_metrics('cs')
+                if self.sample_type.upper() != 'GENOME':
+                    self.update_coverage_metrics('cs')
                 self.update_duplicates()
                 self.update_variantcalling_metrics()
                 if get_productionvcf(self.pseudo_prepid,self.sample_name,self.sample_type) != None:
                     self.update_genotype_concordance_metrics()
                 self.update_contamination_metrics()
                 self.update_seqgender()
-                self.update_qc_message()
+                #self.update_qc_message()
 
                 db = get_connection("seqdb")
                 cur = db.cursor()
@@ -3355,7 +3431,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         Returns : Nothing
         """
         
-        query = """INSERT INTO {0} (CHGVID,seqType,prepid) VALUES ('{1}','{2}',{3})""".format(self.qc_table,self.sample_name,self.sample_type,self.prepID)
+        query = """INSERT INTO {0} (CHGVID,seqType,pseudo_prepid) VALUES ('{1}','{2}',{3})""".format(self.qc_table,self.sample_name,self.sample_type,self.pseudo_prepid)
         try:
             db = get_connection("seqdb")
             cur = db.cursor()
@@ -3438,7 +3514,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
             try:
                 db = get_connection("seqdb")
                 cur = db.cursor()
-                cur.execute(self.update_statement.format(table_name,db_field,val,self.sample_name,self.sample_type,self.prepID))
+                cur.execute(self.update_statement.format(table_name,db_field,val,self.sample_name,self.sample_type,self.pseudo_prepid))
                 db.commit()
                 db.close()
             except MySQLdb.Error, e:
@@ -3682,13 +3758,13 @@ class UpdateSeqdbMetrics(SGEJobTask):
         """
 
         if self.sample_type.upper() in ['EXOME','GENOME']:
-            query = """SELECT {0} FROM {1} WHERE CHGVID = '{2}' AND seqType = '{3}' AND prepid = '{4}'"""
-            result = self.get_metrics(query.format(qcmetrics().mean_X_cvg,self.qc_table,self.sample_name,self.sample_type,self.prepID))
+            query = """SELECT {0} FROM {1} WHERE CHGVID = '{2}' AND seqType = '{3}' AND pseudo_prepid = '{4}'"""
+            result = self.get_metrics(query.format(qcmetrics().mean_X_cvg,self.qc_table,self.sample_name,self.sample_type,self.pseudo_prepid))
             if len(result) == 0:
                 seq_gender = 'Ambiguous'
             else:
                 X_cvg = float(result[0][0])
-                result = self.get_metrics(query.format(qcmetrics().mean_Y_cvg,self.qc_table,self.sample_name,self.sample_type,self.prepID))
+                result = self.get_metrics(query.format(qcmetrics().mean_Y_cvg,self.qc_table,self.sample_name,self.sample_type,self.pseudo_prepid))
                 if len(result) == 0:
                     seq_gender = 'Ambiguous'
                 else:
@@ -3730,7 +3806,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         Returns : Bool; True/False
         """
 
-        query = """SELECT {0} FROM {1} WHERE CHGVID = '{2}' AND seqType = '{3}' AND prepid = '{4}'""".format(qcmetrics().pct_reads_aligned,self.qc_table,self.sample_name,self.sample_type,self.prepID)
+        query = """SELECT {0} FROM {1} WHERE CHGVID = '{2}' AND seqType = '{3}' AND pseudo_prepid = '{4}'""".format(qcmetrics().pct_reads_aligned,self.qc_table,self.sample_name,self.sample_type,self.pseudo_prepid)
         result = self.get_metrics(query)
         perc_reads_aligned = float(result[0][0])
         return (perc_reads_aligned >= 0.70)
@@ -3744,7 +3820,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         Returns : Bool; True/False
         """
 
-        query = """SELECT {0},{1} FROM {2} WHERE CHGVID = '{3}' AND seqType = '{4}' AND prepid = '{5}'""".format(qcmetrics().pct_bases5X,qcmetrics().mean_cvg,self.qc_table,self.sample_name,self.sample_type,self.prepID)
+        query = """SELECT {0},{1} FROM {2} WHERE CHGVID = '{3}' AND seqType = '{4}' AND pseudo_prepid = '{5}'""".format(qcmetrics().pct_bases5X,qcmetrics().mean_cvg,self.qc_table,self.sample_name,self.sample_type,self.pseudo_prepid)
         result = self.get_metrics(query)
         pct_bases_5X = float(result[0][0])
         mean_cvg = float(result[0][1])
@@ -3760,7 +3836,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         Returns : Bool; True/False
         """
         
-        query = """SELECT {0} FROM {1} WHERE CHGVID = '{2}' AND seqType = '{3}' AND prepid = '{4}'""".format(qcmetrics().pct_duplicate_reads,self.qc_table,self.sample_name,self.sample_type,self.prepID)
+        query = """SELECT {0} FROM {1} WHERE CHGVID = '{2}' AND seqType = '{3}' AND pseudo_prepid = '{4}'""".format(qcmetrics().pct_duplicate_reads,self.qc_table,self.sample_name,self.sample_type,self.pseudo_prepid)
         result = self.get_metrics(query)
         perc_duplicate_reads = float(result[0][0])
         if self.sample_type.upper() == 'GENOME':
@@ -3780,7 +3856,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         Returns : Bool; True/False
         """
 
-        query = """SELECT {0} FROM {1} WHERE CHGVID = '{2}'AND seqType = '{3}' AND prepid = '{4}'""".format(qcmetrics().total_snps,self.qc_table,self.sample_name,self.sample_type,self.prepID)
+        query = """SELECT {0} FROM {1} WHERE CHGVID = '{2}'AND seqType = '{3}' AND pseudo_prepid = '{4}'""".format(qcmetrics().total_snps,self.qc_table,self.sample_name,self.sample_type,self.pseudo_prepid)
         result = self.get_metrics(query)
         num_snvs = int(result[0][0])
         
@@ -3810,7 +3886,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         Returns : Bool; True/False
         """
 
-        query = """SELECT {0} FROM {1} WHERE CHGVID = '{2}' AND seqType = '{3}' AND prepid = '{4}'""".format(qcmetrics().contamination_value,self.qc_table,self.sample_name,self.sample_type,self.prepID)
+        query = """SELECT {0} FROM {1} WHERE CHGVID = '{2}' AND seqType = '{3}' AND pseudo_prepid = '{4}'""".format(qcmetrics().contamination_value,self.qc_table,self.sample_name,self.sample_type,self.pseudo_prepid)
         result = self.get_metrics(query)
         contamination_value = float(result[0][0])
         if contamination_value > 0.05 and contamination_value < 0.08:
@@ -3828,11 +3904,11 @@ class UpdateSeqdbMetrics(SGEJobTask):
         Returns : Bool; True/False
         """
 
-        query = """SELECT {0} FROM {1} WHERE CHGVID = '{2}' AND seqType = '{3}' AND prepid = '{4}'"""
-        q1 = query.format('SelfDeclGender',self.master_table,self.sample_name,self.sample_type,self.prepID)
+        query = """SELECT {0} FROM {1} WHERE CHGVID = '{2}' AND seqType = '{3}' AND pseudo_prepid = '{4}'"""
+        q1 = query.format('SelfDeclGender',self.master_table,self.sample_name,self.sample_type,self.pseudo_prepid)
         result = self.get_metrics(q1)
         selfdecl_gender = result[0][0]
-        q2 = query.format('SeqGender',self.master_table,self.sample_name,self.sample_type,self.prepID)
+        q2 = query.format('SeqGender',self.master_table,self.sample_name,self.sample_type,self.pseudo_prepid)
         result = self.get_metrics(q2)
         seq_gender = result[0][0]
         return (selfdecl_gender == seq_gender)
@@ -3862,9 +3938,9 @@ class UpdateSeqdbMetrics(SGEJobTask):
         if sex == True: ## We will always use both snps and indels on the X chromosome
             self.get_hom_cmd = """ %s -f "MQ > 39 & QD > 1" -g "GQ > 19" %s | grep -v "#" | grep "^X" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1==$2{print}'| wc -l"""%(config().vcffilter,self.annotated_vcf_gz)
         elif indel == False: ## Only SNPs
-            self.get_hom_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1==$2{print}'| wc -l"""%(self.annotated_vcf_gz)
+            self.get_hom_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{if (length($4) == length($5)){print $NF}}'|awk -F ":" '{print $1}' | awk -F "/" '$1==$2{print}'| wc -l"""%(self.annotated_vcf_gz)
         elif snv == False: ## Only Indels
-            self.get_hom_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{if (length($4)!=length($5)){print $0}}' |awk -F ":" '{print $1}' | awk -F "/" '$1==$2{print}'| wc -l"""%(self.annotated_vcf_gz)
+            self.get_hom_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{if (length($4)!=length($5)){print $NF}}' |awk -F ":" '{print $1}' | awk -F "/" '$1==$2{print}'| wc -l"""%(self.annotated_vcf_gz)
         else: ## Both SNPs and Indels
             self.get_hom_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1==$2{print}'| wc -l"""%(self.annotated_vcf_gz)
         
@@ -3892,9 +3968,9 @@ class UpdateSeqdbMetrics(SGEJobTask):
         if sex == True: ## We will always use both snps and indels on the X chromosome, there are some additional filtering criteria which are being applied, see here for more details : https://redmine.igm.cumc.columbia.edu/projects/biopipeline/wiki/Gender_checks
             self.get_het_cmd = """ %s -f "MQ > 39 & QD > 1" -g "GQ > 19" %s| grep -v "#" | grep "^X" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1!=$2{print}'| wc -l"""%(config().vcffilter,self.annotated_vcf_gz)
         elif indel == False: ## Only SNPs
-            self.get_het_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1!=$2{print}'| wc -l"""%(self.annotated_vcf_gz)
+            self.get_het_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{if (length($4) == length($5)){print $NF}}'|awk -F ":" '{print $1}' | awk -F "/" '$1!=$2{print}'| wc -l"""%(self.annotated_vcf_gz)
         elif snv == False: ## Only Indels
-            self.get_het_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{if (length($4) == length($5)){print $0}}' | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1!=$2{print}'| wc -l"""%(self.annotated_vcf_gz)
+            self.get_het_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{if (length($4) != length($5)){print $NF}}' | awk -F ":" '{print $1}' | awk -F "/" '$1!=$2{print}'| wc -l"""%(self.annotated_vcf_gz)
         else: ## Both SNPs and Indels
             self.get_het_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1!=$2{print}'| wc -l"""%(self.annotated_vcf_gz)
             
