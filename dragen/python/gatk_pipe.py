@@ -1297,7 +1297,7 @@ class VariantRecalibratorINDEL(SGEJobTask):
             with open(os.devnull, 'w') as DEVNULL:
                 subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
-            db = get_conection("seqdb")
+            db = get_connection("seqdb")
             cur = db.cursor()
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
@@ -2215,7 +2215,7 @@ class ArchiveSample(SGEJobTask):
             subprocess.check_call(['touch',self.copy_complete])
             ## Change folder permissions of base directory
             subprocess.check_output("chgrp bioinfo {0}".format(self.base_dir),shell=True)
-            subprocess.check_output("chmod -R 755 {0}".format(self.base_dir),shell=True)
+            subprocess.check_output("chmod -R 775 {0}".format(self.base_dir),shell=True)
 
             """Original dragen BAM could be technically deleted earlier after the
             realigned BAM has been created on scratch space but it is safer to
@@ -2787,7 +2787,7 @@ class RunCvgMetrics(SGEJobTask):
         
         if self.sample_type.upper() == "GENOME":
             ## Define shell commands to be run
-            self.cvg_cmd = """{0} -Xmx{1}g -XX:ParallelGCThreads=4 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={3} I={4} INTERVALS={5} O={6}MQ=20 Q=10 &>>{6}"""
+            self.cvg_cmd = """{0} -Xmx{1}g -XX:ParallelGCThreads=4 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={3} I={4} INTERVALS={5} O={6} MQ=20 Q=10 &>>{6}"""
             ## Run on the ccds regions only
             self.cvg_cmd1 = self.cvg_cmd.format(config().java,config().max_mem,config().picard,config().ref,self.recal_bam,config().target_file,self.raw_output_file_ccds,self.log_file)
             ## Run across the genome
@@ -3387,7 +3387,8 @@ class UpdateSeqdbMetrics(SGEJobTask):
                 self.update_coverage_metrics('ccds')
                 self.update_coverage_metrics('X')
                 self.update_coverage_metrics('Y')
-                self.update_coverage_metrics('cs')
+                if self.sample_type.upper() != 'GENOME':
+                    self.update_coverage_metrics('cs')
                 self.update_duplicates()
                 self.update_variantcalling_metrics()
                 if get_productionvcf(self.pseudo_prepid,self.sample_name,self.sample_type) != None:
@@ -3937,9 +3938,9 @@ class UpdateSeqdbMetrics(SGEJobTask):
         if sex == True: ## We will always use both snps and indels on the X chromosome
             self.get_hom_cmd = """ %s -f "MQ > 39 & QD > 1" -g "GQ > 19" %s | grep -v "#" | grep "^X" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1==$2{print}'| wc -l"""%(config().vcffilter,self.annotated_vcf_gz)
         elif indel == False: ## Only SNPs
-            self.get_hom_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1==$2{print}'| wc -l"""%(self.annotated_vcf_gz)
+            self.get_hom_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{if (length($4) == length($5)){print $NF}}'|awk -F ":" '{print $1}' | awk -F "/" '$1==$2{print}'| wc -l"""%(self.annotated_vcf_gz)
         elif snv == False: ## Only Indels
-            self.get_hom_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{if (length($4)!=length($5)){print $0}}' |awk -F ":" '{print $1}' | awk -F "/" '$1==$2{print}'| wc -l"""%(self.annotated_vcf_gz)
+            self.get_hom_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{if (length($4)!=length($5)){print $NF}}' |awk -F ":" '{print $1}' | awk -F "/" '$1==$2{print}'| wc -l"""%(self.annotated_vcf_gz)
         else: ## Both SNPs and Indels
             self.get_hom_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1==$2{print}'| wc -l"""%(self.annotated_vcf_gz)
         
@@ -3967,9 +3968,9 @@ class UpdateSeqdbMetrics(SGEJobTask):
         if sex == True: ## We will always use both snps and indels on the X chromosome, there are some additional filtering criteria which are being applied, see here for more details : https://redmine.igm.cumc.columbia.edu/projects/biopipeline/wiki/Gender_checks
             self.get_het_cmd = """ %s -f "MQ > 39 & QD > 1" -g "GQ > 19" %s| grep -v "#" | grep "^X" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1!=$2{print}'| wc -l"""%(config().vcffilter,self.annotated_vcf_gz)
         elif indel == False: ## Only SNPs
-            self.get_het_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1!=$2{print}'| wc -l"""%(self.annotated_vcf_gz)
+            self.get_het_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{if (length($4) == length($5)){print $NF}}'|awk -F ":" '{print $1}' | awk -F "/" '$1!=$2{print}'| wc -l"""%(self.annotated_vcf_gz)
         elif snv == False: ## Only Indels
-            self.get_het_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{if (length($4) == length($5)){print $0}}' | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1!=$2{print}'| wc -l"""%(self.annotated_vcf_gz)
+            self.get_het_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{if (length($4) != length($5)){print $NF}}' | awk -F ":" '{print $1}' | awk -F "/" '$1!=$2{print}'| wc -l"""%(self.annotated_vcf_gz)
         else: ## Both SNPs and Indels
             self.get_het_cmd = """ zcat %s | grep -v "#" | grep "PASS" | awk '{print $NF}'|awk -F ":" '{print $1}' | awk -F "/" '$1!=$2{print}'| wc -l"""%(self.annotated_vcf_gz)
             
