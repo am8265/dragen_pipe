@@ -174,7 +174,7 @@ def setup_dir(curs,sample,debug):
             new_fastq_read2 = first_read2.split('/')[-1].replace(
                     '001.fastq.gz','{0:03d}.fastq.gz'.format(fastq_counter))
             ln_cmd1 = ['ln','-s',fastq,sample.metadata['fastq_dir']+'/'+new_fastq_read1]
-            ln_cmd2 = ['ln','-s',fastq.replace('R1','R2'),sample.metadata['fastq_dir']+'/'+new_fastq_read2]
+            ln_cmd2 = ['ln','-s',fastq.replace('_R1_','_R2_'),sample.metadata['fastq_dir']+'/'+new_fastq_read2]
 
             if fastq_counter == 1:
                 sample.set('first_fastq1',sample.metadata['fastq_dir']+'/'+new_fastq_read1)
@@ -184,35 +184,47 @@ def setup_dir(curs,sample,debug):
 
             subprocess.call(ln_cmd1)
             subprocess.call(ln_cmd2)
+    check_Fastq_Total_Size(sample)
     set_seqtime(curs,sample)
+
+def check_Fastq_Total_Size(sample):
+    fastq_dir = sample.metadata['fastq_dir']
+    sample_type = sample.metadata['sample_type']
+    fastq_filesize_sum = 0
+    for fastq in glob(fastq_dir + '/*gz'):
+        fastq_filesize = os.stat(os.path.realpath(fastq)).st_size
+        fastq_filesize_sum += fastq_filesize
+
+    if sample_type == 'genome':
+        if fastq_filesize_sum < 53687091200: # < 50GB
+            raise Exception, "Sum of fastq files is too small for a {} sample!".format(sample_type)
+    elif sample_type == 'exome':
+        if fastq_filesize_sum > 32212254720: # > 30GB
+            raise Exception, "Sum of fastq files is too big for a {} sample!".format(sample_type)
+    elif sample_type == 'rnaseq':
+        if fastq_filesize_sum > 32212254720: # > 30GB
+            raise Exception, "Sum of fastq files is too big for a {} sample!".format(sample_type)
+    elif sample_type == 'custom_capture':
+        if fastq_filesize_sum > 10737418240: # > 10GB
+            raise Exception, "Sum of fastq files is too big for a {} sample!".format(sample_type)
+    else:
+        raise Exception, 'Unhandled sample_type found: {}!'.format(sample_type)
+    if debug:
+        print 'Fastq size',fastq_filesize_sum,float(fastq_filesize_sum)/1024/1024/1024
 
 def get_first_read(sample,read_number,debug):
     #Using first fastq as template for all fastq.gz
     if debug:
-        print "dragen_pipe: get_first_read",sample.metadata['fastq_loc']
+        print sample.metadata['fastq_loc']
     first_fastq_loc = sample.metadata['fastq_loc'][0]
     if debug:
         print '{0}/*L00*_R{1}_001.fastq.gz'.format(first_fastq_loc,read_number)
     read = glob('{0}/*L00*_R{1}_001.fastq.gz'.format(first_fastq_loc,read_number))
     #The fastqs might still be on the quantum tapes
     if read == []:
-        stornext_loc =('/nfs/stornext/seqfinal/casava1.8/whole_{sample_type}/{sample_name}/{FCIllumID}/*L00{sample_lane}_R{read_number}_001.fastq.gz'
-            ).format(sample_type=sample.metadata['sample_type'].lower(),
-                sample_name=sample.metadata['sample_name'],
-                FCIllumID=sample.metadata['lane'][0][0][1],
-                sample_lane=sample.metadata['lane'][0][0][0],
-                read_number=read_number)
-        read = glob(stornext_loc)
-        if read == []:
-            print sample.metadata['sample_name']
-
-            raise Exception, "Fastq file not found!"
-        else:
-            """fastq_loc was based off of database so needs to be set to the
-                quantum location"""
-            sample.set('fastq_loc',glob(('/nfs/stornext/seqfinal/casava1.8/whole_exome/{0}/*XX'
-                ).format(sample.metadata['sample_name'])))
-    return sorted(read)[0]
+        raise Exception, "Fastq file not found!"
+    else:
+        return sorted(read)[0]
 
 def get_next_sample(curs,debug):
     #remove any symlinked fastq.gz files 
