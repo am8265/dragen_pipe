@@ -449,7 +449,8 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                         fields["FILTER"], x))
                 call_stats = create_call_dict(fields["FORMAT"], fields["call"])
                 call = {"sample_id":sample_id, "GQ":call_stats["GQ"],
-                        "QUAL":fields["QUAL"], "DP":call_stats["DP"]}
+                        "QUAL":int(round(float(fields["QUAL"]))),
+                        "DP":call_stats["DP"]}
                 ALT_alleles = fields["ALT"].split(",")
                 nalleles = len(ALT_alleles)
                 if nalleles > 2:
@@ -476,7 +477,8 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                         del ads[2]
                         call_stats["AD"] = ",".join(ads)
                 high_quality_call = call_is_high_quality(
-                    float(fields["QUAL"]), float(INFO["MQ"]) if "MQ" in INFO else 0,
+                    int(round(float(fields["QUAL"]))),
+                    int(round(float(INFO["MQ"]))) if "MQ" in INFO else 0,
                     INFO["FILTER"], int(call["DP"]))
                 variant_ids = []
                 for ALT_allele in ALT_alleles:
@@ -491,8 +493,12 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                          polyphen_stable_ids_to_ignore, high_quality_call,
                          custom_transcript_ids, logger)
                     variant_ids.append((variant_id, block_id, highest_impact))
+                for variant_stat in ("MQ", "QD"):
+                    # we store these two values as ints instead of float
+                    if variant_stat in INFO:
+                        INFO[variant_stat] = int(round(float(INFO[variant_stat])))
                 for variant_stat in (
-                    "FS", "MQ", "QD", "ReadPosRankSum", "MQRankSum"):
+                    "FS", "MQ", "QD", "ReadPosRankSum", "MQRankSum", "VQSLOD"):
                     if variant_stat not in INFO:
                         # NULL value for loading
                         INFO[variant_stat] = "\\N"
