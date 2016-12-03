@@ -14,13 +14,18 @@ from dragen_globals import *
 FLANKING_SIZE = 1000
 ALL_INDELS = defaultdict(lambda: defaultdict(list))
 indels_queried = False
-#nskipped = 0
+
+def add_new_indel(variant_id, CHROM, POS, REF, ALT, indel_length):
+    """add a new indel to the indel set
+    """
+    global ALL_INDELS
+    ALL_INDELS[POS / FLANKING_SIZE][indel_length].append(
+        (variant_id, POS, REF, ALT))
 
 def match_indel(cur, CHROM, POS, REF, ALT, indel_length):
     """return the variant_id and block_id  of a match against the indels
     currently in the database if present, otherwise None, None
     """
-    #global nskipped
     if not indels_queried:
         get_all_indels(cur, CHROM)
     block_id = POS / FLANKING_SIZE
@@ -37,11 +42,6 @@ def match_indel(cur, CHROM, POS, REF, ALT, indel_length):
             # only look in the three surrounding blocks where the length of the
             # indel is the same as the candidate novel indel
             for variant_id, db_POS, db_REF, db_ALT in ALL_INDELS[block][indel_length]:
-                #if (db_POS == POS and db_REF == REF and db_ALT == ALT):
-                #    # debug code to test whether indels match each other in one
-                #    # sample
-                #    nskipped += 1
-                #    continue
                 if abs(db_POS - POS) <= FLANKING_SIZE:
                     db_head = sequence[
                         POS - FLANKING_SIZE - 1:db_POS - 1]
@@ -57,7 +57,6 @@ def get_all_indels(cur, CHROM):
     """populate ALL_INDELS with lists of blocks of indels of
     FLANKING_SIZE length for the specified chromosome
     """
-    global ALL_INDELS
     config_parser = SafeConfigParser()
     config_parser.read(CNF)
     genome = Fasta(config_parser.get("annodb", "REFERENCE_GENOME"))
@@ -68,7 +67,6 @@ def get_all_indels(cur, CHROM):
     genome.close()
     cur.execute(GET_ALL_INDELS.format(CHROM=CHROM))
     for variant_id, POS, REF, ALT, indel_length in cur.fetchall():
-        ALL_INDELS[POS / FLANKING_SIZE][indel_length].append(
-            (variant_id, POS, REF, ALT))
+        add_new_indel(variant_id, CHROM, POS, REF, ALT, indel_length)
     global indels_queried
     indels_queried = True

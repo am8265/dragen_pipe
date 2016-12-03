@@ -40,6 +40,10 @@ WHERE table_name = "variant_chr{CHROM}" AND table_schema = DATABASE()
 LOAD_TABLE = """
 LOAD DATA INFILE '{table_file}' INTO TABLE {table_name}
 """
+LOAD_MATCHED_INDELS = """
+LOAD DATA INFILE '{table_file}' INTO TABLE matched_indels
+    (CHROM, variant_id, POS, REF, ALT)
+"""
 LOAD_TABLE_REPLACE = """
 LOAD DATA INFILE '{table_file}' REPLACE INTO TABLE {table_name}
 """
@@ -47,6 +51,11 @@ GET_ALL_INDELS = """
 SELECT DISTINCT variant_id, POS, REF, ALT, indel_length
 FROM variant_chr{CHROM}
 WHERE indel = 1
+"""
+MATCHED_INDEL_EXISTS = """
+SELECT id
+FROM matched_indels
+WHERE CHROM = {CHROM} AND POS = {POS} AND REF = "{REF}" AND ALT = "{ALT}"
 """
 GET_TRANSLATION_MD5_ID = """
 SELECT translation_md5_id
