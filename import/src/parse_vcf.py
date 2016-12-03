@@ -151,7 +151,8 @@ def get_variant_id(novel_fh, novel_transcripts_fh, matched_indels_fh, cur,
                 cur, CHROM, POS, REF, alt, indel_length)
             if matched_indel_id is not None:
                 matched_indels_fh.write(MATCHED_INDEL_OUTPUT_FORMAT.format(
-                    CHROM=CHROM, variant_id=matched_indel_id, REF=REF, ALT=ALT))
+                    CHROM=CHROM, variant_id=matched_indel_id,
+                    POS=POS, REF=REF, ALT=ALT))
                 variant_id = matched_indel_id
                 block_id = matched_block_id
                 novel = False
