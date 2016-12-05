@@ -150,18 +150,30 @@ def get_variant_id(novel_fh, novel_transcripts_fh, matched_indels_fh, cur,
             matched_indel_id, matched_block_id = match_indels_chromosome.match_indel(
                 cur, CHROM, POS, REF, alt, indel_length)
             if matched_indel_id is not None:
-                matched_indels_fh.write(MATCHED_INDEL_OUTPUT_FORMAT.format(
-                    CHROM=CHROM, variant_id=matched_indel_id, REF=REF, ALT=ALT))
                 variant_id = matched_indel_id
                 block_id = matched_block_id
                 novel = False
                 cur.execute(GET_VARIANT_EFFECTS.format(
                     CHROM=CHROM, variant_id=variant_id))
                 effect_ids = [row[0] for row in cur.fetchall()]
+                # check if this matched indel is already in the matched_indels
+                # table
+                cur.execute(MATCHED_INDEL_EXISTS.format(
+                    CHROM=CHROM, POS=POS, REF=REF, ALT=ALT))
+                if not cur.fetchone():
+                    matched_indels_fh.write(MATCHED_INDEL_OUTPUT_FORMAT.format(
+                        CHROM=CHROM, variant_id=variant_id,
+                        POS=POS, REF=REF, ALT=ALT))
     if novel:
         if update_novel_variant_id:
             variant_id = novel_variant_id
             novel_variant_id += 1
+            if indel_length:
+                # add this indel to the matched indel set so in the corner case
+                # of a single sample having > 1 redundant indel, we only create
+                # one single novel variant
+                match_indels_chromosome.add_new_indel(
+                    variant_id, CHROM, POS, REF, ALT, indel_length)
         effect_ids, novel_transcripts_id = output_novel_variant(
             novel_fh, novel_transcripts_fh, cur, variant_id,
             novel_transcripts_id, CHROM, POS,
@@ -370,6 +382,10 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
     line_count = 0
     start_time = time()
     cfg = get_cfg()
+    # store the set of indel_ids for calls, because in rare circumstances there
+    # are multiple entries for the same indel
+    # (because of repetitive genome/indel matching)
+    indel_ids = set()
     db = get_connection("dragen")
     try:
         cur = db.cursor()
@@ -449,7 +465,8 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                         fields["FILTER"], x))
                 call_stats = create_call_dict(fields["FORMAT"], fields["call"])
                 call = {"sample_id":sample_id, "GQ":call_stats["GQ"],
-                        "QUAL":fields["QUAL"], "DP":call_stats["DP"]}
+                        "QUAL":int(round(float(fields["QUAL"]))),
+                        "DP":call_stats["DP"]}
                 ALT_alleles = fields["ALT"].split(",")
                 nalleles = len(ALT_alleles)
                 if nalleles > 2:
@@ -476,7 +493,8 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                         del ads[2]
                         call_stats["AD"] = ",".join(ads)
                 high_quality_call = call_is_high_quality(
-                    float(fields["QUAL"]), float(INFO["MQ"]) if "MQ" in INFO else 0,
+                    int(round(float(fields["QUAL"]))),
+                    int(round(float(INFO["MQ"]))) if "MQ" in INFO else 0,
                     INFO["FILTER"], int(call["DP"]))
                 variant_ids = []
                 for ALT_allele in ALT_alleles:
@@ -490,16 +508,30 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                          modifier_impact_effect_ids, polyphen_matrixes_by_stable_id,
                          polyphen_stable_ids_to_ignore, high_quality_call,
                          custom_transcript_ids, logger)
-                    variant_ids.append((variant_id, block_id, highest_impact))
+                    indel = len(fields["REF"]) != len(ALT_allele)
+                    variant_ids.append(
+                        (variant_id, block_id, highest_impact, indel))
+                for variant_stat in ("MQ", "QD"):
+                    # we store these two values as ints instead of float
+                    if variant_stat in INFO:
+                        INFO[variant_stat] = int(round(float(INFO[variant_stat])))
                 for variant_stat in (
-                    "FS", "MQ", "QD", "ReadPosRankSum", "MQRankSum"):
+                    "FS", "MQ", "QD", "ReadPosRankSum", "MQRankSum", "VQSLOD"):
                     if variant_stat not in INFO:
                         # NULL value for loading
                         INFO[variant_stat] = "\\N"
                 if nalleles == 1:
-                    call["variant_id"] = variant_ids[0][0]
-                    call["block_id"] = variant_ids[0][1]
-                    call["highest_impact"] = variant_ids[0][2]
+                    (call["variant_id"], call["block_id"],
+                     call["highest_impact"], indel) = variant_ids[0]
+                    output_call = True
+                    if indel:
+                        if call["variant_id"] in indel_ids:
+                            # skip outputting this call, because this is a
+                            # matched indel which we already output
+                            output_call = False
+                        else:
+                            indel_ids.add(call["variant_id"])
+                if nalleles == 1 and output_call:
                     GTs = call_stats["GT"].split("/")
                     if len(GTs) == 2:
                         for x, GT in enumerate(GTs):
@@ -526,7 +558,7 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                         pprint(INFO)
                         raise
                     calls_fh.write(gg)
-                else:
+                elif nalleles != 1:
                     if call_stats["GT"] == "1/2":
                         call["GT"] = 1
                     else:
@@ -535,7 +567,12 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                             "-{ALT}".format(GT=call_stats["GT"], **fields))
                     ADs = call_stats["AD"].split(",")
                     call["AD_REF"] = ADs[0]
-                    for x, (variant_id, block_id, highest_impact) in enumerate(variant_ids):
+                    for x, (variant_id, block_id, highest_impact, indel) in enumerate(variant_ids):
+                        if indel:
+                            if variant_id in indel_ids:
+                                continue
+                            else:
+                                indel_ids.add(variant_id)
                         calls_fh.write(VARIANT_CALL_FORMAT.format(
                             **merge_dicts(
                                 call, {"AD_ALT":ADs[1 + x], "variant_id":variant_id,

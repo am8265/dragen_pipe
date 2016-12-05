@@ -232,28 +232,25 @@ class ParseVCF(SGEJobTask):
             if not os.path.isfile(fn):
                 raise ValueError("failed running task; {} doesn't exist".format(
                     fn=fn))
-        vcf_lines = 0
-        vcf_extra_calls = 0
-        vcf_tabix = tabix.open(self.copied_files_dict["vcf"])
-        for vcf_fields in vcf_tabix.querys(self.chromosome):
-            vcf_lines += 1
-            ALT = vcf_fields[VCF_COLUMNS_DICT["ALT"]]
-            if "," in ALT:
-                allele_one, allele_two = ALT.split(",")
-                # only increment the number of extra calls if the two alleles
-                # are actually distinct up to 255 characters
-                if allele_one[:255] != allele_two[:255]:
-                    vcf_extra_calls += 1
-        vcf_variants_count = vcf_lines + vcf_extra_calls
+        variants = set()
+        with open(self.variant_id_vcf) as vcf:
+            for line in vcf:
+                fields = VCF_fields_dict(line.split("\t"))
+                info = fields["INFO"]
+                if info.startswith("VariantID="):
+                    for variant_id in info.split(";")[0].split("=")[1].split(","):
+                        variants.add(int(variant_id))
+                else:
+                    raise ValueError("error with format of variant_id VCF at "
+                                     "{CHROM}-{POS}-{REF}-{ALT}".format(**fields))
+        vcf_variants_count = len(variants)
         calls_line_count = get_num_lines_from_vcf(
             self.called_variants, header=False)
         if vcf_variants_count != calls_line_count:
-            raise ValueError("incorrect number of variants in calls table")
-        variant_id_vcf_line_count = get_num_lines_from_vcf(
-            self.variant_id_vcf, header=False)
-        if vcf_lines != variant_id_vcf_line_count:
-            raise ValueError(
-                "incorrect number of lines in variant_id annotated VCF")
+            raise ValueError("incorrect number of variants in calls table: "
+                             "{vcf_count} in VCF, {table_count} in table".format(
+                                 vcf_count=vcf_variants_count,
+                                 table_count=calls_line_count))
         db = get_connection("dragen")
         seqdb = get_connection("seqdb")
         try:
@@ -264,8 +261,7 @@ class ParseVCF(SGEJobTask):
                 ("custom_transcript_ids_chr" + self.chromosome,
                  self.novel_transcripts, False),
                 ("called_variant_chr" + self.chromosome, self.called_variants,
-                 False),
-                ("matched_indels", self.matched_indels, False)):
+                 False)):
                 load_statement = (
                     LOAD_TABLE_REPLACE if is_variant_table else LOAD_TABLE)
                 load_statement = load_statement.format(
@@ -276,6 +272,7 @@ class ParseVCF(SGEJobTask):
                     logger.error(
                         "error with:\n" + load_statement, exc_info=True)
                     sys.exit(1)
+            cur.execute(LOAD_MATCHED_INDELS.format(table_file=self.matched_indels))
             cur.execute(GET_NUM_CALLS_FOR_SAMPLE.format(
                 CHROM=self.chromosome, sample_id=self.sample_id))
             db_count = cur.fetchone()[0]
