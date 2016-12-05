@@ -30,15 +30,40 @@ def coverage_to_letter(coverage):
 
     if(coverage < 3):
         return 'a'
-    elif(coverage <= 9):
+    elif(coverage < 10):
         return 'b'
-    elif(coverage <= 19):
+    elif(coverage < 20):
         return 'c'
-    elif(coverage <= 200):
+    elif(coverage < 30):
         return 'd'
-    else:
+    elif(coverage < 40):
         return 'e'
-
+    elif(coverage < 40):
+        return 'f'
+    elif(coverage < 60):
+        return 'g'
+    elif(coverage < 80):
+        return 'h'
+    elif(coverage < 100):
+        return 'i'
+    elif(coverage < 150):
+        return 'j'
+    elif(coverage < 200):
+        return 'k'
+    elif(coverage < 250):
+        return 'l'
+    elif(coverage < 300):
+        return 'm'
+    elif(coverage < 500):
+        return 'n'
+    elif(coverage < 600):
+        return 'o'
+    elif(coverage < 800):
+        return 'p'
+    elif(coverage < 1000):
+        return 'q'
+    else:
+        return 'r'
 
 def bin_coverage_to_letter(coverage_val, coverage_len):
     
