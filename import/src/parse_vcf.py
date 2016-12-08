@@ -25,11 +25,15 @@ def format_NULL_value(value):
     """
     return value if value else "\\N"
 
-def call_is_high_quality(QUAL, MQ, FILTER, DP):
+def call_is_high_quality(QUAL, MQ, FILTER, DP=None):
     """return whether the given call is high quality
     """
-    return (QUAL >= 30 and MQ >= 40 and DP >= 3
+    high_quality = (QUAL >= 30 and MQ >= 40
             and FILTER in ("PASS", "LIKELY", "INTERMEDIATE"))
+    if high_quality and DP is not None:
+        # there is no DP if MNP
+        high_quality = high_quality and DP >= 3
+    return high_quality
 
 def get_custom_transcript_ids(cur, CHROM):
     """return a dict of all novel transcript ids and the new value
@@ -47,7 +51,7 @@ def get_custom_transcript_ids(cur, CHROM):
 
 def calculate_polyphen_scores(
     cur, transcript_stable_id, HGVS_p, VariantID,
-    polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore):
+    polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore, logger):
     """return the PolyPhen scores for the given missense variant
     """
     # cache the transcripts' matrixes for those that have them and cache the
@@ -57,50 +61,74 @@ def calculate_polyphen_scores(
     if hgvs_p_match:
         d = hgvs_p_match.groupdict()
         codon_position = int(d["codon_position"])
-        amino_acid_change = d["amino_acid_change"]
-        offset = 3 + 2 * ((codon_position - 1) * 20 +
-                          AMINO_ACIDS[amino_acid_change])
-        for polyphen_score in ("humdiv", "humvar"):
-            if (transcript_stable_id in
-                polyphen_stable_ids_to_ignore[polyphen_score]):
-                scores["polyphen_" + polyphen_score] = None
-                continue
-            if (transcript_stable_id not in
-                polyphen_matrixes_by_stable_id[polyphen_score]):
-                cur.execute(GET_TRANSLATION_MD5_ID.format(
-                    stable_id=transcript_stable_id))
-                md5_id_row = cur.fetchone()
-                if md5_id_row:
-                    translation_md5_id = md5_id_row[0]
-                else:
-                    polyphen_stable_ids_to_ignore[polyphen_score].add(
-                        transcript_stable_id)
+        amino_acid_changes = d["amino_acid_changes"]
+        len_amino_acid_changes = len(amino_acid_changes)
+        if len_amino_acid_changes % 3:
+            raise ValueError("{VariantID} has an amino acid change length not "
+                             "divisible by 3: {HGVS_p}".format(
+                                 VariantID=VariantID, HGVS_p=HGVS_p))
+        num_amino_acid_changes = len_amino_acid_changes / 3
+        if num_amino_acid_changes != 0:
+            logger.debug("Encountered multiple impacted amino acids for "
+                         "{VariantID}: {HGVS_p}".format(
+                             VariantID=VariantID, HGVS_p=HGVS_p))
+        max_polyphen_scores = {"humdiv":None, "humvar":None}
+        for offset in xrange(num_amino_acid_changes):
+            matrix_offset = (3 + 2 * ((codon_position + offset - 1) * 20 +
+                                      AMINO_ACIDS[amino_acid_changes[
+                                          offset * 3:(offset + 1) * 3]]))
+            for polyphen_score in ("humdiv", "humvar"):
+                if (transcript_stable_id in
+                    polyphen_stable_ids_to_ignore[polyphen_score]):
                     scores["polyphen_" + polyphen_score] = None
                     continue
-                cur.execute(GET_POLYPHEN_PREDICTION_MATRIX.format(
-                    translation_md5_id=translation_md5_id,
-                    attrib_id=POLYPHEN_ATTRIB_ID[polyphen_score]))
-                polyphen_matrix_row = cur.fetchone()
-                if polyphen_matrix_row:
-                    polyphen_matrixes_by_stable_id[polyphen_score][
-                        transcript_stable_id] = (
-                            zlib.decompress(polyphen_matrix_row[0],
-                                            16 + zlib.MAX_WBITS))
-                else:
-                    polyphen_stable_ids_to_ignore[polyphen_score].add(
-                        transcript_stable_id)
-                    scores["polyphen_" + polyphen_score] = None
-                    continue
-                packed_score = polyphen_matrixes_by_stable_id[polyphen_score][
-                    transcript_stable_id][offset:offset + 2]
-                unpacked_value = unpack("H", packed_score)[0]
-                prediction = int(unpacked_value >> 14)
-                if prediction == 3:
-                    # encodes "UNKNOWN" score, so we'll just store NULL
-                    scores["polyphen_" + polyphen_score] = None
-                    continue
-                scores["polyphen_" + polyphen_score] = (
-                    unpacked_value & POLYPHEN_PROB_BITMASK)
+                if (transcript_stable_id not in
+                    polyphen_matrixes_by_stable_id[polyphen_score]):
+                    cur.execute(GET_TRANSLATION_MD5_ID.format(
+                        stable_id=transcript_stable_id))
+                    md5_id_row = cur.fetchone()
+                    if md5_id_row:
+                        translation_md5_id = md5_id_row[0]
+                    else:
+                        logger.debug("Could not find {transcript_stable_id}'s "
+                                     "MD5 translation ID".format(
+                                         transcript_stable_id=transcript_stable_id))
+                        polyphen_stable_ids_to_ignore[polyphen_score].add(
+                            transcript_stable_id)
+                        scores["polyphen_" + polyphen_score] = None
+                        continue
+                    cur.execute(GET_POLYPHEN_PREDICTION_MATRIX.format(
+                        translation_md5_id=translation_md5_id,
+                        attrib_id=POLYPHEN_ATTRIB_ID[polyphen_score]))
+                    polyphen_matrix_row = cur.fetchone()
+                    if polyphen_matrix_row:
+                        polyphen_matrixes_by_stable_id[polyphen_score][
+                            transcript_stable_id] = (
+                                zlib.decompress(polyphen_matrix_row[0],
+                                                16 + zlib.MAX_WBITS))
+                    else:
+                        logger.debug("Could not find {transcript_stable_id}'s "
+                                     "PolyPhen-2 {score} matrix".format(
+                                         transcript_stable_id=transcript_stable_id,
+                                         score=polyphen_score))
+                        polyphen_stable_ids_to_ignore[polyphen_score].add(
+                            transcript_stable_id)
+                        scores["polyphen_" + polyphen_score] = None
+                        continue
+                    packed_score = polyphen_matrixes_by_stable_id[polyphen_score][
+                        transcript_stable_id][matrix_offset:matrix_offset + 2]
+                    unpacked_value = unpack("H", packed_score)[0]
+                    prediction = int(unpacked_value >> 14)
+                    if prediction == 3:
+                        # encodes "UNKNOWN" score, so we'll just store NULL
+                        continue
+                    max_polyphen_scores[polyphen_score] = max(
+                        max_polyphen_scores[polyphen_score],
+                        unpacked_value & POLYPHEN_PROB_BITMASK)
+        # set to the max in the affected interval to accommodate for an MNP
+        # potentially altering multiple amino acids
+        scores["polyphen_humdiv"] = max_polyphen_scores["humdiv"]
+        scores["polyphen_humvar"] = max_polyphen_scores["humvar"]
     else:
         raise ValueError(
             "error: could not parse HGVS_p {HGVS_p} for "
@@ -324,7 +352,7 @@ def output_novel_variant(
                             calculate_polyphen_scores(
                                 cur, feature_id, HGVS_p, VariantID,
                                 polyphen_matrixes_by_stable_id,
-                                polyphen_stable_ids_to_ignore))
+                                polyphen_stable_ids_to_ignore, logger))
         for feature_id, effects in annotations_by_transcript.iteritems():
             if "splice_region_variant" in effects:
                 if "missense_variant" in effects:
@@ -452,8 +480,13 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None):
                         fields["FILTER"], x))
                 call_stats = create_call_dict(fields["FORMAT"], fields["call"])
                 call = {"sample_id":sample_id, "GQ":call_stats["GQ"],
-                        "QUAL":int(round(float(fields["QUAL"]))),
-                        "DP":call_stats["DP"]}
+                        "QUAL":int(round(float(fields["QUAL"])))}
+                if "DP" in call_stats:
+                    call["DP"] = call_stats["DP"]
+                else:
+                    # this should always be present except at MNP sites (for
+                    # whatever reason)
+                    call["DP"] = "\\N"
                 ALT_alleles = fields["ALT"].split(",")
                 nalleles = len(ALT_alleles)
                 if nalleles > 2:
@@ -482,7 +515,8 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None):
                 high_quality_call = call_is_high_quality(
                     int(round(float(fields["QUAL"]))),
                     int(round(float(INFO["MQ"]))) if "MQ" in INFO else 0,
-                    INFO["FILTER"], int(call["DP"]))
+                    INFO["FILTER"],
+                    DP=int(call_stats["DP"]) if "DP" in call_stats else None)
                 variant_ids = []
                 for ALT_allele in ALT_alleles:
                     (variant_id, highest_impact, block_id, novel_variant_id,
@@ -533,9 +567,14 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None):
                             "error: invalid GT {GT} @ {CHROM}-{POS}-{REF}"
                             "-{ALT}".format(GT=calls_stats["GT"], **fields))
                     call["GT"] = sum(GTs)
-                    AD_REF, AD_ALT = call_stats["AD"].split(",")
-                    call["AD_REF"] = AD_REF
-                    call["AD_ALT"] = AD_ALT
+                    if "AD" in call_stats:
+                        AD_REF, AD_ALT = call_stats["AD"].split(",")
+                        call["AD_REF"] = AD_REF
+                        call["AD_ALT"] = AD_ALT
+                    else:
+                        # these are not present in MNPs
+                        call["AD_REF"] = "\\N"
+                        call["AD_ALT"] = "\\N"
                     try:
                         gg = VARIANT_CALL_FORMAT.format(
                             **merge_dicts(call, INFO)) + "\n"
