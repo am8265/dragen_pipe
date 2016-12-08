@@ -376,7 +376,7 @@ def output_novel_variant_entry(
         has_high_quality_call=int(high_quality_call)) + "\n")
 
 def parse_vcf(vcf, CHROM, sample_id, output_base, 
-              chromosome_length=None, ParseVCF_instance=None):
+              chromosome_length=None):
     logger = logging.getLogger(__name__)
     logger.info("starting CHROM {}\n".format(CHROM))
     line_count = 0
@@ -423,9 +423,6 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                 open(calls, "w") as calls_fh, \
                 open(variant_id_vcf, "w") as vcf_out, \
                 open(matched_indels, "w") as matched_indels_fh:
-            if ParseVCF_instance:
-                last_POS_update = -1
-                chromosome_len = chromosome_length / 1000000
             for x, line_fields in enumerate(vcf_tabix.querys(CHROM)):
                 fields = VCF_fields_dict(line_fields)
                 if fields["CHROM"] != CHROM:
@@ -434,15 +431,6 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                         "{CHROM} was expected".format(
                             CHROM=CHROM, chromosome=fields["CHROM"]))
                 POS = int(fields["POS"])
-                if ParseVCF_instance:
-                    current_POS = POS / 1000000
-                    if (current_POS - last_POS_update) >= 1:
-                        # update status every million bases
-                        last_POS_update = current_POS
-                        ParseVCF_instance.set_status_message = (
-                            "Progress: {current_POS}/{chromosome_len}".format(
-                                current_POS=current_POS,
-                                chromosome_len=chromosome_len))
                 INFO = create_INFO_dict(fields["INFO"])
                 if fields["FILTER"] == "PASS":
                     INFO["FILTER"] = "PASS"

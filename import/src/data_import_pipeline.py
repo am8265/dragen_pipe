@@ -225,7 +225,7 @@ class ParseVCF(SGEJobTask):
             vcf=self.copied_files_dict["vcf"],
             CHROM=self.chromosome, sample_id=self.sample_id,
             output_base=self.output_base,
-            chromosome_length=CHROMs[self.chromosome], ParseVCF_instance=self)
+            chromosome_length=CHROMs[self.chromosome])
         for fn in (self.novel_variants, self.novel_transcripts,
                    self.called_variants, self.variant_id_vcf,
                    self.matched_indels):
