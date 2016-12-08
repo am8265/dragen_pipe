@@ -80,9 +80,11 @@ AMINO_ACIDS = dict(
         "Trp", #W
         "Tyr" #Y
     ))])
-# the regex SnpEff follows for outputting missense changes
-HGVS_P_PATTERN = (r"p\.[A-Z][a-z]{2}(?P<codon_position>\d+)"
-                  "(?P<amino_acid_change>[A-Z][a-z]{2})")
+# the regex SnpEff follows for outputting missense changes, allowing for more
+# than change due to MNPs
+HGVS_P_PATTERN = (
+    r"^p.(?:[A-Z][a-z]{2})+(?P<codon_position>\d+)"
+    r"(?P<amino_acid_changes>[A-Z][a-z]{2})+$")
 POLYPHEN_PROB_BITMASK = 2 ** 10 - 1
 
 def get_fh(fn, mode="r"):
