@@ -375,8 +375,7 @@ def output_novel_variant_entry(
         indel_length=indel_length,
         has_high_quality_call=int(high_quality_call)) + "\n")
 
-def parse_vcf(vcf, CHROM, sample_id, output_base, 
-              chromosome_length=None):
+def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None):
     logger = logging.getLogger(__name__)
     logger.info("starting CHROM {}\n".format(CHROM))
     line_count = 0

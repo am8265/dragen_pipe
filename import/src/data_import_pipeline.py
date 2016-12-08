@@ -407,6 +407,7 @@ class ImportSample(luigi.Task):
                 db.close()
         kwargs["output_directory"] = cfg.get("pipeline", "scratch_area").format(
             seqscratch=self.seqscratch, sample_name=sample_name,
+            prep_id=self.prep_id,
             sequencing_type=self.sequencing_type.upper())
         self.data_directory = get_data_directory(
             sample_name, self.sequencing_type, capture_kit, self.prep_id)
