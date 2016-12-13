@@ -25,16 +25,11 @@ def format_NULL_value(value):
     """
     return value if value else "\\N"
 
-def call_is_high_quality(QUAL, MQ, FILTER, DP=None):
+def call_is_high_quality(QUAL, MQ, FILTER, DP):
     """return whether the given call is high quality
     """
-    high_quality = (QUAL >= 30 and MQ >= 40
+    return (QUAL >= 30 and MQ >= 40 and DP >= 3
             and FILTER in ("PASS", "LIKELY", "INTERMEDIATE"))
-    if high_quality and DP is not None:
-        # there is no DP if MNP
-        high_quality = high_quality and DP >= 3
-    return high_quality
-
 def get_custom_transcript_ids(cur, CHROM):
     """return a dict of all novel transcript ids and the new value
     to begin using
@@ -480,13 +475,13 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None):
                         fields["FILTER"], x))
                 call_stats = create_call_dict(fields["FORMAT"], fields["call"])
                 call = {"sample_id":sample_id, "GQ":call_stats["GQ"],
+                        "DP":call_stats["DP"],
                         "QUAL":int(round(float(fields["QUAL"])))}
-                if "DP" in call_stats:
-                    call["DP"] = call_stats["DP"]
-                else:
-                    # this should always be present except at MNP sites (for
-                    # whatever reason)
-                    call["DP"] = "\\N"
+                high_quality_call = call_is_high_quality(
+                    int(round(float(fields["QUAL"]))),
+                    int(round(float(INFO["MQ"]))) if "MQ" in INFO else 0,
+                    INFO["FILTER"],
+                    DP=int(call_stats["DP"]))
                 ALT_alleles = fields["ALT"].split(",")
                 nalleles = len(ALT_alleles)
                 if nalleles > 2:
@@ -512,11 +507,6 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None):
                         ads[1] = str(int(ads[1]) + int(ads[2]))
                         del ads[2]
                         call_stats["AD"] = ",".join(ads)
-                high_quality_call = call_is_high_quality(
-                    int(round(float(fields["QUAL"]))),
-                    int(round(float(INFO["MQ"]))) if "MQ" in INFO else 0,
-                    INFO["FILTER"],
-                    DP=int(call_stats["DP"]) if "DP" in call_stats else None)
                 variant_ids = []
                 for ALT_allele in ALT_alleles:
                     (variant_id, highest_impact, block_id, novel_variant_id,
@@ -567,14 +557,7 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None):
                             "error: invalid GT {GT} @ {CHROM}-{POS}-{REF}"
                             "-{ALT}".format(GT=calls_stats["GT"], **fields))
                     call["GT"] = sum(GTs)
-                    if "AD" in call_stats:
-                        AD_REF, AD_ALT = call_stats["AD"].split(",")
-                        call["AD_REF"] = AD_REF
-                        call["AD_ALT"] = AD_ALT
-                    else:
-                        # these are not present in MNPs
-                        call["AD_REF"] = "\\N"
-                        call["AD_ALT"] = "\\N"
+                    call["AD_REF"], call["AD_ALT"] = call_stats["AD"].split(",")
                     try:
                         gg = VARIANT_CALL_FORMAT.format(
                             **merge_dicts(call, INFO)) + "\n"
