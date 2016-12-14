@@ -38,7 +38,7 @@ def match_indel(cur, CHROM, POS, REF, ALT, indel_length):
         sequence[POS - FLANKING_SIZE - 1:POS - 1], ALT,
         sequence[POS + len_REF - 1:POS + FLANKING_SIZE - indel_length - 1]])
     for block in xrange(block_id - 1, block_id + 2):
-        if block and block in ALL_INDELS and indel_length in ALL_INDELS[block]:
+        if block in ALL_INDELS and indel_length in ALL_INDELS[block]:
             # only look in the three surrounding blocks where the length of the
             # indel is the same as the candidate novel indel
             for variant_id, db_POS, db_REF, db_ALT in ALL_INDELS[block][indel_length]:
