@@ -401,7 +401,6 @@ def output_novel_variant_entry(
 def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None):
     logger = logging.getLogger(__name__)
     logger.info("starting CHROM {}\n".format(CHROM))
-    line_count = 0
     start_time = time()
     cfg = get_cfg()
     # store the set of indel_ids for calls, because in rare circumstances there
