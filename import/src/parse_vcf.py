@@ -590,7 +590,8 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None):
                                     "unexpected phase (HP) at line count {}: {}".
                                     format(x, call_stats["HP"]))
                             if "PQ" in call_stats:
-                                call["PQ"] = call_stats["PQ"]
+                                call["PQ"] = str(int(round(float(
+                                    call_stats["PQ"]))))
                             else:
                                 call["PQ"] = "\\N"
                         else:
