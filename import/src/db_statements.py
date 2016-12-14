@@ -41,7 +41,7 @@ LOAD_TABLE = """
 LOAD DATA INFILE '{table_file}' INTO TABLE {table_name}
 """
 LOAD_MATCHED_INDELS = """
-LOAD DATA INFILE '{table_file}' INTO TABLE matched_indels
+LOAD DATA INFILE '{table_file}' IGNORE INTO TABLE matched_indels
     (CHROM, variant_id, POS, REF, ALT)
 """
 LOAD_TABLE_REPLACE = """
