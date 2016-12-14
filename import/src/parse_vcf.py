@@ -432,6 +432,8 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None):
                 modifier_impact_effect_ids.add(effect_id)
         polyphen_matrixes_by_stable_id = {"humvar":{}, "humdiv":{}}
         polyphen_stable_ids_to_ignore = {"humvar":set(), "humdiv":set()}
+        pid_variant_ids = {}
+        hp_variant_ids = {}
         novel_variants = output_base + ".novel_variants.txt"
         novel_transcripts = output_base + ".novel_transcripts.txt"
         calls = output_base + ".calls.txt"
@@ -522,6 +524,87 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None):
                     indel = len(fields["REF"]) != len(ALT_allele)
                     variant_ids.append(
                         (variant_id, block_id, highest_impact, indel))
+                if "PID" in call_stats:
+                    if len(ALT_alleles) > 1:
+                        # this is currently unsupported; throw an error until we
+                        # get such an example and can determine how to handle it
+                        raise ValueError("there are {} alternate alleles at line "
+                                         "#{} in the VCF with the PID annotation".
+                                         format(len(ALT_alleles), x))
+                    else:
+                        pid_pos, pid_ref, pid_alt = call_stats["PID"].split("_")
+                        if (pid_pos == fields["POS"] and pid_ref == fields["REF"]
+                            and pid_alt == fields["ALT"]):
+                            # new phasing block, store this variant_id
+                            pid_variant_ids[(pid_pos, pid_ref, pid_alt)] = (
+                                str(variant_ids[0][0]))
+                            call["PID_variant_id"] = "\\N"
+                            call["PGT"] = "\\N"
+                        elif (pid_pos, pid_ref, pid_alt) in pid_variant_ids:
+                            call["PID_variant_id"] = pid_variant_ids[
+                                (pid_pos, pid_ref, pid_alt)]
+                            pgt = call_stats["PGT"]
+                            if pgt in ("0|1", "1|1"):
+                                call["PGT"] = "1"
+                            elif pgt == "1|0":
+                                call["PGT"] = "0"
+                            else:
+                                raise ValueError(
+                                    "Unexpected PGT at line count {}: {}".format(
+                                        x, pgt))
+                        else:
+                            # GATK issue in which PGT refers to a tossed-out
+                            # candidate variant, which we will just treat as
+                            # unphased
+                            call["PID_variant_id"] = "\\N"
+                            call["PGT"] = "\\N"
+                else:
+                    # variant is unphased (from HaplotypeCaller)
+                    call["PID_variant_id"] = "\\N"
+                    call["PGT"] = "\\N"
+                if "HP" in call_stats:
+                    if len(ALT_alleles) > 1:
+                        # this is currently unsupported; throw an error until we
+                        # get such an example and can determine how to handle it
+                        raise ValueError("there are {} alternate alleles at line "
+                                         "#{} in the VCF with the HP annotation".
+                                         format(len(ALT_alleles), x))
+                    else:
+                        phase_one, phase_two = call_stats["HP"].split(",")
+                        hp_pos, allele_one = phase_one.split("-")
+                        _, allele_two = phase_two.split("-")
+                        if hp_pos == fields["POS"]:
+                            # new phasing block, store this variant_id
+                            hp_variant_ids[hp_pos] = str(variant_ids[0][0])
+                            call["HP_variant_id"] = "\\N"
+                            call["HP_GT"] = "\\N"
+                            call["PQ"] = "\\N"
+                        elif hp_pos in hp_variant_ids:
+                            call["HP_variant_id"] = hp_variant_ids[hp_pos]
+                            if allele_one == "1" and allele_two == "2":
+                                call["HP_GT"] = "1"
+                            elif allele_one == "2" and allele_two == "1":
+                                call["HP_GT"] = "0"
+                            else:
+                                raise ValueError(
+                                    "unexpected phase (HP) at line count {}: {}".
+                                    format(x, call_stats["HP"]))
+                            if "PQ" in call_stats:
+                                call["PQ"] = call_stats["PQ"]
+                            else:
+                                call["PQ"] = "\\N"
+                        else:
+                            logger.debug("Unexpected phasing with respect to a "
+                                         "variant that is not present at line {}".
+                                         format(x))
+                            call["HP_variant_id"] = "\\N"
+                            call["HP_GT"] = "\\N"
+                            call["PQ"] = "\\N"
+                else:
+                    # variant is unphased (from ReadBackedPhasing)
+                    call["HP_variant_id"] = "\\N"
+                    call["HP_GT"] = "\\N"
+                    call["PQ"] = "\\N"
                 for variant_stat in ("MQ", "QD"):
                     # we store these two values as ints instead of float
                     if variant_stat in INFO:
