@@ -6,7 +6,7 @@ create output tables to load into the database
 
 import zlib
 from struct import unpack
-import match_indels_chromosome
+import match_indels
 import re
 from dragen_globals import *
 from db_statements import *
@@ -170,7 +170,7 @@ def get_variant_id(novel_fh, novel_indels_fh, novel_transcripts_fh,
             # don't treat as an indel if the length of both is the same, i.e.
             # it's an MNV
             # perform indel matching
-            matched_indel_id, matched_block_id = match_indels_chromosome.match_indel(
+            matched_indel_id, matched_block_id = match_indels.match_indel(
                 cur, CHROM, POS, REF, alt, indel_length)
             if matched_indel_id is not None:
                 variant_id = matched_indel_id
@@ -195,7 +195,7 @@ def get_variant_id(novel_fh, novel_indels_fh, novel_transcripts_fh,
                 # add this indel to the matched indel set so in the corner case
                 # of a single sample having > 1 redundant indel, we only create
                 # one single novel variant
-                match_indels_chromosome.add_new_indel(
+                match_indels.add_new_indel(
                     variant_id, CHROM, POS, REF, ALT, indel_length)
         effect_ids, novel_transcripts_id = output_novel_variant(
             novel_fh, novel_indels_fh, novel_transcripts_fh, cur, variant_id,
