@@ -131,9 +131,9 @@ def calculate_polyphen_scores(
                 HGVS_p=HGVS_p, VariantID=VariantID))
     return scores
 
-def get_variant_id(novel_fh, novel_transcripts_fh, matched_indels_fh, cur,
-                   CHROM, POS, REF, ALT, rs_number, ANNs, novel_variant_id,
-                   novel_transcripts_id, effect_rankings,
+def get_variant_id(novel_fh, novel_indels_fh, novel_transcripts_fh,
+                   matched_indels_fh, cur, CHROM, POS, REF, ALT, rs_number,
+                   ANNs, novel_variant_id, novel_transcripts_id, effect_rankings,
                    high_impact_effect_ids, moderate_impact_effect_ids,
                    low_impact_effect_ids, modifier_impact_effect_ids,
                    polyphen_matrixes_by_stable_id,
@@ -198,7 +198,7 @@ def get_variant_id(novel_fh, novel_transcripts_fh, matched_indels_fh, cur,
                 match_indels_chromosome.add_new_indel(
                     variant_id, CHROM, POS, REF, ALT, indel_length)
         effect_ids, novel_transcripts_id = output_novel_variant(
-            novel_fh, novel_transcripts_fh, cur, variant_id,
+            novel_fh, novel_indels_fh, novel_transcripts_fh, cur, variant_id,
             novel_transcripts_id, CHROM, POS,
             REF, alt, indel_length, ALT, rs_number, ANNs, effect_rankings,
             polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore,
@@ -219,10 +219,10 @@ def get_variant_id(novel_fh, novel_transcripts_fh, matched_indels_fh, cur,
             novel_variant_id, novel_transcripts_id)
 
 def output_novel_variant(
-    novel_fh, novel_transcripts_fh, cur, variant_id, novel_transcripts_id, CHROM,
-    POS, REF, ALT, indel_length, original_ALT, rs_number, ANNs, effect_rankings,
-    polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore,
-    high_quality_call, custom_transcript_ids, logger,
+    novel_fh, novel_indels_fh, novel_transcripts_fh, cur, variant_id,
+    novel_transcripts_id, CHROM, POS, REF, ALT, indel_length, original_ALT,
+    rs_number, ANNs, effect_rankings, polyphen_matrixes_by_stable_id,
+    polyphen_stable_ids_to_ignore, high_quality_call, custom_transcript_ids, logger,
     impact_ordering=["HIGH", "MODERATE", "LOW", "MODIFIER"]):
     """output all entries for the novel variant to novel_fh and increment
     variant_id
@@ -233,6 +233,11 @@ def output_novel_variant(
     rs_number = ("" if rs_number == "." else
                  int(strip_prefix(re.split(";|,", rs_number)[0], "rs")))
     indel = 1 if indel_length else 0
+    if indel_length:
+        novel_indels_fh.write(
+            NOVEL_INDEL_OUTPUT_FORMAT.format(
+                variant_id=variant_id, POS=POS, REF=REF, ALT=ALT,
+                indel_length=indel_length) + "\n")
     anns = []
     for ann in ANNs.split(","):
         alt_allele, values = ann.split("|", 1)
@@ -434,6 +439,7 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None):
         pid_variant_ids = {}
         hp_variant_ids = {}
         novel_variants = output_base + ".novel_variants.txt"
+        novel_indels = output_base + ".novel_indels.txt"
         novel_transcripts = output_base + ".novel_transcripts.txt"
         calls = output_base + ".calls.txt"
         variant_id_vcf = output_base + ".variant_id.vcf"
@@ -442,6 +448,7 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None):
             cur, CHROM)
         vcf_tabix = tabix.open(vcf)
         with open(novel_variants, "w") as novel_fh, \
+                open(novel_indels, "w") as novel_indels_fh, \
                 open(novel_transcripts, "w") as novel_transcripts_fh, \
                 open(calls, "w") as calls_fh, \
                 open(variant_id_vcf, "w") as vcf_out, \
@@ -512,8 +519,8 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None):
                 for ALT_allele in ALT_alleles:
                     (variant_id, highest_impact, block_id, novel_variant_id,
                      novel_transcripts_id) = get_variant_id(
-                         novel_fh, novel_transcripts_fh, matched_indels_fh,
-                         cur, CHROM, POS, fields["REF"], ALT_allele,
+                         novel_fh, novel_indels_fh, novel_transcripts_fh,
+                         matched_indels_fh, cur, CHROM, POS, fields["REF"], ALT_allele,
                          fields["rs_number"], INFO["ANN"], novel_variant_id,
                          novel_transcripts_id, effect_rankings, high_impact_effect_ids,
                          moderate_impact_effect_ids, low_impact_effect_ids,

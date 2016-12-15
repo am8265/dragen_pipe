@@ -181,6 +181,7 @@ class ParseVCF(SGEJobTask):
             super(ParseVCF, self).__init__(*args, **kwargs)
         self.copied_files_dict = self.input().get_targets()
         self.novel_variants = self.output_base + ".novel_variants.txt"
+        self.novel_indels = self.output_base + ".novel_indels.txt"
         self.novel_transcripts = self.output_base + ".novel_transcripts.txt"
         self.called_variants = self.output_base + ".calls.txt"
         self.variant_id_vcf = self.output_base + ".variant_id.vcf"
@@ -226,7 +227,8 @@ class ParseVCF(SGEJobTask):
             CHROM=self.chromosome, sample_id=self.sample_id,
             output_base=self.output_base,
             chromosome_length=CHROMs[self.chromosome])
-        for fn in (self.novel_variants, self.novel_transcripts,
+        for fn in (self.novel_variants, self.novel_indels,
+                   self.novel_transcripts,
                    self.called_variants, self.variant_id_vcf,
                    self.matched_indels):
             if not os.path.isfile(fn):
@@ -258,10 +260,12 @@ class ParseVCF(SGEJobTask):
             seq_cur = seqdb.cursor()
             for table_name, table_file, is_variant_table in (
                 ("variant_chr" + self.chromosome, self.novel_variants, True),
+                ("indel_chr", + self.chromosome, self.novel_indels, False),
                 ("custom_transcript_ids_chr" + self.chromosome,
                  self.novel_transcripts, False),
                 ("called_variant_chr" + self.chromosome, self.called_variants,
-                 False)):
+                 False),
+                ("matched_indels", self.matched_indels, False)):
                 load_statement = (
                     LOAD_TABLE_REPLACE if is_variant_table else LOAD_TABLE)
                 load_statement = load_statement.format(
@@ -272,7 +276,6 @@ class ParseVCF(SGEJobTask):
                     logger.error(
                         "error with:\n" + load_statement, exc_info=True)
                     sys.exit(1)
-            cur.execute(LOAD_MATCHED_INDELS.format(table_file=self.matched_indels))
             cur.execute(GET_NUM_CALLS_FOR_SAMPLE.format(
                 CHROM=self.chromosome, sample_id=self.sample_id))
             db_count = cur.fetchone()[0]
