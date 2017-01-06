@@ -2636,11 +2636,12 @@ class CalculateTargetCoverage(SGEJobTask):
     def requires(self):
         if self.sample_type.lower() == 'exome':
             return self.clone(HaplotypeCaller)
-        elif self.sample_type.lower() == 'genome':
-            return self.clone(HaplotypeCaller)
         else:
             raise Exception, "Sample type: %s not supported in this module" % self.sample_type
-
+        """
+        elif self.sample_type.lower() == 'genome':
+            return self.clone(HaplotypeCaller)
+        """
     def output(self):
         self.pipeline_step_id = get_pipeline_step_id(
             self.__class__.__name__,"seqdb")
