@@ -47,9 +47,23 @@ SELECT userid
 FROM users WHERE netID = "{userName}"
 """
 GET_CAPTURE_KIT_BED = """
-SELECT chgvid,region_file_lsrc
+SELECT region_file_lsrc
 FROM captureKit ck
 JOIN prepT p ON ck.prepT_name=p.exomekit
 JOIN pseudo_prepid pp ON p.prepid=pp.prepid
 WHERE chr="all" and pseudo_prepid={pseudo_prepid}
+"""
+GET_CAPTURE_KIT = """
+SELECT name
+FROM captureKit ck
+JOIN prepT p ON ck.prepT_name=p.exomekit
+JOIN pseudo_prepid pp ON p.prepid=pp.prepid
+WHERE chr="all" and pseudo_prepid={pseudo_prepid}
+"""
+GET_PANEL_OF_NORMALS = """
+SELECT file_loc
+FROM dragen_panel_of_normals
+WHERE capture_kit="{captureKit}" AND sample_type="{sample_type}"
+"""
+GET_READ_LENGTH = """
 """
