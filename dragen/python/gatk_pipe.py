@@ -15,6 +15,7 @@ import re
 import time 
 import glob
 import warnings
+import tabix
 
 """
 Run samples through a luigized GATK pipeline after finishing the
@@ -365,6 +366,7 @@ class RealignerTargetCreator(SGEJobTask):
     def output(self):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
             pipeline_step_id=self.pipeline_step_id)
+
 
 class IndelRealigner(SGEJobTask):
     """class to create BAM with realigned BAMs"""
@@ -1761,6 +1763,8 @@ class CombineVariants(SGEJobTask):
             self.scratch_dir,self.sample_name,self.pseudo_prepid)
         self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.final_vcf = "{0}/{1}.{2}.analysisReady.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
         
         try:
             db = get_connection("seqdb")
@@ -1877,6 +1881,326 @@ class CombineVariants(SGEJobTask):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
             pipeline_step_id=self.pipeline_step_id)
 
+class RBP(SGEJobTask):
+    """ Run GATK's Read Backed Phasing
+    """
+
+    sample_name = luigi.Parameter()
+    pseudo_prepid = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    scratch = luigi.Parameter()
+
+    n_cpu = 1 
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    def __init__(self, *args, **kwargs):
+        super(RBP,self).__init__(*args,**kwargs)
+        self.scratch_dir = "{0}/{1}/{2}.{3}".format(
+            self.scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.recal_bam = "{0}/{1}.{2}.realn.recal.bam".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.deannotated_vcf = "{0}/{1}.{2}.analysisReady.deannotated.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.deannotated_vcf_gz = "{0}/{1}.{2}.analysisReady.deannotated.vcf.gz".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.annotated_vcf_gz = "{0}/{1}.{2}.analysisReady.annotated.vcf.gz".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.final_vcf = "{0}/{1}.{2}.analysisReady.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.phased_vcf = "{0}/{1}.{2}.analysisReady.phased.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.phased_vcf_gz = "{0}/{1}.{2}.analysisReady.phased.vcf.gz".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        
+        try:
+            db = get_connection("seqdb")
+            cur = db.cursor()
+            cur.execute(GET_PIPELINE_STEP_ID.format(
+                    step_name=self.__class__.__name__))
+            self.pipeline_step_id = cur.fetchone()[0]
+        finally:
+            if db.open:
+                db.close()
+
+    def work(self):
+        """ Run the actual command
+        """
+        
+        self.cmd = (
+            """ {java} -jar {gatk} -T ReadBackedPhasing -R {ref} """
+            """ -I {recal_bam} --variant {vcf} -o {phased_vcf} """
+            """ --phaseQualityThresh 20.0 --maxGenomicDistanceForMNP 2 """
+            """ --enableMergePhasedSegregatingPolymorphismsToMNP &> {log}""".format(
+                java=config().java,gatk=config().gatk,ref=config().ref,
+                recal_bam=self.recal_bam,vcf=self.final_vcf,
+                phased_vcf=self.phased_vcf,log=self.log_file))
+        
+        with open(self.script,'w') as OUT:
+                OUT.write(self.cmd)
+        
+        run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
+                     [self.cmd],self.sample_name,self.__class__.__name__)
+
+    def requires(self):
+        """ The task dependency 
+        """
+        
+        return self.clone(CombineVariants)        
+
+    def output(self):
+        """ The output from this task
+        """
+
+        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
+            pipeline_step_id=self.pipeline_step_id)
+
+class FixMergedMNPInfo(SGEJobTask):
+
+    sample_name = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    pseudo_prepid = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    scratch = luigi.Parameter()
+
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    def __init__(self,*args,**kwargs):
+        super(FixMergedMNPInfo,self).__init__(*args,**kwargs)
+        self.scratch_dir = "{0}/{1}/{2}.{3}".format(
+        self.scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+        self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
+        self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.phased_vcf = "{0}/{1}.{2}.analysisReady.phased.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.fixed_vcf = "{0}/{1}.{2}.analysisReady.fixed.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        try:
+            db = get_connection("seqdb")
+            cur = db.cursor()
+            cur.execute(GET_PIPELINE_STEP_ID.format(
+                step_name=self.__class__.__name__))
+            self.pipeline_step_id = cur.fetchone()[0]
+        finally:
+            if db.open:
+                db.close()                      
+    
+    def output(self):
+        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
+                         pipeline_step_id=self.pipeline_step_id)
+    
+    def requires(self):
+        return self.clone(RBP)
+    
+    def work(self):
+        self.LOG_FILE = open(self.log_file,'w')
+        tries = 5
+        for i in range(tries):
+            try:
+                db = get_connection("seqdb")
+                cur = db.cursor()
+                cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
+                    pseudo_prepid=self.pseudo_prepid,
+                    pipeline_step_id=self.pipeline_step_id))
+                db.commit()
+                db.close()
+            
+                self.fix_phased_vcf(self.phased_vcf,self.final_vcf,self.fixed_vcf)
+                self.LOG_FILE.close()
+                
+                ## Remove temp files
+                if os.path.isfile(self.phased_vcf):
+                    subprocess.check_call(['rm',self.phased_vcf])
+                    
+                db = get_connection("seqdb")
+                cur = db.cursor()
+                update_dragen_status(self.pseudo_prepid,self.sample_name,
+                                     self.__class__.__name__,cur)        
+                cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
+                    pseudo_prepid=self.pseudo_prepid,
+                    pipeline_step_id=self.pipeline_step_id))
+                db.commit()
+                db.close()
+                
+            except MySQLdb.Error, e:
+                if i == tries - 1:
+                    raise Exception("ERROR %d IN CONNECTION: %s"%(e,args[0],e.args[1]))
+                else:
+                    time.sleep(60)
+                    continue
+            finally:
+                if db.open:
+                    db.close()
+                break                
+        
+    def fix_phased_vcf(self,phased_vcf,deannotated_vcf_gz,fixed_vcf):
+        """ Fix the missing DP and AD fields for the phased variants
+        phased_vcf : str ; path to the phased vcf file
+        deannotated_vcf : str ; path to the deannotated vcf file(should
+        be gzipped and tabix indexed
+        """
+
+        with open(phased_vcf,'r') as PHASED_VCF, open(fixed_vcf,'w') as OUT:
+            for line in PHASED_VCF:
+                line = line.strip('\n')
+                if line[0] == '#':
+                    print >> OUT,line
+                elif self.check_dp_info(line): ## Check if DP is present in the info field
+                    print >> OUT,line
+                else:
+                    ## Check for a MNP
+                    if self.check_mnp(line):                       
+                        ## get DP,AD_ref,AD_alt
+                        chrom = line.split('\t')[0]
+                        pos = int(line.split('\t')[1])
+                        ad,dp = self.get_ad_dp_from_vcf(deannotated_vcf_gz,chrom,pos)
+                        annotations = self.get_gatk_annotations_from_vcf(
+                            deannotated_vcf_gz,chrom,pos)
+                        ## Construct a new vcf line
+                        new_line = self.construct_fixed_vcf_line(line,[ad,dp,annotations])
+                        print new_line
+                        print >> OUT,new_line
+                    else: ## A non MNP with no DP, raise an exception
+                        raise Exception("A non MNP encountered with no DP in info field")
+            
+    def construct_fixed_vcf_line(self,line,missing_vals):
+        """ Construct the line 
+        line : str ; the vcf line
+        missing_vals : [str,str,str] ; the missing dp,ad and
+        gatk annotations like ExcessHet,FS,VQSLOD,etc.
+
+        returns : the line with the missing values fixed
+        """
+
+        info_fields = line.split('\t')[-2].split(':')
+        vals = line.split('\t')[-1].split(':')
+
+        ## Insert the new tags at the correct position
+        info_fields.insert(1,'AD')
+        info_fields.insert(2,'DP')
+
+        vals.insert(1,missing_vals[0])
+        vals.insert(2,missing_vals[1])
+        
+        new_info = ':'.join(info_fields)
+        new_vals = ':'.join(vals)
+
+        ## Fix the missing GATK annotations
+        annotations = line.split('\t')[7]
+        new_annotations = annotations + ';' + missing_vals[2]
+        
+        contents = line.split('\t')
+        contents[-1] = new_vals
+        contents[-2] = new_info
+        contents[7] = new_annotations
+        
+        ## Return the fixed line
+        return '\t'.join(contents)
+                            
+    def check_dp_info(self,line):
+        """ Checks whether dp is present in the info field
+        returns True if DP is present, otherwise returns False
+        line : str ; a non header line from the vcf file
+        returns : Bool 
+        """
+
+        return ("DP" in line.split('\t')[-2].split(':'))
+    
+    def check_mnp(self,line):
+        """ Checks whether the variant is a MNP
+        returns True if it is, otherwise returns False
+
+        line : str ; a non header line from the vcf file
+
+        returns : Bool 
+        """
+
+        def check_equality(r,a):
+            return (len(r) == len(a))
+        
+        ref = line.split('\t')[3]
+        alt = line.split('\t')[4]
+        if len(ref) == 1:
+            return False
+        else:
+            if len(alt.split(',')) > 1: ## A multiallelic site
+                a1,a2 = alt.split(',')
+                if check_equality(ref,a1) or check_equality(ref,a2):
+                    raise Exception("A MNP at a multi allelic site !")
+            else:
+                return check_equality(ref,alt)                    
+
+    def get_gatk_annotations_from_vcf(self,vcf,chrom,pos):
+        """ Get GATK specific annotations like FS,VQSLOD,ExcessHet
+        which are absent in MNPs after RBP has been run
+
+        vcf : str ; path to the vcf file
+        chrom : str ; the chromosome number
+        pos : int ; the position for the variant
+        
+        returns : The annotations with the AC,AF,AN removed
+        """
+        
+        try:
+            tb = tabix.open(vcf)
+        except IOError as (errno,etrerror):
+            print >> self.LOG_FILE,"Error with tabix, could not open the vcf file"
+            " check to see if it is indexed properly"
+        except:
+            print >> self.LOG_FILE,"Something wrong with opening the indexed vcf file"
+            sys.exit(1)
+            
+        return (';'.join(list(tb.query(chrom,pos,pos))[0][7].split(';')[3:]))
+
+    
+    def get_ad_dp_from_vcf(self,vcf,chrom,pos):
+        """ Get DP, AD_REF, AD_ALT
+        from a VCF file
+
+        vcf : str ; path to the vcf file
+        chrom : str ; the chromosome number
+        pos : int ; the position for the variant
+
+        returns : [dp,ad_ref,ad_alt]
+        """
+
+        try:
+            tb = tabix.open(vcf)
+        except IOError as (errno,strerror):
+            print >> self.LOG_FILE,"Error with tabix, could not open the vcf file"
+            " check to see if it is indexed properly"
+            sys.exit(1)
+        except:
+            print >> self.LOG_FILE,"Something wrong with opening the indexed vcf file"
+            sys.exit(1)
+            
+        records = list(tb.query(chrom,pos,pos))[0]
+        
+        info_fields = records[-2].split(':')
+        values = records[-1].split(':')
+        found = 0
+        for i in range(0,len(info_fields)):
+            if info_fields[i] == 'DP':
+                dp = values[i]
+                found+=1
+            if info_fields[i] == 'AD':
+                ad = values[i]  ## How to deal with multi allelic sites ? 
+                found+=1
+
+        if found != 2:
+            raise Exception("Could not parse the vcf to get DP/AD info for "
+                            "the phased variants")
+
+        return [ad,dp]
+
+
 class AnnotateVCF(SGEJobTask):
 
     sample_name = luigi.Parameter()
@@ -1897,7 +2221,7 @@ class AnnotateVCF(SGEJobTask):
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
         self.snp_filtered = "{0}/{1}.{2}.snp.filtered.vcf".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid)
-        self.final_vcf = "{0}/{1}.{2}.analysisReady.vcf".format(
+        self.fixed_vcf = "{0}/{1}.{2}.analysisReady.fixed.vcf".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid)
         self.annotated_vcf = "{0}/{1}.{2}.analysisReady.annotated.vcf".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid)
@@ -1924,11 +2248,11 @@ class AnnotateVCF(SGEJobTask):
             self.scratch_dir,self.sample_name,self.pseudo_prepid)
         
         annotate_rsids_cmd = ("{java} -jar {snpSift} annotate "
-                              "{dbsnp} {final_vcf} 2>> {error_file} 1> {temp_vcf}"
+                              "{dbsnp} {fixed_vcf} 2>> {error_file} 1> {temp_vcf}"
                              ).format(java=config().java,
                                       snpSift=config().snpSift,
                                       dbsnp = config().annotatedbSNP,
-                                      final_vcf = self.final_vcf,
+                                      fixed_vcf = self.fixed_vcf,
                                       error_file = self.log_file,
                                       temp_vcf = self.temp_vcf)
         
@@ -2006,6 +2330,7 @@ class AnnotateVCF(SGEJobTask):
     def output(self):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
             pipeline_step_id=self.pipeline_step_id)
+
 
 class CleanDirectory(SGEJobTask):
     """ For samples which have already been archived , the pipeline will be rerun on fastq16 itself,
@@ -3333,7 +3658,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         self.geno_concordance_out = os.path.join(self.sample_dir,"{0}.{1}.genotype_concordance_metrics".format(self.sample_name,self.pseudo_prepid))
         self.contamination_out = os.path.join(self.sample_dir,"{0}.{1}.contamination.selfSM".format(self.sample_name,self.pseudo_prepid))
         ## The qc table to update
-        self.qc_table = "dragenQCMetrics"
+        self.qc_table = "dragen_qc_metrics"
         ## The new lean equivalent of seqdbClone 
         self.master_table = "seqdbClone"
         self.DBID,self.prepID = getDBIDMaxPrepID(self.pseudo_prepid)        
