@@ -130,7 +130,8 @@ std::tuple< std::vector < std::vector<int> > , std::vector < std::vector<std::st
     std::vector<std::string> temp_store;
     int info_len; // Length of the info field     
     std::vector<std::string> elements; // For storing the split contents of a gvcf/vcf line 
-    
+    std::vector<std::string> chroms{"1","2","3","4","5","6","7","8","9","10",
+	    "11","12","13","14","15","16","17","18","19","20","21","22"};
   
     if (infile)
     {
@@ -142,13 +143,12 @@ std::tuple< std::vector < std::vector<int> > , std::vector < std::vector<std::st
 	    else
 	    {
 		elements = split_line(line,'\t');
-		
 		chrom = elements[0];
-		if (chrom == "X" or chrom == "Y" or chrom == "MT")
+		if (std::find(chroms.begin(),chroms.end(),chrom) != chroms.end() == false)
 		    continue;
 		if (chrom != prev_chrom)
 		    i = 0;
-
+		
 		pos = std::atoi(elements[1].c_str());
 		if (elements[3].length() > 1) //
 		    ref = "0";

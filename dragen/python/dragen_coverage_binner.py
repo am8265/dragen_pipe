@@ -38,7 +38,7 @@ def coverage_to_letter(coverage):
         return 'd'
     elif(coverage < 40):
         return 'e'
-    elif(coverage < 40):
+    elif(coverage < 50):
         return 'f'
     elif(coverage < 60):
         return 'g'
@@ -64,7 +64,7 @@ def coverage_to_letter(coverage):
         return 'q'
     else:
         return 'r'
-
+      
 def bin_coverage_to_letter(coverage_val, coverage_len):
     
     """ Return the printable form for the alpha-numeric coverage bins
