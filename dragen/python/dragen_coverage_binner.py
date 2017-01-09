@@ -64,8 +64,7 @@ def coverage_to_letter(coverage):
         return 'q'
     else:
         return 'r'
-
-
+      
 def bin_coverage_to_letter(coverage_val, coverage_len):
     
     """ Return the printable form for the alpha-numeric coverage bins

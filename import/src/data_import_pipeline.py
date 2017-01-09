@@ -181,6 +181,7 @@ class ParseVCF(SGEJobTask):
             super(ParseVCF, self).__init__(*args, **kwargs)
         self.copied_files_dict = self.input().get_targets()
         self.novel_variants = self.output_base + ".novel_variants.txt"
+        self.novel_indels = self.output_base + ".novel_indels.txt"
         self.novel_transcripts = self.output_base + ".novel_transcripts.txt"
         self.called_variants = self.output_base + ".calls.txt"
         self.variant_id_vcf = self.output_base + ".variant_id.vcf"
@@ -225,35 +226,33 @@ class ParseVCF(SGEJobTask):
             vcf=self.copied_files_dict["vcf"],
             CHROM=self.chromosome, sample_id=self.sample_id,
             output_base=self.output_base,
-            chromosome_length=CHROMs[self.chromosome], ParseVCF_instance=self)
-        for fn in (self.novel_variants, self.novel_transcripts,
+            chromosome_length=CHROMs[self.chromosome])
+        for fn in (self.novel_variants, self.novel_indels,
+                   self.novel_transcripts,
                    self.called_variants, self.variant_id_vcf,
                    self.matched_indels):
             if not os.path.isfile(fn):
                 raise ValueError("failed running task; {} doesn't exist".format(
                     fn=fn))
-        vcf_lines = 0
-        vcf_extra_calls = 0
-        vcf_tabix = tabix.open(self.copied_files_dict["vcf"])
-        for vcf_fields in vcf_tabix.querys(self.chromosome):
-            vcf_lines += 1
-            ALT = vcf_fields[VCF_COLUMNS_DICT["ALT"]]
-            if "," in ALT:
-                allele_one, allele_two = ALT.split(",")
-                # only increment the number of extra calls if the two alleles
-                # are actually distinct up to 255 characters
-                if allele_one[:255] != allele_two[:255]:
-                    vcf_extra_calls += 1
-        vcf_variants_count = vcf_lines + vcf_extra_calls
+        variants = set()
+        with open(self.variant_id_vcf) as vcf:
+            for line in vcf:
+                fields = VCF_fields_dict(line.split("\t"))
+                info = fields["INFO"]
+                if info.startswith("VariantID="):
+                    for variant_id in info.split(";")[0].split("=")[1].split(","):
+                        variants.add(int(variant_id))
+                else:
+                    raise ValueError("error with format of variant_id VCF at "
+                                     "{CHROM}-{POS}-{REF}-{ALT}".format(**fields))
+        vcf_variants_count = len(variants)
         calls_line_count = get_num_lines_from_vcf(
             self.called_variants, header=False)
         if vcf_variants_count != calls_line_count:
-            raise ValueError("incorrect number of variants in calls table")
-        variant_id_vcf_line_count = get_num_lines_from_vcf(
-            self.variant_id_vcf, header=False)
-        if vcf_lines != variant_id_vcf_line_count:
-            raise ValueError(
-                "incorrect number of lines in variant_id annotated VCF")
+            raise ValueError("incorrect number of variants in calls table: "
+                             "{vcf_count} in VCF, {table_count} in table".format(
+                                 vcf_count=vcf_variants_count,
+                                 table_count=calls_line_count))
         db = get_connection("dragen")
         seqdb = get_connection("seqdb")
         try:
@@ -261,6 +260,7 @@ class ParseVCF(SGEJobTask):
             seq_cur = seqdb.cursor()
             for table_name, table_file, is_variant_table in (
                 ("variant_chr" + self.chromosome, self.novel_variants, True),
+                ("indel_chr", + self.chromosome, self.novel_indels, False),
                 ("custom_transcript_ids_chr" + self.chromosome,
                  self.novel_transcripts, False),
                 ("called_variant_chr" + self.chromosome, self.called_variants,
@@ -410,6 +410,7 @@ class ImportSample(luigi.Task):
                 db.close()
         kwargs["output_directory"] = cfg.get("pipeline", "scratch_area").format(
             seqscratch=self.seqscratch, sample_name=sample_name,
+            prep_id=self.prep_id,
             sequencing_type=self.sequencing_type.upper())
         self.data_directory = get_data_directory(
             sample_name, self.sequencing_type, capture_kit, self.prep_id)

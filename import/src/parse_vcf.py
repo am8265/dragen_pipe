@@ -6,7 +6,7 @@ create output tables to load into the database
 
 import zlib
 from struct import unpack
-import match_indels_chromosome
+import match_indels
 import re
 from dragen_globals import *
 from db_statements import *
@@ -30,7 +30,6 @@ def call_is_high_quality(QUAL, MQ, FILTER, DP):
     """
     return (QUAL >= 30 and MQ >= 40 and DP >= 3
             and FILTER in ("PASS", "LIKELY", "INTERMEDIATE"))
-
 def get_custom_transcript_ids(cur, CHROM):
     """return a dict of all novel transcript ids and the new value
     to begin using
@@ -47,7 +46,7 @@ def get_custom_transcript_ids(cur, CHROM):
 
 def calculate_polyphen_scores(
     cur, transcript_stable_id, HGVS_p, VariantID,
-    polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore):
+    polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore, logger):
     """return the PolyPhen scores for the given missense variant
     """
     # cache the transcripts' matrixes for those that have them and cache the
@@ -57,50 +56,74 @@ def calculate_polyphen_scores(
     if hgvs_p_match:
         d = hgvs_p_match.groupdict()
         codon_position = int(d["codon_position"])
-        amino_acid_change = d["amino_acid_change"]
-        offset = 3 + 2 * ((codon_position - 1) * 20 +
-                          AMINO_ACIDS[amino_acid_change])
-        for polyphen_score in ("humdiv", "humvar"):
-            if (transcript_stable_id in
-                polyphen_stable_ids_to_ignore[polyphen_score]):
-                scores["polyphen_" + polyphen_score] = None
-                continue
-            if (transcript_stable_id not in
-                polyphen_matrixes_by_stable_id[polyphen_score]):
-                cur.execute(GET_TRANSLATION_MD5_ID.format(
-                    stable_id=transcript_stable_id))
-                md5_id_row = cur.fetchone()
-                if md5_id_row:
-                    translation_md5_id = md5_id_row[0]
-                else:
-                    polyphen_stable_ids_to_ignore[polyphen_score].add(
-                        transcript_stable_id)
+        amino_acid_changes = d["amino_acid_changes"]
+        len_amino_acid_changes = len(amino_acid_changes)
+        if len_amino_acid_changes % 3:
+            raise ValueError("{VariantID} has an amino acid change length not "
+                             "divisible by 3: {HGVS_p}".format(
+                                 VariantID=VariantID, HGVS_p=HGVS_p))
+        num_amino_acid_changes = len_amino_acid_changes / 3
+        if num_amino_acid_changes != 0:
+            logger.debug("Encountered multiple impacted amino acids for "
+                         "{VariantID}: {HGVS_p}".format(
+                             VariantID=VariantID, HGVS_p=HGVS_p))
+        max_polyphen_scores = {"humdiv":None, "humvar":None}
+        for offset in xrange(num_amino_acid_changes):
+            matrix_offset = (3 + 2 * ((codon_position + offset - 1) * 20 +
+                                      AMINO_ACIDS[amino_acid_changes[
+                                          offset * 3:(offset + 1) * 3]]))
+            for polyphen_score in ("humdiv", "humvar"):
+                if (transcript_stable_id in
+                    polyphen_stable_ids_to_ignore[polyphen_score]):
                     scores["polyphen_" + polyphen_score] = None
                     continue
-                cur.execute(GET_POLYPHEN_PREDICTION_MATRIX.format(
-                    translation_md5_id=translation_md5_id,
-                    attrib_id=POLYPHEN_ATTRIB_ID[polyphen_score]))
-                polyphen_matrix_row = cur.fetchone()
-                if polyphen_matrix_row:
-                    polyphen_matrixes_by_stable_id[polyphen_score][
-                        transcript_stable_id] = (
-                            zlib.decompress(polyphen_matrix_row[0],
-                                            16 + zlib.MAX_WBITS))
-                else:
-                    polyphen_stable_ids_to_ignore[polyphen_score].add(
-                        transcript_stable_id)
-                    scores["polyphen_" + polyphen_score] = None
-                    continue
-                packed_score = polyphen_matrixes_by_stable_id[polyphen_score][
-                    transcript_stable_id][offset:offset + 2]
-                unpacked_value = unpack("H", packed_score)[0]
-                prediction = int(unpacked_value >> 14)
-                if prediction == 3:
-                    # encodes "UNKNOWN" score, so we'll just store NULL
-                    scores["polyphen_" + polyphen_score] = None
-                    continue
-                scores["polyphen_" + polyphen_score] = (
-                    unpacked_value & POLYPHEN_PROB_BITMASK)
+                if (transcript_stable_id not in
+                    polyphen_matrixes_by_stable_id[polyphen_score]):
+                    cur.execute(GET_TRANSLATION_MD5_ID.format(
+                        stable_id=transcript_stable_id))
+                    md5_id_row = cur.fetchone()
+                    if md5_id_row:
+                        translation_md5_id = md5_id_row[0]
+                    else:
+                        logger.debug("Could not find {transcript_stable_id}'s "
+                                     "MD5 translation ID".format(
+                                         transcript_stable_id=transcript_stable_id))
+                        polyphen_stable_ids_to_ignore[polyphen_score].add(
+                            transcript_stable_id)
+                        scores["polyphen_" + polyphen_score] = None
+                        continue
+                    cur.execute(GET_POLYPHEN_PREDICTION_MATRIX.format(
+                        translation_md5_id=translation_md5_id,
+                        attrib_id=POLYPHEN_ATTRIB_ID[polyphen_score]))
+                    polyphen_matrix_row = cur.fetchone()
+                    if polyphen_matrix_row:
+                        polyphen_matrixes_by_stable_id[polyphen_score][
+                            transcript_stable_id] = (
+                                zlib.decompress(polyphen_matrix_row[0],
+                                                16 + zlib.MAX_WBITS))
+                    else:
+                        logger.debug("Could not find {transcript_stable_id}'s "
+                                     "PolyPhen-2 {score} matrix".format(
+                                         transcript_stable_id=transcript_stable_id,
+                                         score=polyphen_score))
+                        polyphen_stable_ids_to_ignore[polyphen_score].add(
+                            transcript_stable_id)
+                        scores["polyphen_" + polyphen_score] = None
+                        continue
+                    packed_score = polyphen_matrixes_by_stable_id[polyphen_score][
+                        transcript_stable_id][matrix_offset:matrix_offset + 2]
+                    unpacked_value = unpack("H", packed_score)[0]
+                    prediction = int(unpacked_value >> 14)
+                    if prediction == 3:
+                        # encodes "UNKNOWN" score, so we'll just store NULL
+                        continue
+                    max_polyphen_scores[polyphen_score] = max(
+                        max_polyphen_scores[polyphen_score],
+                        unpacked_value & POLYPHEN_PROB_BITMASK)
+        # set to the max in the affected interval to accommodate for an MNP
+        # potentially altering multiple amino acids
+        scores["polyphen_humdiv"] = max_polyphen_scores["humdiv"]
+        scores["polyphen_humvar"] = max_polyphen_scores["humvar"]
     else:
         raise ValueError(
             "error: could not parse HGVS_p {HGVS_p} for "
@@ -108,9 +131,9 @@ def calculate_polyphen_scores(
                 HGVS_p=HGVS_p, VariantID=VariantID))
     return scores
 
-def get_variant_id(novel_fh, novel_transcripts_fh, matched_indels_fh, cur,
-                   CHROM, POS, REF, ALT, rs_number, ANNs, novel_variant_id,
-                   novel_transcripts_id, effect_rankings,
+def get_variant_id(novel_fh, novel_indels_fh, novel_transcripts_fh,
+                   matched_indels_fh, cur, CHROM, POS, REF, ALT, rs_number,
+                   ANNs, novel_variant_id, novel_transcripts_id, effect_rankings,
                    high_impact_effect_ids, moderate_impact_effect_ids,
                    low_impact_effect_ids, modifier_impact_effect_ids,
                    polyphen_matrixes_by_stable_id,
@@ -147,23 +170,35 @@ def get_variant_id(novel_fh, novel_transcripts_fh, matched_indels_fh, cur,
             # don't treat as an indel if the length of both is the same, i.e.
             # it's an MNV
             # perform indel matching
-            matched_indel_id, matched_block_id = match_indels_chromosome.match_indel(
+            matched_indel_id, matched_block_id = match_indels.match_indel(
                 cur, CHROM, POS, REF, alt, indel_length)
             if matched_indel_id is not None:
-                matched_indels_fh.write(MATCHED_INDEL_OUTPUT_FORMAT.format(
-                    CHROM=CHROM, variant_id=matched_indel_id, REF=REF, ALT=ALT))
                 variant_id = matched_indel_id
                 block_id = matched_block_id
                 novel = False
                 cur.execute(GET_VARIANT_EFFECTS.format(
                     CHROM=CHROM, variant_id=variant_id))
                 effect_ids = [row[0] for row in cur.fetchall()]
+                # check if this matched indel is already in the matched_indels
+                # table
+                cur.execute(MATCHED_INDEL_EXISTS.format(
+                    CHROM=CHROM, POS=POS, REF=REF, ALT=ALT))
+                if not cur.fetchone():
+                    matched_indels_fh.write(MATCHED_INDEL_OUTPUT_FORMAT.format(
+                        CHROM=CHROM, variant_id=variant_id,
+                        POS=POS, REF=REF, ALT=ALT))
     if novel:
         if update_novel_variant_id:
             variant_id = novel_variant_id
             novel_variant_id += 1
+            if indel_length:
+                # add this indel to the matched indel set so in the corner case
+                # of a single sample having > 1 redundant indel, we only create
+                # one single novel variant
+                match_indels.add_new_indel(
+                    variant_id, CHROM, POS, REF, ALT, indel_length)
         effect_ids, novel_transcripts_id = output_novel_variant(
-            novel_fh, novel_transcripts_fh, cur, variant_id,
+            novel_fh, novel_indels_fh, novel_transcripts_fh, cur, variant_id,
             novel_transcripts_id, CHROM, POS,
             REF, alt, indel_length, ALT, rs_number, ANNs, effect_rankings,
             polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore,
@@ -184,10 +219,10 @@ def get_variant_id(novel_fh, novel_transcripts_fh, matched_indels_fh, cur,
             novel_variant_id, novel_transcripts_id)
 
 def output_novel_variant(
-    novel_fh, novel_transcripts_fh, cur, variant_id, novel_transcripts_id, CHROM,
-    POS, REF, ALT, indel_length, original_ALT, rs_number, ANNs, effect_rankings,
-    polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore,
-    high_quality_call, custom_transcript_ids, logger,
+    novel_fh, novel_indels_fh, novel_transcripts_fh, cur, variant_id,
+    novel_transcripts_id, CHROM, POS, REF, ALT, indel_length, original_ALT,
+    rs_number, ANNs, effect_rankings, polyphen_matrixes_by_stable_id,
+    polyphen_stable_ids_to_ignore, high_quality_call, custom_transcript_ids, logger,
     impact_ordering=["HIGH", "MODERATE", "LOW", "MODIFIER"]):
     """output all entries for the novel variant to novel_fh and increment
     variant_id
@@ -198,6 +233,11 @@ def output_novel_variant(
     rs_number = ("" if rs_number == "." else
                  int(strip_prefix(re.split(";|,", rs_number)[0], "rs")))
     indel = 1 if indel_length else 0
+    if indel_length:
+        novel_indels_fh.write(
+            NOVEL_INDEL_OUTPUT_FORMAT.format(
+                variant_id=variant_id, POS=POS, REF=REF, ALT=ALT,
+                indel_length=indel_length) + "\n")
     anns = []
     for ann in ANNs.split(","):
         alt_allele, values = ann.split("|", 1)
@@ -312,7 +352,7 @@ def output_novel_variant(
                             calculate_polyphen_scores(
                                 cur, feature_id, HGVS_p, VariantID,
                                 polyphen_matrixes_by_stable_id,
-                                polyphen_stable_ids_to_ignore))
+                                polyphen_stable_ids_to_ignore, logger))
         for feature_id, effects in annotations_by_transcript.iteritems():
             if "splice_region_variant" in effects:
                 if "missense_variant" in effects:
@@ -363,13 +403,15 @@ def output_novel_variant_entry(
         indel_length=indel_length,
         has_high_quality_call=int(high_quality_call)) + "\n")
 
-def parse_vcf(vcf, CHROM, sample_id, output_base, 
-              chromosome_length=None, ParseVCF_instance=None):
+def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None):
     logger = logging.getLogger(__name__)
     logger.info("starting CHROM {}\n".format(CHROM))
-    line_count = 0
     start_time = time()
     cfg = get_cfg()
+    # store the set of indel_ids for calls, because in rare circumstances there
+    # are multiple entries for the same indel
+    # (because of repetitive genome/indel matching)
+    indel_ids = set()
     db = get_connection("dragen")
     try:
         cur = db.cursor()
@@ -394,7 +436,10 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                 modifier_impact_effect_ids.add(effect_id)
         polyphen_matrixes_by_stable_id = {"humvar":{}, "humdiv":{}}
         polyphen_stable_ids_to_ignore = {"humvar":set(), "humdiv":set()}
+        pid_variant_ids = {}
+        hp_variant_ids = {}
         novel_variants = output_base + ".novel_variants.txt"
+        novel_indels = output_base + ".novel_indels.txt"
         novel_transcripts = output_base + ".novel_transcripts.txt"
         calls = output_base + ".calls.txt"
         variant_id_vcf = output_base + ".variant_id.vcf"
@@ -403,13 +448,11 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
             cur, CHROM)
         vcf_tabix = tabix.open(vcf)
         with open(novel_variants, "w") as novel_fh, \
+                open(novel_indels, "w") as novel_indels_fh, \
                 open(novel_transcripts, "w") as novel_transcripts_fh, \
                 open(calls, "w") as calls_fh, \
                 open(variant_id_vcf, "w") as vcf_out, \
                 open(matched_indels, "w") as matched_indels_fh:
-            if ParseVCF_instance:
-                last_POS_update = -1
-                chromosome_len = chromosome_length / 1000000
             for x, line_fields in enumerate(vcf_tabix.querys(CHROM)):
                 fields = VCF_fields_dict(line_fields)
                 if fields["CHROM"] != CHROM:
@@ -418,15 +461,6 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                         "{CHROM} was expected".format(
                             CHROM=CHROM, chromosome=fields["CHROM"]))
                 POS = int(fields["POS"])
-                if ParseVCF_instance:
-                    current_POS = POS / 1000000
-                    if (current_POS - last_POS_update) >= 1:
-                        # update status every million bases
-                        last_POS_update = current_POS
-                        ParseVCF_instance.set_status_message = (
-                            "Progress: {current_POS}/{chromosome_len}".format(
-                                current_POS=current_POS,
-                                chromosome_len=chromosome_len))
                 INFO = create_INFO_dict(fields["INFO"])
                 if fields["FILTER"] == "PASS":
                     INFO["FILTER"] = "PASS"
@@ -449,7 +483,13 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                         fields["FILTER"], x))
                 call_stats = create_call_dict(fields["FORMAT"], fields["call"])
                 call = {"sample_id":sample_id, "GQ":call_stats["GQ"],
-                        "QUAL":fields["QUAL"], "DP":call_stats["DP"]}
+                        "DP":call_stats["DP"],
+                        "QUAL":int(round(float(fields["QUAL"])))}
+                high_quality_call = call_is_high_quality(
+                    int(round(float(fields["QUAL"]))),
+                    int(round(float(INFO["MQ"]))) if "MQ" in INFO else 0,
+                    INFO["FILTER"],
+                    DP=int(call_stats["DP"]))
                 ALT_alleles = fields["ALT"].split(",")
                 nalleles = len(ALT_alleles)
                 if nalleles > 2:
@@ -475,31 +515,124 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                         ads[1] = str(int(ads[1]) + int(ads[2]))
                         del ads[2]
                         call_stats["AD"] = ",".join(ads)
-                high_quality_call = call_is_high_quality(
-                    float(fields["QUAL"]), float(INFO["MQ"]) if "MQ" in INFO else 0,
-                    INFO["FILTER"], int(call["DP"]))
                 variant_ids = []
                 for ALT_allele in ALT_alleles:
                     (variant_id, highest_impact, block_id, novel_variant_id,
                      novel_transcripts_id) = get_variant_id(
-                         novel_fh, novel_transcripts_fh, matched_indels_fh,
-                         cur, CHROM, POS, fields["REF"], ALT_allele,
+                         novel_fh, novel_indels_fh, novel_transcripts_fh,
+                         matched_indels_fh, cur, CHROM, POS, fields["REF"], ALT_allele,
                          fields["rs_number"], INFO["ANN"], novel_variant_id,
                          novel_transcripts_id, effect_rankings, high_impact_effect_ids,
                          moderate_impact_effect_ids, low_impact_effect_ids,
                          modifier_impact_effect_ids, polyphen_matrixes_by_stable_id,
                          polyphen_stable_ids_to_ignore, high_quality_call,
                          custom_transcript_ids, logger)
-                    variant_ids.append((variant_id, block_id, highest_impact))
+                    indel = len(fields["REF"]) != len(ALT_allele)
+                    variant_ids.append(
+                        (variant_id, block_id, highest_impact, indel))
+                if "PID" in call_stats:
+                    if len(ALT_alleles) > 1:
+                        # this is currently unsupported; throw an error until we
+                        # get such an example and can determine how to handle it
+                        raise ValueError("there are {} alternate alleles at line "
+                                         "#{} in the VCF with the PID annotation".
+                                         format(len(ALT_alleles), x))
+                    else:
+                        pid_pos, pid_ref, pid_alt = call_stats["PID"].split("_")
+                        if (pid_pos == fields["POS"] and pid_ref == fields["REF"]
+                            and pid_alt == fields["ALT"]):
+                            # new phasing block, store this variant_id
+                            pid_variant_ids[(pid_pos, pid_ref, pid_alt)] = (
+                                str(variant_ids[0][0]))
+                            call["PID_variant_id"] = "\\N"
+                            call["PGT"] = "\\N"
+                        elif (pid_pos, pid_ref, pid_alt) in pid_variant_ids:
+                            call["PID_variant_id"] = pid_variant_ids[
+                                (pid_pos, pid_ref, pid_alt)]
+                            pgt = call_stats["PGT"]
+                            if pgt in ("0|1", "1|1"):
+                                call["PGT"] = "1"
+                            elif pgt == "1|0":
+                                call["PGT"] = "0"
+                            else:
+                                raise ValueError(
+                                    "Unexpected PGT at line count {}: {}".format(
+                                        x, pgt))
+                        else:
+                            # GATK issue in which PGT refers to a tossed-out
+                            # candidate variant, which we will just treat as
+                            # unphased
+                            call["PID_variant_id"] = "\\N"
+                            call["PGT"] = "\\N"
+                else:
+                    # variant is unphased (from HaplotypeCaller)
+                    call["PID_variant_id"] = "\\N"
+                    call["PGT"] = "\\N"
+                if "HP" in call_stats:
+                    if len(ALT_alleles) > 1:
+                        # this is currently unsupported; throw an error until we
+                        # get such an example and can determine how to handle it
+                        raise ValueError("there are {} alternate alleles at line "
+                                         "#{} in the VCF with the HP annotation".
+                                         format(len(ALT_alleles), x))
+                    else:
+                        phase_one, phase_two = call_stats["HP"].split(",")
+                        hp_pos, allele_one = phase_one.split("-")
+                        _, allele_two = phase_two.split("-")
+                        if hp_pos == fields["POS"]:
+                            # new phasing block, store this variant_id
+                            hp_variant_ids[hp_pos] = str(variant_ids[0][0])
+                            call["HP_variant_id"] = "\\N"
+                            call["HP_GT"] = "\\N"
+                            call["PQ"] = "\\N"
+                        elif hp_pos in hp_variant_ids:
+                            call["HP_variant_id"] = hp_variant_ids[hp_pos]
+                            if allele_one == "1" and allele_two == "2":
+                                call["HP_GT"] = "1"
+                            elif allele_one == "2" and allele_two == "1":
+                                call["HP_GT"] = "0"
+                            else:
+                                raise ValueError(
+                                    "unexpected phase (HP) at line count {}: {}".
+                                    format(x, call_stats["HP"]))
+                            if "PQ" in call_stats:
+                                call["PQ"] = str(int(round(float(
+                                    call_stats["PQ"]))))
+                            else:
+                                call["PQ"] = "\\N"
+                        else:
+                            logger.debug("Unexpected phasing with respect to a "
+                                         "variant that is not present at line {}".
+                                         format(x))
+                            call["HP_variant_id"] = "\\N"
+                            call["HP_GT"] = "\\N"
+                            call["PQ"] = "\\N"
+                else:
+                    # variant is unphased (from ReadBackedPhasing)
+                    call["HP_variant_id"] = "\\N"
+                    call["HP_GT"] = "\\N"
+                    call["PQ"] = "\\N"
+                for variant_stat in ("MQ", "QD"):
+                    # we store these two values as ints instead of float
+                    if variant_stat in INFO:
+                        INFO[variant_stat] = int(round(float(INFO[variant_stat])))
                 for variant_stat in (
-                    "FS", "MQ", "QD", "ReadPosRankSum", "MQRankSum"):
+                    "FS", "MQ", "QD", "ReadPosRankSum", "MQRankSum", "VQSLOD"):
                     if variant_stat not in INFO:
                         # NULL value for loading
                         INFO[variant_stat] = "\\N"
                 if nalleles == 1:
-                    call["variant_id"] = variant_ids[0][0]
-                    call["block_id"] = variant_ids[0][1]
-                    call["highest_impact"] = variant_ids[0][2]
+                    (call["variant_id"], call["block_id"],
+                     call["highest_impact"], indel) = variant_ids[0]
+                    output_call = True
+                    if indel:
+                        if call["variant_id"] in indel_ids:
+                            # skip outputting this call, because this is a
+                            # matched indel which we already output
+                            output_call = False
+                        else:
+                            indel_ids.add(call["variant_id"])
+                if nalleles == 1 and output_call:
                     GTs = call_stats["GT"].split("/")
                     if len(GTs) == 2:
                         for x, GT in enumerate(GTs):
@@ -514,9 +647,7 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                             "error: invalid GT {GT} @ {CHROM}-{POS}-{REF}"
                             "-{ALT}".format(GT=calls_stats["GT"], **fields))
                     call["GT"] = sum(GTs)
-                    AD_REF, AD_ALT = call_stats["AD"].split(",")
-                    call["AD_REF"] = AD_REF
-                    call["AD_ALT"] = AD_ALT
+                    call["AD_REF"], call["AD_ALT"] = call_stats["AD"].split(",")
                     try:
                         gg = VARIANT_CALL_FORMAT.format(
                             **merge_dicts(call, INFO)) + "\n"
@@ -526,7 +657,7 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                         pprint(INFO)
                         raise
                     calls_fh.write(gg)
-                else:
+                elif nalleles != 1:
                     if call_stats["GT"] == "1/2":
                         call["GT"] = 1
                     else:
@@ -535,7 +666,12 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                             "-{ALT}".format(GT=call_stats["GT"], **fields))
                     ADs = call_stats["AD"].split(",")
                     call["AD_REF"] = ADs[0]
-                    for x, (variant_id, block_id, highest_impact) in enumerate(variant_ids):
+                    for x, (variant_id, block_id, highest_impact, indel) in enumerate(variant_ids):
+                        if indel:
+                            if variant_id in indel_ids:
+                                continue
+                            else:
+                                indel_ids.add(variant_id)
                         calls_fh.write(VARIANT_CALL_FORMAT.format(
                             **merge_dicts(
                                 call, {"AD_ALT":ADs[1 + x], "variant_id":variant_id,

@@ -44,15 +44,19 @@ VALID_GTS = set(["0", "1"]) # valid values in GT field, i.e. REF/ALT
 # the table format to output for calls
 VARIANT_CALL_FORMAT = ("{" + "}\t{".join(
     ["sample_id", "variant_id", "block_id", "GT", "DP", "AD_REF",
-     "AD_ALT", "GQ",# "VQSLOD",
+     "AD_ALT", "GQ", "VQSLOD",
      "FS", "MQ", "QD", "QUAL", "ReadPosRankSum",
-     "MQRankSum", "FILTER", "highest_impact"]) + "}")
+     "MQRankSum", "FILTER", "highest_impact", "PID_variant_id", "PGT",
+     "HP_variant_id", "HP_GT", "PQ"]) + "}")
 NOVEL_VARIANT_OUTPUT_FORMAT = (
     "{" + "}\t{".join(
         ["variant_id", "POS", "REF", "ALT", "rs_number", "transcript_stable_id",
          "effect_id", "HGVS_c", "HGVS_p", "polyphen_humdiv",
          "polyphen_humvar", "gene", "indel", "indel_length",
          "has_high_quality_call"]) + "}")
+NOVEL_INDEL_OUTPUT_FORMAT = (
+    "{" + "}\t{".join(
+        ["variant_id", "POS", "REF", "ALT", "indel_length"]) + "}")
 MATCHED_INDEL_OUTPUT_FORMAT = (
     "{CHROM}\t{variant_id}\t{POS}\t{REF}\t{ALT}")
 POLYPHEN_ATTRIB_ID = {"humvar":268, "humdiv":269}
@@ -80,9 +84,11 @@ AMINO_ACIDS = dict(
         "Trp", #W
         "Tyr" #Y
     ))])
-# the regex SnpEff follows for outputting missense changes
-HGVS_P_PATTERN = (r"p\.[A-Z][a-z]{2}(?P<codon_position>\d+)"
-                  "(?P<amino_acid_change>[A-Z][a-z]{2})")
+# the regex SnpEff follows for outputting missense changes, allowing for more
+# than change due to MNPs
+HGVS_P_PATTERN = (
+    r"^p.(?:[A-Z][a-z]{2})+(?P<codon_position>\d+)"
+    r"(?P<amino_acid_changes>[A-Z][a-z]{2})+$")
 POLYPHEN_PROB_BITMASK = 2 ** 10 - 1
 
 def get_fh(fn, mode="r"):

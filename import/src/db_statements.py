@@ -44,9 +44,13 @@ LOAD_TABLE_REPLACE = """
 LOAD DATA INFILE '{table_file}' REPLACE INTO TABLE {table_name}
 """
 GET_ALL_INDELS = """
-SELECT DISTINCT variant_id, POS, REF, ALT, indel_length
-FROM variant_chr{CHROM}
-WHERE indel = 1
+SELECT variant_id, POS, REF, ALT, indel_length
+FROM indel_chr{CHROM}
+"""
+MATCHED_INDEL_EXISTS = """
+SELECT id
+FROM matched_indels
+WHERE CHROM = {CHROM} AND POS = {POS} AND REF = "{REF}" AND ALT = "{ALT}"
 """
 GET_TRANSLATION_MD5_ID = """
 SELECT translation_md5_id
