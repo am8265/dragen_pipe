@@ -21,11 +21,25 @@ sequence_by_chromosome = {}
 chromosome_lengths = {}
 logger = logging.getLogger(__name__)
 
-def add_new_indel(variant_id, CHROM, POS, REF, ALT, indel_length):
-    """add a new indel to the indel set
+def get_allele_in_reference_genome(CHROM, POS, REF):
+    """get the actual reference allele at the site per the reference genome, for
+    either ensuring an added indel is not wrong, or that we don't try to match
+    an incorrectly located indel
     """
-    ALL_INDELS[CHROM][POS / FLANKING_SIZE][indel_length].append(
-        (variant_id, POS, REF, ALT))
+    return sequence_by_chromosome[CHROM][POS - 1:POS + len(REF) - 1]
+
+def add_new_indel(variant_id, CHROM, POS, REF, ALT, indel_length):
+    """add a new indel to the indel set (if it is not incorrectly positioned)
+    """
+    reference_genome_ref = get_allele_in_reference_genome(CHROM, POS, REF)
+    if reference_genome_ref == REF:
+        ALL_INDELS[CHROM][POS / FLANKING_SIZE][indel_length].append(
+            (variant_id, POS, REF, ALT))
+    else:
+        logger.warning("REF is wrong for variant {CHROM}-{POS}-{REF}-{ALT}: "
+                       "sequence should be {ref}".format(
+                           CHROM=CHROM, POS=POS, REF=REF, ALT=ALT,
+                           ref=reference_genome_ref))
 
 def match_indel(cur, CHROM, POS, REF, ALT, indel_length):
     """return the variant_id and block_id  of a match against the indels
@@ -33,6 +47,14 @@ def match_indel(cur, CHROM, POS, REF, ALT, indel_length):
     """
     if CHROM not in chromosome_indels_queried:
         get_all_indels(cur, CHROM)
+    # verify the REF allele is correct
+    reference_genome_ref = get_allele_in_reference_genome(CHROM, POS, REF)
+    if reference_genome_ref != REF:
+        logger.warning("REF is wrong for variant {CHROM}-{POS}-{REF}-{ALT}: "
+                       "sequence should be {ref}".format(
+                           CHROM=CHROM, POS=POS, REF=REF, ALT=ALT,
+                           ref=reference_genome_ref))
+        return -1, -1
     block_id = POS / FLANKING_SIZE
     if ((POS - FLANKING_SIZE) < 0 or
         (POS + FLANKING_SIZE) > chromosome_lengths[CHROM]):
