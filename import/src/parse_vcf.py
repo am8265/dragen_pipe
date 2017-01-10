@@ -30,6 +30,7 @@ def call_is_high_quality(QUAL, MQ, FILTER, DP):
     """
     return (QUAL >= 30 and MQ >= 40 and DP >= 3
             and FILTER in ("PASS", "LIKELY", "INTERMEDIATE"))
+
 def get_custom_transcript_ids(cur, CHROM):
     """return a dict of all novel transcript ids and the new value
     to begin using
