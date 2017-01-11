@@ -114,14 +114,18 @@ def get_connection(db):
     """return a connection to the database specified
     """
     defaults_file = cfg.get("db", "cnf")
-    if db == "dragen":
+    if db == "waldb":
         return MySQLdb.connect(
             read_default_file=defaults_file,
-            read_default_group="client" + cfg.get("db", "dragen_group"))
+            read_default_group="client" + cfg.get("db", "waldb_group"))
     elif db == "seqdb":
         return MySQLdb.connect(
             read_default_file=defaults_file,
             read_default_group="client" + cfg.get("db", "seqdb_group"))
+    elif db == "dragen":
+        return MySQLdb.connect(
+            read_default_file=defaults_file,
+            read_default_group="client" + cfg.get("db", "dragen_group"))
     else:
         raise ValueError("specified database group is invalid")
 
