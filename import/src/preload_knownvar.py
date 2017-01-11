@@ -80,7 +80,7 @@ def main(vcf_fn, level=logging.DEBUG, load_tables=True):
             p = subprocess.Popen(shlex.split(snpeff_cmd), stdout=out_fh)
             p.communicate()
 
-    db = dragen_globals.get_connection("dragen")
+    db = dragen_globals.get_connection("waldb")
     cur = db.cursor()
     (effect_rankings, high_impact_effect_ids, moderate_impact_effect_ids,
      low_impact_effect_ids, modifier_impact_effect_ids) = (

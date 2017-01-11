@@ -444,7 +444,7 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
     # are multiple entries for the same indel
     # (because of repetitive genome/indel matching)
     indel_ids = set()
-    db = get_connection("dragen")
+    db = get_connection("waldb")
     try:
         cur = db.cursor()
         max_variant_id = get_max_variant_id(cur, CHROM)
