@@ -55,12 +55,14 @@ def match_indel(cur, CHROM, POS, REF, ALT, indel_length):
                            CHROM=CHROM, POS=POS, REF=REF, ALT=ALT,
                            ref=reference_genome_ref))
         return -1, -1
+
     block_id = POS / FLANKING_SIZE
     if ((POS - FLANKING_SIZE) < 0 or
         (POS + FLANKING_SIZE) > chromosome_lengths[CHROM]):
         # only perform indel matching if the indel is not too close to either
         # end of the chromosome
         return None, None
+
     len_REF = len(REF)
     indel_sequence = "".join([
         sequence_by_chromosome[CHROM][POS - FLANKING_SIZE - 1:POS - 1], ALT,
