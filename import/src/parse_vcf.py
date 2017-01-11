@@ -19,6 +19,35 @@ import logging
 cfg = get_cfg()
 HGVS_P_REGEX = re.compile(HGVS_P_PATTERN)
 
+def get_max_variant_id(cur, CHROM):
+    """return the maximum variant_id for CHROM
+    """
+    cur.execute(GET_MAX_VARIANT_ID.format(CHROM=CHROM))
+    return cur.fetchone()[0]
+
+def get_effect_rankings(cur):
+    """get the ranking of all effects from the DB
+    """
+    effect_rankings = defaultdict(lambda: defaultdict(int))
+    high_impact_effect_ids = set()
+    moderate_impact_effect_ids = set()
+    low_impact_effect_ids = set()
+    modifier_impact_effect_ids = set()
+    cur.execute(GET_EFFECT_RANKINGS)
+    for effect_id, impact, effect in cur.fetchall():
+        effect_rankings[effect][impact] = effect_id
+        if impact == "HIGH":
+            high_impact_effect_ids.add(effect_id)
+        elif impact == "MODERATE":
+            moderate_impact_effect_ids.add(effect_id)
+        elif impact == "LOW":
+            low_impact_effect_ids.add(effect_id)
+        elif impact == "MODIFIER":
+            modifier_impact_effect_ids.add(effect_id)
+
+    return (effect_rankings, high_impact_effect_ids, moderate_impact_effect_ids,
+            low_impact_effect_ids, modifier_impact_effect_ids)
+
 def format_NULL_value(value):
     """convert the specified value to \N for NULL where appropriate for
     outputting and subsequent loading
@@ -173,7 +202,7 @@ def get_variant_id(novel_fh, novel_indels_fh, novel_transcripts_fh,
             # perform indel matching
             matched_indel_id, matched_block_id = match_indels.match_indel(
                 cur, CHROM, POS, REF, alt, indel_length)
-            if matched_indel_id is not None:
+            if matched_indel_id is not None and matched_indel_id != -1:
                 variant_id = matched_indel_id
                 block_id = matched_block_id
                 novel = False
@@ -187,7 +216,7 @@ def get_variant_id(novel_fh, novel_indels_fh, novel_transcripts_fh,
                 if not cur.fetchone():
                     matched_indels_fh.write(MATCHED_INDEL_OUTPUT_FORMAT.format(
                         CHROM=CHROM, variant_id=variant_id,
-                        POS=POS, REF=REF, ALT=ALT))
+                        POS=POS, REF=REF, ALT=ALT) + "\n")
     if novel:
         if update_novel_variant_id:
             variant_id = novel_variant_id
@@ -347,8 +376,10 @@ def output_novel_variant(
                         "effect_id":effect_id, "HGVS_c":HGVS_c,
                         "HGVS_p":HGVS_p, "gene":gene}
                     annotations_by_transcript[feature_id].add(effect)
-                    if effect == "missense_variant":
+                    if effect == "missense_variant" and not indel:
                         # calculate PolyPhen scores if possible
+                        # sometimes SnpEff includes missense even when the
+                        # variant is an indel also, so ignore those
                         annotations[annotations_key].update(
                             calculate_polyphen_scores(
                                 cur, feature_id, HGVS_p, VariantID,
@@ -376,7 +407,7 @@ def output_novel_variant(
                     effect_ids.append(effect_id)
         for annotation_values in annotations.itervalues():
             output_novel_variant_entry(
-                novel_fh, variant_id, POS, REF, ALT, rs_number, indel,
+                novel_fh, variant_id, POS, REF, ALT, rs_number, 
                 indel_length, high_quality_call, logger, **annotation_values)
     else:
         raise ValueError(
@@ -385,7 +416,7 @@ def output_novel_variant(
     return effect_ids, novel_transcripts_id
 
 def output_novel_variant_entry(
-    novel_fh, variant_id, POS, REF, ALT, rs_number, indel, indel_length,
+    novel_fh, variant_id, POS, REF, ALT, rs_number, indel_length,
     high_quality_call, logger, transcript_stable_id="", effect_id=None,
     HGVS_c=None, HGVS_p=None, polyphen_humdiv=None,
     polyphen_humvar=None, gene=None):
@@ -400,11 +431,11 @@ def output_novel_variant_entry(
         HGVS_p=format_NULL_value(HGVS_p)[:255],
         polyphen_humdiv=format_NULL_value(polyphen_humdiv),
         polyphen_humvar=format_NULL_value(polyphen_humvar),
-        gene=format_NULL_value(gene), indel=indel,
-        indel_length=indel_length,
+        gene=format_NULL_value(gene), indel_length=indel_length,
         has_high_quality_call=int(high_quality_call)) + "\n")
 
-def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None):
+def parse_vcf(vcf, CHROM, sample_id, output_base,
+              load_calls=True, chromosome_length=None):
     logger = logging.getLogger(__name__)
     logger.info("starting CHROM {}\n".format(CHROM))
     start_time = time()
@@ -416,25 +447,11 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None):
     db = get_connection("dragen")
     try:
         cur = db.cursor()
-        cur.execute(GET_MAX_VARIANT_ID.format(CHROM=CHROM))
-        max_variant_id = cur.fetchone()[0]
+        max_variant_id = get_max_variant_id(cur, CHROM)
         novel_variant_id = max_variant_id
-        effect_rankings = defaultdict(lambda: defaultdict(int))
-        high_impact_effect_ids = set()
-        moderate_impact_effect_ids = set()
-        low_impact_effect_ids = set()
-        modifier_impact_effect_ids = set()
-        cur.execute(GET_EFFECT_RANKINGS)
-        for effect_id, impact, effect in cur.fetchall():
-            effect_rankings[effect][impact] = effect_id
-            if impact == "HIGH":
-                high_impact_effect_ids.add(effect_id)
-            elif impact == "MODERATE":
-                moderate_impact_effect_ids.add(effect_id)
-            elif impact == "LOW":
-                low_impact_effect_ids.add(effect_id)
-            elif impact == "MODIFIER":
-                modifier_impact_effect_ids.add(effect_id)
+        (effect_rankings, high_impact_effect_ids, moderate_impact_effect_ids,
+         low_impact_effect_ids, modifier_impact_effect_ids) = (
+             get_effect_rankings(cur))
         polyphen_matrixes_by_stable_id = {"humvar":{}, "humdiv":{}}
         polyphen_stable_ids_to_ignore = {"humvar":set(), "humdiv":set()}
         pid_variant_ids = {}
@@ -688,8 +705,7 @@ def parse_vcf(vcf, CHROM, sample_id, output_base, chromosome_length=None):
         # else (e.g. another job added a variant and we can run into collisions)
         # we won't get new results unless we commit/reconnect
         db.commit()
-        cur.execute(GET_MAX_VARIANT_ID.format(CHROM=CHROM))
-        current_max_variant_id = cur.fetchone()[0]
+        current_max_variant_id = get_max_variant_id(cur, CHROM)
         if max_variant_id != current_max_variant_id:
             raise ValueError(
                 "The max variant_id while starting, {max_variant_id}, does not "
@@ -718,6 +734,8 @@ if __name__ == "__main__":
     parser.add_argument("-l", "--level", default="ERROR",
                         choices=LOGGING_LEVELS.keys(),
                         help="specify the logging level to use")
+    parser.add_argument("--no_calls", action="store_true",
+                        help="only import variants")
     args = parser.parse_args()
     output_base_rp = os.path.realpath(args.OUTPUT_BASE)
     if not os.path.isdir(os.path.dirname(output_base_rp)):
@@ -731,4 +749,5 @@ if __name__ == "__main__":
     formatter = logging.Formatter(cfg.get("logging", "format"))
     handler.setFormatter(formatter)
     logger.addHandler(handler)
-    parse_vcf(args.VCF, args.CHROMOSOME, args.SAMPLE_ID, output_base_rp)
+    parse_vcf(args.VCF, args.CHROMOSOME, args.SAMPLE_ID,
+              output_base_rp, not args.no_calls)
