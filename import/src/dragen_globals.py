@@ -52,7 +52,7 @@ NOVEL_VARIANT_OUTPUT_FORMAT = (
     "{" + "}\t{".join(
         ["variant_id", "POS", "REF", "ALT", "rs_number", "transcript_stable_id",
          "effect_id", "HGVS_c", "HGVS_p", "polyphen_humdiv",
-         "polyphen_humvar", "gene", "indel", "indel_length",
+         "polyphen_humvar", "gene", "indel_length",
          "has_high_quality_call"]) + "}")
 NOVEL_INDEL_OUTPUT_FORMAT = (
     "{" + "}\t{".join(
