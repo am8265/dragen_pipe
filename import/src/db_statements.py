@@ -48,9 +48,9 @@ SELECT variant_id, POS, REF, ALT, indel_length
 FROM indel_chr{CHROM}
 """
 MATCHED_INDEL_EXISTS = """
-SELECT id
+SELECT variant_id
 FROM matched_indels
-WHERE CHROM = {CHROM} AND POS = {POS} AND REF = "{REF}" AND ALT = "{ALT}"
+WHERE CHROM = "{CHROM}" AND POS = {POS} AND REF = "{REF}" AND ALT = "{ALT}"
 """
 GET_TRANSLATION_MD5_ID = """
 SELECT translation_md5_id

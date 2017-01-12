@@ -12,7 +12,7 @@ from db_statements import *
 from dragen_globals import *
 from dragen_sample import dragen_sample
 import re
-import time 
+import time
 import glob
 import warnings
 import tabix
@@ -55,11 +55,54 @@ def getCaptureKitBed(pseudo_prepid):
         cur = db.cursor()
         cur.execute(GET_CAPTURE_KIT_BED.format(
             pseudo_prepid=pseudo_prepid))
-        userid = cur.fetchone()
+        capture_kit_bed = cur.fetchone()
     finally:
         if db.open:
             db.close()
     return capture_kit_bed
+
+def getCaptureKit(pseudo_prepid):
+    db = get_connection("seqdb")
+    try:
+        cur = db.cursor()
+        cur.execute(GET_CAPTURE_KIT.format(
+            pseudo_prepid=pseudo_prepid))
+        capture_kit = cur.fetchone()
+    finally:
+        if db.open:
+            db.close()
+    return capture_kit
+
+def getPanelOfNormals(captureKit,sample_type):
+    db = get_connection("seqdb")
+    try:
+        cur = db.cursor()
+        cur.execute(GET_PANEL_OF_NORMALS.format(
+            captureKit=captureKit,
+            sample_type=sample_type))
+        panelOfNormals = cur.fetchone()
+    finally:
+        if db.open:
+            db.close()
+    return panelOfNormals
+
+def getReadLength(pseudo_prepid):
+    """get the chem version of all sequencing for pseudo_prepid and uses the
+       most recent one.  There could be unlikely cases of samples sequenced
+       with two different type of sequencing chemistry especially if we decide
+       to do analysis with both exome and genome sequencing"""
+
+    db = get_connection("seqdb")
+    try:
+        cur = db.cursor()
+        cur.execute(GET_READ_LENGTH.format(
+            pseudo_prepid=pseudo_prepid))
+        readLength = cur.fetchone()
+    finally:
+        if db.open:
+            db.close()
+
+    return readLength
 
 class config(luigi.Config):
     """config class for instantiating parameters for this pipeline
@@ -69,6 +112,7 @@ class config(luigi.Config):
     bedtools = luigi.Parameter()
     bgzip = luigi.Parameter()
     gatk = luigi.Parameter()
+    gatk4 = luigi.Parameter()
     java = luigi.Parameter()
     picard = luigi.Parameter()
     pypy = luigi.Parameter()
@@ -106,10 +150,17 @@ class config(luigi.Config):
     dbSNP = luigi.Parameter()
     annotatedbSNP = luigi.Parameter()
     exac = luigi.Parameter()
+    #CNV Panel of Normals
+    #roche_100_bp = luigi.Parameter()
+    #roche_125_bp = luigi.Parameter()
+    #genome_100_bp = luigi.Parameter()
+    #genome_125_bp = luigi.Parameter()
     #variables
     create_targetfile = luigi.BooleanParameter()
     max_mem = luigi.IntParameter()
     block_size = luigi.Parameter(description='The block size over which to do the binning')
+    cnv_target_padding = luigi.Parameter(description=("Num. of bp to pad each target during GATK's "
+            "CalculateTargetCoverage CNV task"))
     #locations
     python_path = luigi.Parameter()
     #scratch = luigi.Parameter()
@@ -160,7 +211,7 @@ class qcmetrics(luigi.Config):
     x_homhet_ratio = luigi.Parameter()
     contamination_value = luigi.Parameter()
     concordance = luigi.Parameter()
-    
+
 class CopyBam(SGEJobTask):
     """class for copying dragen aligned bam to a scratch location"""
     sample_name = luigi.Parameter()
@@ -1697,7 +1748,7 @@ class VariantFiltrationINDEL(SGEJobTask):
 
             db.commit()
             db.close()
-            
+
             with open(self.script,'w') as o:
                 o.write(cmd + "\n")
             with open(os.devnull, 'w') as DEVNULL:
@@ -1707,7 +1758,6 @@ class VariantFiltrationINDEL(SGEJobTask):
             cur = db.cursor()
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
-            
 
             cur.execute(INSERT_DRAGEN_STATUS.format(
                         sample_name=self.sample_name,
@@ -2665,19 +2715,19 @@ def run_shellcmd(db_name,pipeline_step_id,pseudo_prepid,cmd,sample_name,
     to ensure logging the time and to check for task completion.
     If the database connection fails, will try 4 more attempts
 
-    Args : 
-         db_name : String ; Name of the database to query, either seqdb 
+    Args :
+         db_name : String ; Name of the database to query, either seqdb
                    or testdb
          pipeline_step_id : String; Id for the luigi task in the database
          pseudo_prepid : Int; An indentifier for the sample in the database
-         cmd : List; The command(s) to be run 
+         cmd : List; The command(s) to be run
          sample_name : String; CHGVID
          task_name : The luigi task name
 
     Returns :
          Does not return anything
     """
-    
+
     tries = 5
     for i in range(tries):
         try:
@@ -2688,7 +2738,7 @@ def run_shellcmd(db_name,pipeline_step_id,pseudo_prepid,cmd,sample_name,
                         pipeline_step_id=pipeline_step_id))
             db.commit()
             db.close()
-            
+
             for cmd_j in cmd:
                 proc = subprocess.Popen(cmd_j,shell=True)
                 proc.wait()
@@ -2708,7 +2758,7 @@ def run_shellcmd(db_name,pipeline_step_id,pseudo_prepid,cmd,sample_name,
                     raise Exception("ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1]))
                 else:
                     time.sleep(60) ## Wait a minute before trying again
-                    continue 
+                    continue
         finally:
             if db.open:
                 db.close()
@@ -2808,7 +2858,7 @@ class CreateGenomeBed(SGEJobTask):
     """
     Use bedtools to create the input bed file for the coverage binning script
     """
-    
+
     sample_name = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
@@ -2818,15 +2868,14 @@ class CreateGenomeBed(SGEJobTask):
     n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
-    
-   
+
     def __init__(self,*args,**kwargs):
         super(CreateGenomeBed,self).__init__(*args,**kwargs)
         self.seqtype_dir = os.path.join(self.scratch,self.sample_type.upper())
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
         kwargs["sample_name"] = self.sample_name
         super(CreateGenomeBed, self).__init__(*args, **kwargs)
-        
+
         self.output_dir = os.path.join(self.sample_dir,'cvg_binned')
         self.genomecov_bed = os.path.join(self.sample_dir,self.sample_name+'.genomecvg.bed')
         self.recal_bam = os.path.join(self.sample_dir,self.sample_name+'.{0}.realn.recal.bam'.format(self.pseudo_prepid))
@@ -2836,7 +2885,7 @@ class CreateGenomeBed(SGEJobTask):
                               config().bedtools,self.recal_bam,
                               self.genomecov_bed,self.log_file)
         self.pipeline_step_id = get_pipeline_step_id(
-            self.__class__.__name__,"seqdb")  
+            self.__class__.__name__,"seqdb")
 
     def requires(self):
         """
@@ -2851,16 +2900,189 @@ class CreateGenomeBed(SGEJobTask):
         """
         Output is the genomecov bed file
         """
-        
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
             pipeline_step_id=self.pipeline_step_id)
 
     def work(self):
         """
         Run the bedtools cmd
-        """       
+        """
         run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
                      [self.genomecov_cmd],self.sample_name,self.__class__.__name__)
+
+class CalculateTargetCoverage(SGEJobTask):
+    sample_name = luigi.Parameter()
+    pseudo_prepid = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    scratch = luigi.Parameter()
+    ## System Parameters
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+
+    def __init__(self,*args,**kwargs):
+        super(CalculateTargetCoverage,self).__init__(*args,**kwargs)
+        self.seqtype_dir = os.path.join(self.scratch,self.sample_type.upper())
+        self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
+        self.padded_target_cvg_file = "/nfs/{0}/ALIGNMENT/BUILD37/DRAGEN/EXOME/{1}.{2}/{1}.{2}.padded.target.cov.tsv".format(self.scratch,self.sample_name,self.pseudo_prepid)
+        self.recal_bam = "/nfs/{0}/ALIGNMENT/BUILD37/DRAGEN/EXOME/{1}.{2}/{1}.{2}.realn.recal.bam".format(self.scratch,self.sample_name,self.pseudo_prepid)
+        self.script = "/nfs/{0}/ALIGNMENT/BUILD37/DRAGEN/EXOME/{1}.{2}/scripts/{1}.{2}.{3}.sh".format(
+            self.scratch,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        kwargs["sample_name"] = self.sample_name
+        super(CalculateTargetCoverage, self).__init__(*args, **kwargs)
+
+        self.calc_target_cov_cmd = ("{0} -jar {1} CalculateTargetCoverage "
+            "--output {2} "
+            "--input {3} "
+            "--reference {4} "
+            "--cohortName {5}.{6} "
+            "--interval_padding {7} "
+            "-L {8} "
+            "--keepduplicatereads true "
+            "--disable_all_read_filters false "
+            "--interval_set_rule UNION "
+            "--targetInformationColumns FULL "
+            "--readValidationStringency SILENT "
+            ).format(config().java,
+                    config().gatk4,
+                    self.padded_target_cvg_file,
+                    self.recal_bam,
+                    config().ref,
+                    self.sample_name,
+                    self.pseudo_prepid,
+                    config().cnv_target_padding,
+                    self.capture_kit_bed)
+
+        self.pipeline_step_id = get_pipeline_step_id(
+            self.__class__.__name__,"seqdb")
+
+    def requires(self):
+        if self.sample_type.lower() == 'exome':
+            return self.clone(HaplotypeCaller)
+        else:
+            raise Exception, "Sample type: %s not supported in this module" % self.sample_type
+        """
+        elif self.sample_type.lower() == 'genome':
+            return self.clone(HaplotypeCaller)
+        """
+    def output(self):
+        self.pipeline_step_id = get_pipeline_step_id(
+            self.__class__.__name__,"seqdb")
+        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
+                         pipeline_step_id=self.pipeline_step_id)
+
+    def work(self):
+
+        with open(self.script,'w') as o:
+            o.write(self.calc_target_cov_cmd + "\n")
+
+        print self.calc_target_cov_cmd
+        """
+        Run the GATK's CalculateTargetCoverage cmd for CNV calling
+        """
+        run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
+                     [self.calc_target_cov_cmd],self.sample_name,self.__class__.__name__)
+
+class NormalizeSomaticReadCounts(SGEJobTask):
+    sample_name = luigi.Parameter()
+    pseudo_prepid = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    scratch = luigi.Parameter()
+    ## System Parameters
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    def __init__(self,*args,**kwargs):
+        super(NormalizeSomaticReadCounts,self).__init__(*args,**kwargs)
+        self.padded_target_cvg_file = "/nfs/{0}/ALIGNMENT/BUILD37/DRAGEN/EXOME/{1}.{2}/{1}.{2}.padded.target.cov.tsv".format(self.scratch,self.sample_name,self.pseudo_prepid)
+        self.preTangentNormalized = "/nfs/{0}/ALIGNMENT/BUILD37/DRAGEN/EXOME/{1}.{2}/{1}.{2}.ptn.tsv".format(self.scratch,self.sample_name,self.pseudo_prepid)
+        self.tangentNormalized = "/nfs/{0}/ALIGNMENT/BUILD37/DRAGEN/EXOME/{1}.{2}/{1}.{2}.tn.tsv".format(self.scratch,self.sample_name,self.pseudo_prepid)
+        kwargs["sample_name"] = self.sample_name
+        super(NormalizeSomaticReadCounts, self).__init__(*args, **kwargs)
+
+        capture_kit = getCaptureKit(self.pseudo_prepid)
+        panelOfNormals = getPanelOfNormals(capture_kit,self.sample_type)
+        panelOfNormals = '/home/jb3816/PROJECTS/GATK-4.0-alpha-CNV/normal100bp.pon'
+        self.normalize_cmd = ("{java} -jar {gatk4} NormalizeSomaticReadCounts "
+            "-I {padded_target_cvg_file} "
+            "-PON {panelOfNormals} "
+            "-PTN {preTangentNormalized} "
+            "-TN {tangentNormalized}"
+            ).format(java=config().java,gatk4=config().gatk4,
+                    sample_name=self.sample_name,
+                    pseudo_prepid=self.pseudo_prepid,
+                    preTangentNormalized=self.preTangentNormalized,
+                    tangentNormalized=self.tangentNormalized,
+                    padded_target_cvg_file=self.padded_target_cvg_file,
+                    panelOfNormals=panelOfNormals)
+
+        self.pipeline_step_id = get_pipeline_step_id(
+            self.__class__.__name__,"seqdb")
+
+    def requires(self):
+        return self.clone(CalculateTargetCoverage)
+
+    def output(self):
+        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
+                         pipeline_step_id=self.pipeline_step_id)
+
+    def work(self):
+        print self.normalize_cmd
+        """
+        Run the GATK's NormalizeSomaticReadCounts cmd for CNV calling
+        """
+        run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
+                     [self.normalize_cmd],self.sample_name,self.__class__.__name__)
+
+class PerformSegmentation(SGEJobTask):
+    sample_name = luigi.Parameter()
+    pseudo_prepid = luigi.Parameter()
+    capture_kit_bed = luigi.Parameter()
+    sample_type = luigi.Parameter()
+    scratch = luigi.Parameter()
+    ## System Parameters
+    n_cpu = 1
+    parallel_env = "threaded"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
+    def __init__(self,*args,**kwargs):
+        super(PerformSegmentation,self).__init__(*args,**kwargs)
+        self.padded_target_cvg_file = "/nfs/{0}/ALIGNMENT/BUILD37/DRAGEN/EXOME/{1}.{2}/{1}.{2}.padded.target.cov.tsv".format(self.scratch,self.sample_name,self.pseudo_prepid)
+        self.preTangentNormalized = "/nfs/{0}/ALIGNMENT/BUILD37/DRAGEN/EXOME/{1}.{2}/{1}.{2}.ptn.tsv".format(self.scratch,self.sample_name,self.pseudo_prepid)
+        self.tangentNormalized = "/nfs/{0}/ALIGNMENT/BUILD37/DRAGEN/EXOME/{1}.{2}/{1}.{2}.tn.tsv".format(self.scratch,self.sample_name,self.pseudo_prepid)
+        self.segments = "/nfs/{0}/ALIGNMENT/BUILD37/DRAGEN/EXOME/{1}.{2}/{1}.{2}.seg".format(self.scratch,self.sample_name,self.pseudo_prepid)
+        kwargs["sample_name"] = self.sample_name
+        super(PerformSegmentation, self).__init__(*args, **kwargs)
+
+        capture_kit = getCaptureKit(self.pseudo_prepid)
+        panelOfNormals = getPanelOfNormals(capture_kit,self.sample_type)
+        panelOfNormals = '/home/jb3816/PROJECTS/GATK-4.0-alpha-CNV/normal100bp.pon'
+        self.seg_cmd = ("{java} -jar {gatk4} PerformSegmentation "
+            "-TN {tangentNormalized} "
+            "-O {segments}"
+            ).format(java=config().java,gatk4=config().gatk4,
+                    tangentNormalized=self.tangentNormalized,
+                    segments=self.segments,
+                    panelOfNormals=panelOfNormals)
+
+        self.pipeline_step_id = get_pipeline_step_id(
+            self.__class__.__name__,"seqdb")
+
+    def requires(self):
+        return self.clone(NormalizeSomaticReadCounts)
+
+    def output(self):
+        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
+                         pipeline_step_id=self.pipeline_step_id)
+
+    def work(self):
+        print self.seg_cmd
+        run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
+                     [self.seg_cmd],self.sample_name,self.__class__.__name__)
 
 class CvgBinning(SGEJobTask):
     """
@@ -2875,8 +3097,8 @@ class CvgBinning(SGEJobTask):
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"    
-    
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+
     def __init__(self,*args,**kwargs):
 
         super(CvgBinning,self).__init__(*args,**kwargs)
@@ -2884,28 +3106,25 @@ class CvgBinning(SGEJobTask):
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
         kwargs["sample_name"] = self.sample_name
         super(CvgBinning,self).__init__(*args, **kwargs)
-        
+
         self.output_dir = os.path.join(self.sample_dir,'cvg_binned')
         self.genomecov_bed = os.path.join(self.sample_dir,self.sample_name+'.genomecvg.bed')
         self.log_dir = os.path.join(self.sample_dir,'logs')
         self.log_file = os.path.join(self.log_dir,self.sample_name+'.{0}.cvgbinning.log'.format(self.pseudo_prepid))
-        
+
         if not os.path.isdir(self.output_dir): ## Recursively create the directory if it doesnt exist
             os.makedirs(self.output_dir)
-            
+
         self.human_chromosomes = []
         self.human_chromosomes.extend(range(1, 23))
         self.human_chromosomes = [str(x) for x in self.human_chromosomes]
         self.human_chromosomes.extend(['X', 'Y','MT'])
 
-        #self.binning_cmd = "{0} {1} --sample_id {2} --block_size {3} --output_dir {4} {5} --mode coverage &> {6}".format(
-            #config().pypy,config().binner_loc,self.sample_name+'.'+self.pseudo_prepid,config().block_size,self.output_dir,
-            #self.genomecov_bed,self.log_file)
+        self.binning_cmd = "{0} {1} 10000 {2} {3} {4}".format(config().pypy,config().coverage_binner,
+                self.sample_name+'.'+self.pseudo_prepid,self.genomecov_bed,self.output_dir)
 
-        self.binning_cmd = "{0} {1} 10000 {2} {3} {4}".format(config().pypy,config().coverage_binner,self.sample_name+'.'+self.pseudo_prepid,self.genomecov_bed,self.output_dir)
-        
         self.pipeline_step_id = get_pipeline_step_id(
-            self.__class__.__name__,"seqdb")  
+            self.__class__.__name__,"seqdb")
 
     def requires(self):
         """
@@ -2913,16 +3132,16 @@ class CvgBinning(SGEJobTask):
         """
 
         return self.clone(CreateGenomeBed)
-    
+
     def output(self):
         """
         Output from this task are 23 files for each chromosome
-        Also check for deletion of the genomecov file 
+        Also check for deletion of the genomecov file
         """
-        
+
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
                          pipeline_step_id=self.pipeline_step_id)
-        
+
     def work(self):
         """ Run the binning script
         """
@@ -2930,7 +3149,7 @@ class CvgBinning(SGEJobTask):
         run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
                      [self.binning_cmd],self.sample_name,
                      self.__class__.__name__)
-         
+
 class GQBinning(SGEJobTask):
     """
     Task to run the binning script for GQ
