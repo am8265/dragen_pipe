@@ -2255,8 +2255,8 @@ class AnnotateVCF(SGEJobTask):
                 db.close()
 
     def requires(self):
-        #return self.clone(FixMergedMNPInfo)
-        return self.clone(DeAnnotateVCF)
+        return self.clone(FixMergedMNPInfo)
+        #return self.clone(DeAnnotateVCF)
 
     def output(self):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
@@ -2418,6 +2418,7 @@ class RBP(SGEJobTask):
 
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
             pipeline_step_id=self.pipeline_step_id)
+
 
 class CleanDirectory(SGEJobTask):
     """ For samples which have already been archived , the pipeline will be rerun on fastq16 itself,
@@ -2789,6 +2790,7 @@ def run_shellcmd(db_name,pipeline_step_id,pseudo_prepid,cmd,sample_name,
                         pipeline_step_id=pipeline_step_id))
             db.commit()
             db.close()
+            
         except MySQLdb.Error, e:
                 if i == tries - 1:
                     raise Exception("ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1]))
@@ -2866,7 +2868,7 @@ def get_productionvcf(pseudo_prepid,sample_name,sample_type):
             if len(temp_vcf) == 0:
                 temp_vcf = glob.glob(os.path.join(vcf_loc,
                                                   '*analysisReady.annotated.vcf.gz'))
-                if len(temp_vcf) == 9:
+                if len(temp_vcf) == 0:
                     return None
                 
             vcf = temp_vcf[0]
@@ -3596,7 +3598,15 @@ class GenotypeConcordance(SGEJobTask):
                 if proc.returncode: ## Non zero return code
                     raise subprocess.CalledProcessError(proc.returncode,
                                                             self.concordance_cmd)
-                remove_cmd = "rm temp.vcf {0} {1}"
+                
+                remove_cmd = "rm {0}* {1}*".format(eval_vcf,truth_vcf)
+                proc = subprocess.Popen(remove_cmd,shell=True)
+                proc.wait()
+                if proc.returncode: ## Non zero return code
+                    raise subprocess.CalledProcessError(proc.returncode,
+                                                        self.concordance_cmd)
+                
+                
                 db = get_connection("seqdb")
                 cur = db.cursor()
                 update_dragen_status(self.pseudo_prepid,self.sample_name,
