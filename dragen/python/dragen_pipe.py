@@ -166,7 +166,7 @@ def setup_dir(curs,sample,debug):
     first_read2 = get_first_read(sample,2,debug)
     fastq_counter=0
     for fastq_loc in sample.metadata['fastq_loc']:
-        fastqs = glob(fastq_loc + '/*R1*fastq.gz')
+        fastqs = glob(fastq_loc + '/*_R1_*fastq.gz')
         for fastq in fastqs:
             fastq_counter+=1
             new_fastq_read1 = first_read1.split('/')[-1].replace(
@@ -184,10 +184,10 @@ def setup_dir(curs,sample,debug):
 
             subprocess.call(ln_cmd1)
             subprocess.call(ln_cmd2)
-    check_Fastq_Total_Size(sample)
+    check_Fastq_Total_Size(sample,debug)
     set_seqtime(curs,sample)
 
-def check_Fastq_Total_Size(sample):
+def check_Fastq_Total_Size(sample,debug):
     fastq_dir = sample.metadata['fastq_dir']
     sample_type = sample.metadata['sample_type']
     fastq_filesize_sum = 0
