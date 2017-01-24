@@ -301,6 +301,16 @@ def output_novel_variant(
                     "initiator_codon_variant&non_canonical_start_codon",
                     "initiator_codon_variant+non_canonical_start_codon")
             for effect in effects.split("&"):
+                if indel_length and effect == "missense_variant":
+                    # in some rare cases there are variants of the format
+                    # CAT -> G, which are not simply frameshift and can be
+                    # annotated as frameshift_variant&missense_variant
+                    # arguably we don't care about the 'missense' in this case
+                    # and it would get us such variants if we did query for
+                    # missense, so we'll ignore this case
+                    logger.debug("Skipping missense_variant effect for "
+                                 "{VariantID}".format(VariantID=VariantID))
+                    continue
                 if effect == "custom":
                     # these correspond to the deprecated INTRON_EXON_BOUNDARY
                     # annotations which SnpEff now natively annotates
@@ -376,7 +386,7 @@ def output_novel_variant(
                         "effect_id":effect_id, "HGVS_c":HGVS_c,
                         "HGVS_p":HGVS_p, "gene":gene}
                     annotations_by_transcript[feature_id].add(effect)
-                    if effect == "missense_variant" and not indel:
+                    if effect == "missense_variant":
                         # calculate PolyPhen scores if possible
                         # sometimes SnpEff includes missense even when the
                         # variant is an indel also, so ignore those
