@@ -1,5 +1,5 @@
 """
-Constant variables shared across modules for the DRAGEN pipeline
+Constant variables shared across modules for the WalDB pipeline
 """
 import os
 import gzip
@@ -9,9 +9,10 @@ import sys
 from operator import lt, le
 from ConfigParser import RawConfigParser
 import logging
+from db_statements import GET_SAMPLE_DIRECTORY
 
 cfg = RawConfigParser()
-cfg.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "anno.cfg"))
+cfg.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "waldb.cfg"))
 
 CNF = "/nfs/goldstein/software/dragen/dragen.cnf" # defaults file for pipeline
 LOGGING_LEVELS = {
@@ -233,13 +234,26 @@ def merge_dicts(*dict_list):
             new_dict.update(d)
         return new_dict
 
-def get_data_directory(sample_name, sample_type, capture_kit, prep_id):
-    """Return the directory to the sample's data; currently hardcoded as the
-    information is not stored in the database
+def get_data_directory(sample_name, prep_id):
+    """Return the directory to the sample's data; this is stored in
+    dragenQCMetrics
     """
-    return ("/nfs/fastq16/ALIGNMENT/BUILD37/DRAGEN/{sample_type}/{sample_name}"
-            ".{prep_id}".format(sample_type=sample_type.upper(),
-                                sample_name=sample_name, prep_id=prep_id))
+    seqdb = get_connection("seqdb")
+    try:
+        seq_cur = seqdb.cursor()
+        seq_cur.execute(GET_SAMPLE_DIRECTORY.format(
+            prep_id=prep_id))
+        row = seq_cur.fetchone()
+        if row:
+            return os.path.join(
+                row[0], "{sample_name}.{prep_id}".format(
+                    sample_name=sample_name, prep_id=prep_id))
+        else:
+            raise OSError("Can't find directory for {sample_name}:{prep_id}".
+                          format(sample_name=sample_name, prep_id=prep_id))
+    finally:
+        if seqdb.open:
+            seqdb.close()
 
 def strip_prefix(string, prefix):
     """Strip the given prefix if it's present
