@@ -8,7 +8,7 @@ concordance with the public clinical indel data sets
 
 import argparse
 import subprocess
-import dragen_globals
+import waldb_globals
 import MySQLdb
 import logging
 import os
@@ -17,7 +17,7 @@ import shlex
 import parse_vcf
 from collections import defaultdict, OrderedDict
 
-cfg = dragen_globals.get_cfg()
+cfg = waldb_globals.get_cfg()
 
 JAVA = "/nfs/goldstein/software/jdk1.8.0_05/bin/java"
 SNPSIFT = "/nfs/goldstein/software/snpEff/4.1/SnpSift.jar"
@@ -80,7 +80,7 @@ def main(vcf_fn, level=logging.DEBUG, load_tables=True):
             p = subprocess.Popen(shlex.split(snpeff_cmd), stdout=out_fh)
             p.communicate()
 
-    db = dragen_globals.get_connection("waldb")
+    db = waldb_globals.get_connection("waldb")
     cur = db.cursor()
     (effect_rankings, high_impact_effect_ids, moderate_impact_effect_ids,
      low_impact_effect_ids, modifier_impact_effect_ids) = (
@@ -93,7 +93,7 @@ def main(vcf_fn, level=logging.DEBUG, load_tables=True):
             if line.startswith("#CHROM"):
                 break
         for line in vcf_fh:
-            fields = dragen_globals.VCF_fields_dict(line.strip().split("\t"))
+            fields = waldb_globals.VCF_fields_dict(line.strip().split("\t"))
             if fields["CHROM"] != current_chrom:
                 if current_chrom != -1:
                     novel_variants_fh.close()
@@ -119,7 +119,7 @@ def main(vcf_fn, level=logging.DEBUG, load_tables=True):
                     cur, current_chrom)
 
             POS = int(fields["POS"])
-            INFO = dragen_globals.create_INFO_dict(fields["INFO"])
+            INFO = waldb_globals.create_INFO_dict(fields["INFO"])
             (variant_id, highest_impact, block_id, novel_variant_id,
              novel_transcripts_id) = parse_vcf.get_variant_id(
                  novel_variants_fh, novel_indels_fh, novel_transcripts_fh,
@@ -151,12 +151,12 @@ def main(vcf_fn, level=logging.DEBUG, load_tables=True):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=dragen_globals.CustomFormatter)
-    parser.add_argument("VCF", type=dragen_globals.file_exists,
+        description=__doc__, formatter_class=waldb_globals.CustomFormatter)
+    parser.add_argument("VCF", type=waldb_globals.file_exists,
                         help="the indel VCF to process")
     parser.add_argument("--level", default="DEBUG",
-                        action=dragen_globals.DereferenceKeyAction,
-                        choices=dragen_globals.LOGGING_LEVELS,
+                        action=waldb_globals.DereferenceKeyAction,
+                        choices=waldb_globals.LOGGING_LEVELS,
                         help="the logging level to use")
     parser.add_argument("--dry_run", action="store_true",
                         help="don't actually load the tables generated")

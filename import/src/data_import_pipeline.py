@@ -16,7 +16,7 @@ import shlex
 from shutil import copy
 from collections import OrderedDict
 from parse_vcf import parse_vcf
-from dragen_globals import *
+from waldb_globals import *
 from db_statements import *
 import sys
 import logging
@@ -44,7 +44,7 @@ def check_if_sample_importing(cur):
             logger.warning("Job still committing:\n" + "\t".join(
                 [str(value) for value in row]))
             return True
-        logger.debug("No jobs waiting")
+    logger.debug("No other samples' commit jobs waiting")
     return False
 
 def get_num_lines_from_vcf(vcf, region=None, header=True):
@@ -253,7 +253,7 @@ class ParseVCF(SGEJobTask):
                              "{vcf_count} in VCF, {table_count} in table".format(
                                  vcf_count=vcf_variants_count,
                                  table_count=calls_line_count))
-        db = get_connection("dragen")
+        db = get_connection("waldb")
         seqdb = get_connection("seqdb")
         try:
             cur = db.cursor()
@@ -326,7 +326,7 @@ class LoadBinData(SGEJobTask):
                 seqdb.close()
 
     def work(self):
-        db = get_connection("dragen")
+        db = get_connection("waldb")
         seqdb = get_connection("seqdb")
         try:
             cur = db.cursor()
@@ -390,7 +390,7 @@ class ImportSample(luigi.Task):
 
     def __init__(self, *args, **kwargs):
         super(ImportSample, self).__init__(*args, **kwargs)
-        db = get_connection("dragen")
+        db = get_connection("waldb")
         try:
             cur = db.cursor()
             cur.execute(GET_SAMPLE_INFO.format(sample_id=self.sample_id))
@@ -412,13 +412,12 @@ class ImportSample(luigi.Task):
             seqscratch=self.seqscratch, sample_name=sample_name,
             prep_id=self.prep_id,
             sequencing_type=self.sequencing_type.upper())
-        self.data_directory = get_data_directory(
-            sample_name, self.sequencing_type, capture_kit, self.prep_id)
+        self.data_directory = get_data_directory(sample_name, self.prep_id)
         if not os.path.isdir(self.data_directory):
             raise ValueError(
                 "the data directory {} for the sample does not exist".format(
                 self.data_directory))
-        db = get_connection("dragen")
+        db = get_connection("waldb")
         try:
             cur = db.cursor()
             while check_if_sample_importing(cur):
@@ -440,7 +439,7 @@ class ImportSample(luigi.Task):
         super(ImportSample, self).__init__(*args, **kwargs)
         if os.path.isfile(self.vcf):
             if self.sequencing_type == "exome" and os.path.getsize(self.vcf) > 200000000:
-                db = get_connection("dragen")
+                db = get_connection("waldb")
                 try:
                     cur = db.cursor()
                     cur.execute(
@@ -544,7 +543,7 @@ class ImportSample(luigi.Task):
             self.data_directory, os.path.basename(vcf_out) + ".tbi"))
         # copy other stuff/delete scratch directory, etc.
         seqdb = get_connection("seqdb")
-        db = get_connection("dragen")
+        db = get_connection("waldb")
         try:
             seq_cur = seqdb.cursor()
             cur = db.cursor()

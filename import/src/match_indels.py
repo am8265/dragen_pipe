@@ -9,7 +9,7 @@ from collections import defaultdict
 from pyfaidx import Fasta
 from ConfigParser import SafeConfigParser
 from db_statements import *
-from dragen_globals import *
+from waldb_globals import *
 
 def nested_defaultdict(data_type):
     return defaultdict(lambda: defaultdict(data_type))

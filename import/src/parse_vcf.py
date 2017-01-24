@@ -8,7 +8,7 @@ import zlib
 from struct import unpack
 import match_indels
 import re
-from dragen_globals import *
+from waldb_globals import *
 from db_statements import *
 from collections import defaultdict
 from functools import partial

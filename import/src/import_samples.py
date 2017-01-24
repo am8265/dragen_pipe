@@ -10,7 +10,7 @@ import ProcessSamples
 import logging
 import sys
 from logging import handlers
-from dragen_globals import *
+from waldb_globals import *
 from db_statements import *
 
 cfg = get_cfg()
@@ -28,7 +28,7 @@ class ImportSamples(ProcessSamples.ProcessSamples):
             r"16|17|18|19|20|21|22|X|Y|MT)$")
 
     def _get_samples(self):
-        db = get_connection("dragen")
+        db = get_connection("waldb")
         try:
             cur = db.cursor()
             query = GET_SAMPLES_TO_IMPORT.format(
