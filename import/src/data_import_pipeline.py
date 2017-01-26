@@ -260,7 +260,7 @@ class ParseVCF(SGEJobTask):
             seq_cur = seqdb.cursor()
             for table_name, table_file, is_variant_table in (
                 ("variant_chr" + self.chromosome, self.novel_variants, True),
-                ("indel_chr", + self.chromosome, self.novel_indels, False),
+                ("indel_chr" + self.chromosome, self.novel_indels, False),
                 ("custom_transcript_ids_chr" + self.chromosome,
                  self.novel_transcripts, False),
                 ("called_variant_chr" + self.chromosome, self.called_variants,
