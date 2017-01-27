@@ -486,7 +486,14 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                 open(calls, "w") as calls_fh, \
                 open(variant_id_vcf, "w") as vcf_out, \
                 open(matched_indels, "w") as matched_indels_fh:
-            for x, line_fields in enumerate(vcf_tabix.querys(CHROM)):
+            try:
+                vcf_iter = vcf_tabix.querys(CHROM)
+            except tabix.TabixError:
+                logger.warning(
+                    "sample_id {sample_id} has no calls in chromosome {CHROM}".format(
+                        CHROM=CHROM))
+                return
+            for x, line_fields in enumerate(vcf_iter):
                 fields = VCF_fields_dict(line_fields)
                 if fields["CHROM"] != CHROM:
                     raise ValueError(
