@@ -497,7 +497,7 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
             except tabix.TabixError:
                 logger.warning(
                     "sample_id {sample_id} has no calls in chromosome {CHROM}".format(
-                        CHROM=CHROM))
+                        sample_id=sample_id, CHROM=CHROM))
                 return
             for x, line_fields in enumerate(vcf_iter):
                 fields = VCF_fields_dict(line_fields)
