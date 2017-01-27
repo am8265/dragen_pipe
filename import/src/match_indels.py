@@ -28,7 +28,8 @@ def get_allele_in_reference_genome(CHROM, POS, REF):
     """
     return sequence_by_chromosome[CHROM][POS - 1:POS + len(REF) - 1]
 
-def add_new_indel(variant_id, CHROM, POS, REF, ALT, indel_length):
+def add_new_indel(variant_id, CHROM, POS, REF, ALT, indel_length,
+                  output_warning=True):
     """add a new indel to the indel set (if it is not incorrectly positioned)
     """
     reference_genome_ref = get_allele_in_reference_genome(CHROM, POS, REF)
@@ -36,10 +37,11 @@ def add_new_indel(variant_id, CHROM, POS, REF, ALT, indel_length):
         ALL_INDELS[CHROM][POS / FLANKING_SIZE][indel_length].append(
             (variant_id, POS, REF, ALT))
     else:
-        logger.warning("REF is wrong for variant {CHROM}-{POS}-{REF}-{ALT}: "
-                       "sequence should be {ref}".format(
-                           CHROM=CHROM, POS=POS, REF=REF, ALT=ALT,
-                           ref=reference_genome_ref))
+        if output_warning:
+            logger.warning("REF is wrong for variant {CHROM}-{POS}-{REF}-{ALT}: "
+                           "sequence should be {ref}".format(
+                               CHROM=CHROM, POS=POS, REF=REF, ALT=ALT,
+                               ref=reference_genome_ref))
 
 def match_indel(cur, CHROM, POS, REF, ALT, indel_length):
     """return the variant_id and block_id  of a match against the indels
@@ -105,5 +107,7 @@ def get_all_indels(cur, CHROM):
     genome.close()
     cur.execute(GET_ALL_INDELS.format(CHROM=CHROM))
     for variant_id, POS, REF, ALT, indel_length in cur.fetchall():
-        add_new_indel(variant_id, CHROM, POS, REF, ALT, indel_length)
+        # add the indels, but only warn if an indel is new, i.e. not in the DB
+        add_new_indel(variant_id, CHROM, POS, REF, ALT, indel_length,
+                      output_warning=False)
     chromosome_indels_queried.add(CHROM)
