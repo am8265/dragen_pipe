@@ -79,10 +79,13 @@ def calculate_polyphen_scores(
     polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore, logger):
     """return the PolyPhen scores for the given missense variant
     """
-    # cache the transcripts' matrixes for those that have them and cache the
-    # transcript IDs for those that don't to avoid having to re-query
-    hgvs_p_match = HGVS_P_REGEX.match(HGVS_p)
     scores = {}
+    # for MNPs that overlap the start codon, on occasion the codon change is
+    # specified with an "unknown" codon, e.g. "?" - so check for that and don't
+    # attempt to calculate the scores in such an instance
+    if "?" in HGVS_p:
+        return scores
+    hgvs_p_match = HGVS_P_REGEX.match(HGVS_p)
     if hgvs_p_match:
         d = hgvs_p_match.groupdict()
         codon_position = int(d["codon_position"])
@@ -103,6 +106,9 @@ def calculate_polyphen_scores(
                                       AMINO_ACIDS[amino_acid_changes[
                                           offset * 3:(offset + 1) * 3]]))
             for polyphen_score in ("humdiv", "humvar"):
+                # cache the transcripts' matrixes for those that have them and
+                # cache the # transcript IDs for those that don't to avoid
+                # having to re-query
                 if (transcript_stable_id in
                     polyphen_stable_ids_to_ignore[polyphen_score]):
                     scores["polyphen_" + polyphen_score] = None
