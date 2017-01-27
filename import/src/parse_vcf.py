@@ -232,7 +232,7 @@ def get_variant_id(novel_fh, novel_indels_fh, novel_transcripts_fh,
             novel_transcripts_id, CHROM, POS,
             REF, alt, indel_length, ALT, rs_number, ANNs, effect_rankings,
             polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore,
-            high_quality_call, custom_transcript_ids, logger)
+            high_quality_call, custom_transcript_ids, update_novel_variant_id, logger)
     if any(effect_id in high_impact_effect_ids for effect_id in effect_ids):
         highest_impact = "HIGH"
     elif any(effect_id in moderate_impact_effect_ids
@@ -252,7 +252,8 @@ def output_novel_variant(
     novel_fh, novel_indels_fh, novel_transcripts_fh, cur, variant_id,
     novel_transcripts_id, CHROM, POS, REF, ALT, indel_length, original_ALT,
     rs_number, ANNs, effect_rankings, polyphen_matrixes_by_stable_id,
-    polyphen_stable_ids_to_ignore, high_quality_call, custom_transcript_ids, logger,
+    polyphen_stable_ids_to_ignore, high_quality_call, custom_transcript_ids,
+    output_novel_indel, logger,
     impact_ordering=["HIGH", "MODERATE", "LOW", "MODIFIER"]):
     """output all entries for the novel variant to novel_fh and increment
     variant_id
@@ -263,7 +264,11 @@ def output_novel_variant(
     rs_number = ("" if rs_number == "." else
                  int(strip_prefix(re.split(";|,", rs_number)[0], "rs")))
     indel = 1 if indel_length else 0
-    if indel_length:
+    if indel_length and output_novel_indel:
+        # only output to this file if the indel hasn't been encountered before
+        # execution gets here if the indel was encountered previously as a low
+        # quality call, and the current one is high quality, but we don't need
+        # to create a new entry in the indels table
         novel_indels_fh.write(
             NOVEL_INDEL_OUTPUT_FORMAT.format(
                 variant_id=variant_id, POS=POS, REF=REF, ALT=ALT,
@@ -675,15 +680,22 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                             "error: invalid GT {GT} @ {CHROM}-{POS}-{REF}"
                             "-{ALT}".format(GT=calls_stats["GT"], **fields))
                     call["GT"] = sum(GTs)
-                    call["AD_REF"], call["AD_ALT"] = call_stats["AD"].split(",")
                     try:
+                        call["AD_REF"], call["AD_ALT"] = call_stats["AD"].split(",")
                         gg = VARIANT_CALL_FORMAT.format(
                             **merge_dicts(call, INFO)) + "\n"
-                    except KeyError:
-                        from pprint import pprint
-                        pprint(call)
-                        pprint(INFO)
-                        raise
+                    except:
+                        if __name__ == "__main__":
+                            import ipdb
+                            ipdb.set_trace()
+                            ipdb.pm()
+                        else:
+                            from pprint import pprint
+                            pprint(line_fields)
+                            pprint(call)
+                            pprint(call_stats)
+                            pprint(INFO)
+                            raise
                     calls_fh.write(gg)
                 elif nalleles != 1:
                     if call_stats["GT"] == "1/2":
