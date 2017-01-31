@@ -168,7 +168,7 @@ def calculate_polyphen_scores(
     return scores
 
 def get_variant_id(novel_fh, novel_indels_fh, novel_transcripts_fh,
-                   matched_indels_fh, cur, CHROM, POS, REF, ALT, rs_number,
+                   matched_indels_fh, cur, sample_id, CHROM, POS, REF, ALT, rs_number,
                    ANNs, novel_variant_id, novel_transcripts_id, effect_rankings,
                    high_impact_effect_ids, moderate_impact_effect_ids,
                    low_impact_effect_ids, modifier_impact_effect_ids,
@@ -222,7 +222,7 @@ def get_variant_id(novel_fh, novel_indels_fh, novel_transcripts_fh,
                 if not cur.fetchone():
                     matched_indels_fh.write(MATCHED_INDEL_OUTPUT_FORMAT.format(
                         CHROM=CHROM, variant_id=variant_id,
-                        POS=POS, REF=REF, ALT=ALT) + "\n")
+                        POS=POS, REF=REF, ALT=ALT, sample_id=sample_id) + "\n")
     if novel:
         if update_novel_variant_id:
             variant_id = novel_variant_id
@@ -566,8 +566,8 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                     (variant_id, highest_impact, block_id, novel_variant_id,
                      novel_transcripts_id) = get_variant_id(
                          novel_fh, novel_indels_fh, novel_transcripts_fh,
-                         matched_indels_fh, cur, CHROM, POS, fields["REF"], ALT_allele,
-                         fields["rs_number"], INFO["ANN"], novel_variant_id,
+                         matched_indels_fh, cur, sample_id, CHROM, POS, fields["REF"],
+                         ALT_allele, fields["rs_number"], INFO["ANN"], novel_variant_id,
                          novel_transcripts_id, effect_rankings, high_impact_effect_ids,
                          moderate_impact_effect_ids, low_impact_effect_ids,
                          modifier_impact_effect_ids, polyphen_matrixes_by_stable_id,

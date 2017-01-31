@@ -59,7 +59,7 @@ NOVEL_INDEL_OUTPUT_FORMAT = (
     "{" + "}\t{".join(
         ["variant_id", "POS", "REF", "ALT", "indel_length"]) + "}")
 MATCHED_INDEL_OUTPUT_FORMAT = (
-    "{CHROM}\t{variant_id}\t{POS}\t{REF}\t{ALT}")
+    "{CHROM}\t{variant_id}\t{POS}\t{REF}\t{ALT}\t{sample_id}")
 POLYPHEN_ATTRIB_ID = {"humvar":268, "humdiv":269}
 # PolyPhen scores are packed by sorted one-letter codes
 AMINO_ACIDS = dict(
