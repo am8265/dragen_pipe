@@ -16,16 +16,19 @@ from db_statements import *
 cfg = get_cfg()
 
 class ImportSamples(ProcessSamples.ProcessSamples):
-    def __init__(self, force_failed_samples=False, run_locally=False,
-                 qdel_jobs=True, local_scheduler=False, **kwargs):
+    def __init__(self, seqscratch="_ssd", force_failed_samples=False,
+                 run_locally=False, qdel_jobs=True,
+                 local_scheduler=False, **kwargs):
         super(ImportSamples, self).__init__(
-            max_samples_concurrently=1, force_failed_samples=force_failed_samples,
+            max_samples_concurrently=1, 
+            force_failed_samples=force_failed_samples,
             run_locally=run_locally, qdel_jobs=qdel_jobs,
             local_scheduler=local_scheduler, **kwargs)
         self.pattern = (
             r"^(?:ParseVCF|LoadGQData|LoadDPData)\.{sample_name}\."
             r"{0}\.chr(?:1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|"
             r"16|17|18|19|20|21|22|X|Y|MT)$")
+        self.seqscratch = seqscratch
 
     def _get_samples(self):
         db = get_connection("waldb")
@@ -46,10 +49,12 @@ class ImportSamples(ProcessSamples.ProcessSamples):
     def _get_command(self, sample_name, *args):
         sample_id, sample_type = args
         cmd = ("luigi --module data_import_pipeline ImportSample --sample-id "
-               "{sample_id} --workers 75 --dont-remove-tmp-dir-if-failure "
+               "{sample_id} --seqscratch {seqscratch} --workers 75 "
+               "--dont-remove-tmp-dir-if-failure "
                "--logging-conf-file {logging_conf_file}{run_locally}"
                "{local_scheduler}".format(
-                   sample_id=sample_id, logging_conf_file="logging.conf",
+                   sample_id=sample_id, seqscratch=self.seqscratch,
+                   logging_conf_file="logging.conf",
                    run_locally=" --run-locally" if self.run_locally else "",
                    local_scheduler=" --local-scheduler" if self.local_scheduler
                    else ""))
@@ -61,7 +66,8 @@ class ImportSamples(ProcessSamples.ProcessSamples):
             timeout = 7200
         return cmd, timeout
 
-def main(force_failed_samples, run_locally, local_scheduler, debug_level):
+def main(seqscratch, force_failed_samples, run_locally,
+         local_scheduler, debug_level):
     # set up logging
     formatter = logging.Formatter(cfg.get("logging", "format"))
     root_logger = logging.getLogger()
@@ -80,6 +86,7 @@ def main(force_failed_samples, run_locally, local_scheduler, debug_level):
     logger.addHandler(handler)
     # import samples
     import_samples = ImportSamples(
+        seqscratch=seqscratch,
         force_failed_samples=force_failed_samples,
         qdel_jobs=not run_locally, run_locally=run_locally,
         local_scheduler=local_scheduler)
@@ -88,6 +95,9 @@ def main(force_failed_samples, run_locally, local_scheduler, debug_level):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=CustomFormatter)
+    parser.add_argument("-s", "--seqscratch",
+                        choices=["09", "10", "11", "_ssd"], default="_ssd",
+                        help="the scratch drive to use")
     parser.add_argument("--force_failed_samples", default=False,
                         action="store_true",
                         help="try to import a sample even if it failed in a "
@@ -101,5 +111,5 @@ if __name__ == "__main__":
                         action=DereferenceKeyAction,
                         help="specify the logging level to use")
     args = parser.parse_args()
-    main(args.force_failed_samples, args.run_locally, args.local_scheduler,
-         args.level)
+    main(args.seqscratch, args.force_failed_samples, args.run_locally,
+         args.local_scheduler, args.level)

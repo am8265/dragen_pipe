@@ -340,14 +340,16 @@ class LoadBinData(SGEJobTask):
             seqdb.commit()
             copy(self.fn, self.output_directory)
             temp_fn = os.path.join(self.output_directory, os.path.basename(self.fn))
-            cur.execute(
-                INSERT_BIN_STATEMENT.format(
-                    data_file=temp_fn, data_type=self.data_type,
-                    chromosome=self.chromosome, sample_id=self.sample_id))
+            statement = INSERT_BIN_STATEMENT.format(
+                data_file=temp_fn, data_type=self.data_type,
+                chromosome=self.chromosome, sample_id=self.sample_id)
+            cur.execute(statement)
             db.commit()
             seq_cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                 prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
             seqdb.commit()
+        except MySQLdb.InternalError:
+            logger.error("{statement} failed".format(statement=statement))
         finally:
             if db.open:
                 db.close()
@@ -371,7 +373,7 @@ class ImportSample(luigi.Task):
         default=None,
         description="the (pseudo) prep_id for the sample")
     seqscratch = luigi.ChoiceParameter(
-        choices=["09", "10", "11"], default="09",
+        choices=["09", "10", "11", "_ssd"], default="_ssd",
         description="the seqscratch to use for temporary file creation")
     sample_name = luigi.Parameter(
         default=None,
