@@ -199,3 +199,8 @@ SELECT id
 FROM dragen_pipeline_step_desc
 WHERE step_name = "Sample Initialized In DB"
 """
+GET_SAMPLE_DIRECTORY = """
+SELECT AlignSeqFileLoc
+FROM dragen_qc_metrics
+WHERE pseudo_prepid = {prep_id}
+"""
