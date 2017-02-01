@@ -111,11 +111,13 @@ def get_capturekit_info(sample_type,capture_kit):
     else:
         query = ("SELECT region_file_lsrc "
                  "FROM captureKit WHERE prepT_name='{0}' "
-                 "AND chr = 'all' ").format(
-                     capture_kit=capture_kit)
+                 "AND chr = 'all'").format(capture_kit)
         result = execute_query(args.database,query,fetch=True)
         return result[0]
-        
+
+def is_complete():
+    return False
+
 def run_pipeline(args,sample_info,final_log_dir):
     """ Run a luigi job     
     """
@@ -128,7 +130,7 @@ def run_pipeline(args,sample_info,final_log_dir):
     cmd = (""" luigi --module gatk_pipe ArchiveSample --sample-name {0} --pseudo-prepid {1} --capture-kit-bed  {2} --sample-type {3} --dont-remove-tmp-dir --no-tarball --poll-time 120 --workers 2 --worker-wait-interval 180 --scheduler-remove-delay 86400 >> {4} 2>>{5}""".format(sample_name,pseudo_prepid,capturekit_bed,sample_type,out_file,error_file))
     print cmd
     
-    
+    """
     proc = subprocess.Popen(cmd,shell=True)
     proc.wait()
     if proc.returncode: ## Non zero return code
@@ -150,18 +152,21 @@ def run_pipeline(args,sample_info,final_log_dir):
         final_log_dir = create_logdir(args.baselogdir,sample_info)
         out_file = os.path.join(final_log_dir,sample_name+'_'+pseudo_prepid+'.stdout')
         error_file = os.path.join(final_log_dir,sample_name+'_'+pseudo_prepid+'.stderr')
+    """
+        #cmd = (""" luigi --module gatk_pipe ArchiveSample --sample-name {0} --pseudo-prepid {1} --capture-kit-bed  {2} --sample-type {3} --dont-remove-tmp-dir --no-tarball --poll-time 120 --workers 2 --worker-wait-interval 180 --scheduler-remove-delay 86400 >> {4} 2>>{5}""".format(sample_name,pseudo_prepid,capturekit_bed,sample_type,out_file,error_file))
+        
     
-        cmd = (""" luigi --module gatk_pipe ArchiveSample --sample-name {0} --pseudo-prepid {1} --capture-kit-bed  {2} --sample-type {3} --dont-remove-tmp-dir --no-tarball --poll-time 120 --workers 2 --worker-wait-interval 180 --scheduler-remove-delay 86400 >> {4} 2>>{5}""".format(sample_name,pseudo_prepid,capturekit_bed,sample_type,out_file,error_file))
-       
 def main(args):
     """ The main function
     """
     
-    sample_info = get_sample(args)
-    add_to_tmp(args,sample_info)
-    remove_sample(args,sample_info)
-    final_log_dir = create_logdir(args.baselogdir,sample_info)
-    run_pipeline(args,sample_info,final_log_dir)
+    while True:
+        sample_info = get_sample(args)
+        #add_to_tmp(args,sample_info)
+        final_log_dir = create_logdir(args.baselogdir,sample_info)
+        run_pipeline(args,sample_info,final_log_dir)
+        #if is_complete(sample_info):
+            #remove_sample(args,sample_info)
                            
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Luigi wrapper script',description="This script is a wrapper for running the new dragen variant calling and qc pipeline. It is created for a very specific use case i.e. getting sample information from the table gatk_queue in sequenceDB , adding it to the table tmp_queue , deleting that entry from gatk_queue and submitting a luigi job for the sample. To automate this process add this script to your cron tab.")

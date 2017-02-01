@@ -23,6 +23,12 @@ Dragen based alignment
 """
 
 def getDBIDMaxPrepID(pseudo_prepid):
+    """ Function to get max prepid for a given pseudo_prepid 
+    from the database table pseudo_prepid
+
+    pseudo_prepid : str : the pseudo_prepid value
+    """
+    
     db = get_connection("seqdb")
     try:
         cur = db.cursor()
@@ -37,6 +43,9 @@ def getDBIDMaxPrepID(pseudo_prepid):
     return dbid,prepid
 
 def getUserID():
+    """ Function to get userid
+    """
+    
     userName = getpass.getuser()
     db = get_connection("seqdb")
     try:
@@ -50,6 +59,11 @@ def getUserID():
     return userid[0]
 
 def getCaptureKitBed(pseudo_prepid):
+    """ Get location to the capturekit bedfile for a given
+    pseudo_prepid
+
+    pseudo_prepid : str : the pseudo_prepid value
+    """
     db = get_connection("seqdb")
     try:
         cur = db.cursor()
@@ -62,6 +76,11 @@ def getCaptureKitBed(pseudo_prepid):
     return capture_kit_bed
 
 def getCaptureKit(pseudo_prepid):
+    """ Get the capturekit for a given pseudo_prepid
+
+    pseudo_prepid : str : the pseudo_prepid value
+    """
+    
     db = get_connection("seqdb")
     try:
         cur = db.cursor()
@@ -74,6 +93,12 @@ def getCaptureKit(pseudo_prepid):
     return capture_kit
 
 def getPanelOfNormals(captureKit,sample_type):
+    """ Get the panel of normals for CNV normalization
+    
+    captureKit : str ; the capturekit , e.g. Roche
+    sample_type : str ; the sequencing type, e.g exome
+    """
+    
     db = get_connection("seqdb")
     try:
         cur = db.cursor()
@@ -87,10 +112,14 @@ def getPanelOfNormals(captureKit,sample_type):
     return panelOfNormals
 
 def getReadLength(pseudo_prepid):
-    """get the chem version of all sequencing for pseudo_prepid and uses the
-       most recent one.  There could be unlikely cases of samples sequenced
-       with two different type of sequencing chemistry especially if we decide
-       to do analysis with both exome and genome sequencing"""
+    """ Get the chem version of all sequencing for pseudo_prepid and uses the
+    most recent one.  There could be unlikely cases of samples sequenced
+    with two different type of sequencing chemistry especially if we decide
+    to do analysis with both exome and genome sequencing
+
+    
+    pseudo_prepid : str ; the pseudo_prepid value
+    """
 
     db = get_connection("seqdb")
     try:
@@ -105,8 +134,9 @@ def getReadLength(pseudo_prepid):
     return readLength
 
 class config(luigi.Config):
-    """config class for instantiating parameters for this pipeline
-    the values are read from luigi.cfg in the current folder"""
+    """ Configuration class for instantiating parameters for this pipeline
+    the values are read from luigi.cfg in the current folder
+    """
 
     #programs
     bedtools = luigi.Parameter()
@@ -167,7 +197,7 @@ class config(luigi.Config):
     base = luigi.Parameter()
 
 class db(luigi.Config):
-    """Database config variable will be read from the
+    """ Database config variable will be read from the
     db section of the config file"""
     
     cnf = luigi.Parameter()
@@ -175,8 +205,7 @@ class db(luigi.Config):
     dragen_group = luigi.Parameter()
 
 class qcmetrics(luigi.Config):
-    """
-    Parse in database field names for qc metrics
+    """ Parse in database field names for qc metrics
     from the qcmetrics section of the config file
     """
     
@@ -213,7 +242,9 @@ class qcmetrics(luigi.Config):
     concordance = luigi.Parameter()
 
 class CopyBam(SGEJobTask):
-    """class for copying dragen aligned bam to a scratch location"""
+    """ Class for copying dragen aligned bam to a scratch location
+    """
+    
     sample_name = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
@@ -223,7 +254,6 @@ class CopyBam(SGEJobTask):
     n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
-    #job_name = self.sample_name + '.' + self.__class__.__name__ 
 
     def __init__(self, *args, **kwargs):
         super(CopyBam, self).__init__(*args, **kwargs)
@@ -231,14 +261,11 @@ class CopyBam(SGEJobTask):
             self.scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.base_dir = "{0}/{1}/{2}.{3}".format(
             config().base,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
-        #self.base_dir = "{0}/{1}.{2}".format(config().base,self.sample_name,self.pseudo_prepid) ## For the wierd samples not in fastq16
         self.base_log = "{0}/logs".format(self.base_dir)
         self.bam = "{0}/{1}.{2}.bam".format(self.base_dir,
                                             self.sample_name,self.pseudo_prepid)
         self.bam_index = "{0}/{1}.{2}.bam.bai".format(self.base_dir,
                                                       self.sample_name,self.pseudo_prepid)
-        #self.scratch_bam_index ="{0}/{1}.{2}.bam.bai".format(self.scratch_dir,
-                                                             #self.sample_name,self.pseudo_prepid)
         self.scratch_bam_index = os.path.join(self.scratch_dir,'{0}.{1}.bam.bai'.format(self.sample_name,self.pseudo_prepid))
         self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
@@ -253,8 +280,7 @@ class CopyBam(SGEJobTask):
             if db.open:
                 db.close()
 
-    def work(self):
-        
+    def work(self):        
         try:
             db = get_connection("seqdb")
             cur = db.cursor()
@@ -302,7 +328,7 @@ class CopyBam(SGEJobTask):
         ## to the scratch dir itself, so for samples which do not have a bam index in the scratch directory we will
         ## go ahead with the rsync and regular db update for copy bam
 
-        ## For samples which have do have a dragen bam in the qumulo directory, the work function will not be called
+        ## For samples which have do have a dragen bam in the scratch directory, the work function will not be called
         ## and hence the copy bam task will be absent from the dragen_pipeline_step table, this needs to be fixed
 
         ## Note, for the future it is better if the dragen bam could be created in this step ,
@@ -319,7 +345,9 @@ class CopyBam(SGEJobTask):
 
 
 class RealignerTargetCreator(SGEJobTask):
-    """class for creating targets for indel realignment BAMs from Dragen"""
+    """ Class for creating targets for indel realignment BAMs from Dragen
+    """
+    
     sample_name = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
@@ -420,7 +448,9 @@ class RealignerTargetCreator(SGEJobTask):
 
 
 class IndelRealigner(SGEJobTask):
-    """class to create BAM with realigned BAMs"""
+    """ class to create BAM with realigned BAMs
+    """
+    
     sample_name = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
@@ -524,7 +554,9 @@ class IndelRealigner(SGEJobTask):
             pipeline_step_id=self.pipeline_step_id)
 
 class BaseRecalibrator(SGEJobTask):
-    """class to create a recalibration table with realigned BAMs"""
+    """ Class to create a recalibration table with realigned BAMs
+    """
+    
     sample_name = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
@@ -624,7 +656,9 @@ class BaseRecalibrator(SGEJobTask):
             pipeline_step_id=self.pipeline_step_id)
 
 class PrintReads(SGEJobTask):
-    """class to create BAM with realigned and recalculated BAMs"""
+    """ Class to create BAM with realigned and recalculated BAMs
+    """
+    
     sample_name = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
@@ -726,7 +760,9 @@ class PrintReads(SGEJobTask):
 
 
 class HaplotypeCaller(SGEJobTask):
-    """class to create gVCFs"""
+    """ Class to create gVCFs
+    """
+    
     sample_name = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
@@ -828,11 +864,7 @@ class HaplotypeCaller(SGEJobTask):
         finally:
             if db.open:
                 db.close()
-
-        ## Removed for qumulo test
-        rm_cmd = ['rm',self.realn_bam,self.scratch_bam]
-        subprocess.call(rm_cmd)
-
+                
     def requires(self):
         return self.clone(PrintReads)
 
@@ -877,9 +909,9 @@ class GenotypeGVCFs(SGEJobTask):
             db.close()
         except MySQLdb.Error, e:
             raise Exception("ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1]))
-        #finally:
-            #if db.open:
-                #db.close()
+        finally:
+            if db.open:
+                db.close()
 
     def work(self):
         cmd = ("{java} -Xmx{max_mem}g "
@@ -1845,6 +1877,8 @@ class CombineVariants(SGEJobTask):
             db.close()
             
             filter_flag = 0
+            info_flag = 0
+            
             with open(self.tmp_vcf,'w') as vcf_out, open(self.snp_filtered) as header:
                 for line in header.readlines():
                     if line[0] == '#':
@@ -1852,25 +1886,31 @@ class CombineVariants(SGEJobTask):
                             filter_flag = 1
                             #SNP specific FILTER whether using VQSR or snp filtering
                             if self.sample_type == 'exome'.lower() or self.sample_type.lower() =='genome':            ## Will a 90.0to99.00 tranche be needed in the header ?
-                                vcf_out.write('##FILTER=<ID=VQSRTrancheSNP90.00to99.00,Description="Truth sensitivity tranche level for SNP model\n')
-                                vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.00to99.90,Description="Truth sensitivity tranche level for SNP model\n')
-                                vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.90to100.00+,Description="Truth sensitivity tranche level for SNP model\n')
-                                vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.90to100.00,Description="Truth sensitivity tranche level for SNP model\n')
+                                vcf_out.write('##FILTER=<ID=VQSRTrancheSNP90.00to99.00,Description="Truth sensitivity tranche level for SNP model"\n')
+                                vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.00to99.90,Description="Truth sensitivity tranche level for SNP model"\n')
+                                vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.90to100.00+,Description="Truth sensitivity tranche level for SNP model"\n')
+                                vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.90to100.00,Description="Truth sensitivity tranche level for SNP model"\n')
                             else:
                                 vcf_out.write('##FILTER=<ID=SNP_filter,Description="QD < 2.0 || FS > 60.0 || MQ < 40.0 || MQRankSum < -12.5 || ReadPosRankSum < -8.0">\n')
 
                             #Indel specific filters whether using VQSR or indel filtering
                             if self.sample_type.lower() =='genome':
-                                vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL90.00to99.00,Description="Truth sensitivity tranche level for INDEL model\n')
-                                vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.00to99.90,Description="Truth sensitivity tranche level for INDEL model\n')
-                                vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.90to100.00+,Description="Truth sensitivity tranche level for INDEL model\n')
-                                vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.90to100.00,Description="Truth sensitivity tranche level for INDEL model\n')
+                                vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL90.00to99.00,Description="Truth sensitivity tranche level for INDEL model"\n')
+                                vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.00to99.90,Description="Truth sensitivity tranche level for INDEL model"\n')
+                                vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.90to100.00+,Description="Truth sensitivity tranche level for INDEL model"\n')
+                                vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.90to100.00,Description="Truth sensitivity tranche level for INDEL model"\n')
                             else:
                                 vcf_out.write('##FILTER=<ID=INDEL_filter,Description="QD < 2.0 || FS > 200.0 || ReadPosRankSum < -20.0">\n')
 
                         #AnnoDBID annotation will be added during the annotation pipeline
                         if line[0:13] == "##INFO=<ID=AN":
                                 vcf_out.write('##INFO=<ID=AnnoDBID,Number=1,Type=String,Description="AnnoDBID">\n')
+                                
+                        if line[0:8] == '##INFO' and info_flag == 0:
+                            info_flag = 1
+                            ## Adding this wierd SAO info tag since there are rare cases where a variant has this information, but it is absent in the header
+                            ## causing read backed phasing to crash.
+                            vcf_out.write("""##INFO=<ID=SAO,Number=1,Type=Integer,Description="Variant Allele Origin: 0. unspecified, 1. Germline, 2. Somatic, 3. Both">\n""")
                         vcf_out.write(line)
                     else:
                         break
@@ -1981,12 +2021,18 @@ class RBP(SGEJobTask):
     def work(self):
         """ Run the actual command
         """
-        
+ 
+        self.bgzip_cmd = "{0} -f {1}".format(config().bgzip,self.final_vcf)
+        self.final_vcf_gz = self.final_vcf+".gz"
+        self.tabix_cmd = "{0} -f {1}".format(config().tabix,self.final_vcf_gz)
+        if os.path.exists(self.final_vcf_gz):
+            self.final_vcf = self.final_vcf_gz
+            
         self.cmd = (
             """ {java} -jar {gatk} -T ReadBackedPhasing -R {ref} """
             """ -I {recal_bam} --variant {vcf} -o {phased_vcf} """
             """ --phaseQualityThresh 20.0 --maxGenomicDistanceForMNP 2 """
-            """ --enableMergePhasedSegregatingPolymorphismsToMNP &> {log}""".format(
+            """ --enableMergePhasedSegregatingPolymorphismsToMNP -U ALLOW_SEQ_DICT_INCOMPATIBILITY &> {log}""".format(
                 java=config().java,gatk=config().gatk,ref=config().ref,
                 recal_bam=self.recal_bam,vcf=self.final_vcf,
                 phased_vcf=self.phased_vcf,log=self.log_file))
@@ -2011,7 +2057,12 @@ class RBP(SGEJobTask):
             pipeline_step_id=self.pipeline_step_id)
 
 class FixMergedMNPInfo(SGEJobTask):
-
+    """ The MNPs phased by RBP are missing the DP,AD and other annotation info
+    this task which check variants which are missing these information, fetch
+    the value for corresponding to that variant site from the vcf prior to RBP
+    and add these information to the fixed vcf
+    """
+    
     sample_name = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
@@ -2031,6 +2082,8 @@ class FixMergedMNPInfo(SGEJobTask):
         self.phased_vcf = "{0}/{1}.{2}.analysisReady.phased.vcf".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid)
         self.fixed_vcf = "{0}/{1}.{2}.analysisReady.fixed.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.final_vcf = "{0}/{1}.{2}.analysisReady.vcf".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid)
         try:
             db = get_connection("seqdb")
@@ -2061,8 +2114,15 @@ class FixMergedMNPInfo(SGEJobTask):
                     pipeline_step_id=self.pipeline_step_id))
                 db.commit()
                 db.close()
-            
-                self.fix_phased_vcf(self.phased_vcf,self.final_vcf,self.fixed_vcf)
+
+                ## bgzip and tabix index the final vcf file
+                self.bgzip_cmd = "{0} -f {1}".format(config().bgzip,self.final_vcf)
+                self.final_vcf_gz = self.final_vcf+".gz"
+                self.tabix_cmd = "{0} -f {1}".format(config().tabix,self.final_vcf_gz)
+                if os.path.exists(self.final_vcf):
+                    os.system(self.bgzip_cmd)
+                os.system(self.tabix_cmd)
+                self.fix_phased_vcf(self.phased_vcf,self.final_vcf_gz,self.fixed_vcf)
                 self.LOG_FILE.close()
                 
                 ## Remove temp files
@@ -2088,10 +2148,12 @@ class FixMergedMNPInfo(SGEJobTask):
             finally:
                 if db.open:
                     db.close()
+                self.LOG_FILE.close()
                 break                
         
     def fix_phased_vcf(self,phased_vcf,deannotated_vcf_gz,fixed_vcf):
         """ Fix the missing DP and AD fields for the phased variants
+
         phased_vcf : str ; path to the phased vcf file
         deannotated_vcf : str ; path to the deannotated vcf file(should
         be gzipped and tabix indexed
@@ -2121,7 +2183,8 @@ class FixMergedMNPInfo(SGEJobTask):
                         raise Exception("A non MNP encountered with no DP in info field")
             
     def construct_fixed_vcf_line(self,line,missing_vals):
-        """ Construct the line 
+        """ Construct the fixed line 
+
         line : str ; the vcf line
         missing_vals : [str,str,str] ; the missing dp,ad and
         gatk annotations like ExcessHet,FS,VQSLOD,etc.
@@ -2157,7 +2220,9 @@ class FixMergedMNPInfo(SGEJobTask):
     def check_dp_info(self,line):
         """ Checks whether dp is present in the info field
         returns True if DP is present, otherwise returns False
+
         line : str ; a non header line from the vcf file
+
         returns : Bool 
         """
 
@@ -2210,6 +2275,26 @@ class FixMergedMNPInfo(SGEJobTask):
         return (';'.join(list(tb.query(chrom,pos,pos))[0][7].split(';')[3:]))
 
     
+    def get_correct_record(self,records,pos):
+        """ Return the record having its position
+        equal to pos
+
+        record : a list of lists ; obtained using a tabix tabix query
+        pos : int ; the exact variant position we want
+       
+        returns : list ; the record corresponding to the exact pos
+        """
+
+        for record in records:
+            if int(record[1]) == pos:
+                return record
+
+        ## The position was not found
+        message="The variant site {0} could not be found in the vcf prior to RBP".format(
+            pos)
+        print >> self.LOG_FILE,message
+        raise Exception(message)
+    
     def get_ad_dp_from_vcf(self,vcf,chrom,pos):
         """ Get DP, AD_REF, AD_ALT
         from a VCF file
@@ -2231,10 +2316,14 @@ class FixMergedMNPInfo(SGEJobTask):
             print >> self.LOG_FILE,"Something wrong with opening the indexed vcf file"
             sys.exit(1)
             
-        records = list(tb.query(chrom,pos,pos))[0]
-        
-        info_fields = records[-2].split(':')
-        values = records[-1].split(':')
+        records = list(tb.query(chrom,pos,pos))
+        ## The above query returns all variant sites
+        ## spanning the pos which we have queried for
+        ## We only want the exact pos site, so check
+        ## for that condition
+        record = self.get_correct_record(records,pos)
+        info_fields = record[-2].split(':')
+        values = record[-1].split(':')
         found = 0
         for i in range(0,len(info_fields)):
             if info_fields[i] == 'DP':
@@ -2250,8 +2339,9 @@ class FixMergedMNPInfo(SGEJobTask):
 
         return [ad,dp]
 
-
 class AnnotateVCF(SGEJobTask):
+    """ Annotate the final vcf with SNPEff
+    """
 
     sample_name = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
@@ -2375,7 +2465,7 @@ class AnnotateVCF(SGEJobTask):
                 db.close()
 
     def requires(self):
-        return self.clone(CombineVariants)
+        return self.clone(FixMergedMNPInfo)
 
     def output(self):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
@@ -2521,6 +2611,14 @@ class ArchiveSample(SGEJobTask):
         self.cvg_binned = os.path.join(self.sample_dir,'cvg_binned')
         self.gq_binned = os.path.join(self.sample_dir,'gq_binned')
 
+        ## The base directory will need to be modified if it is a pgm sample
+        self.pgm_base = '/nfs/pgmclin/ALIGNMENT/BUILD37/DRAGEN/'
+        if (self.sample_name.upper().startswith('PGMCLIN') or
+            self.sample_name.upper().startswith('PGMVIP')):
+            self.base_dir = "{0}/{1}/{2}.{3}".format(
+                self.pgm_base,self.sample_type.upper(),self.sample_name,
+                self.pseudo_prepid)
+
         try:
             db = get_connection("seqdb")
             cur = db.cursor()
@@ -2543,7 +2641,7 @@ class ArchiveSample(SGEJobTask):
         ## preceeding tasks were sucessful
         if not os.path.exists(self.geno_concordance_out):
             os.system("touch %s"%self.geno_concordance_out)
-            ## create the base directory if it does not exist
+        ## create the base directory if it does not exist
         if not os.path.exists(self.base_dir):
             os.makedirs(self.base_dir)
 
@@ -2591,7 +2689,7 @@ class ArchiveSample(SGEJobTask):
             ## Change folder permissions of base directory
             subprocess.check_output("chgrp bioinfo {0}".format(self.base_dir),shell=True)
             subprocess.check_output("chmod -R 775 {0}".format(self.base_dir),shell=True)
-
+            
             """Original dragen BAM could be technically deleted earlier after the
             realigned BAM has been created on scratch space but it is safer to
             delete after the final realigned, recalculated BAM has been archived
@@ -2600,10 +2698,13 @@ class ArchiveSample(SGEJobTask):
             rm_folder_cmd = ['rm','-rf',self.scratch_dir]
             subprocess.call(rm_cmd)
             subprocess.call(rm_folder_cmd)
-
+            
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
-
+            ## Update the AlignSeqFile loc to the final archive location
+            location = "{0}/{1}".format(config().base,self.sample_type.upper())
+            update_alignseqfile(location,self.chgvid,self.pseudo_prepid)
+            
             ## Insert to dragen status and update finish time in database
             db = get_connection("seqdb")
             cur = db.cursor()
@@ -2629,7 +2730,6 @@ class ArchiveSample(SGEJobTask):
         yield self.clone(GQBinning)
         yield self.clone(CvgBinning)
         yield self.clone(UpdateSeqdbMetrics)
-        #return self.clone(CleanDirectory)
         
     def output(self):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
@@ -2637,7 +2737,9 @@ class ArchiveSample(SGEJobTask):
 
     
 class SQLTarget(luigi.Target):
-    """Target describing verification of the entries in the database"""
+    """ A luigi target class describing verification of the entries in the database
+    """
+    
     def __init__(self, pseudo_prepid, pipeline_step_id):
         self.pseudo_prepid = pseudo_prepid
         self.pipeline_step_id = pipeline_step_id
@@ -2911,6 +3013,10 @@ class CreateGenomeBed(SGEJobTask):
                      [self.genomecov_cmd],self.sample_name,self.__class__.__name__)
 
 class CalculateTargetCoverage(SGEJobTask):
+    """ Run GATK's calculate target coverage for getting variables for CNV 
+    analysis
+    """
+    
     sample_name = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
@@ -2924,12 +3030,12 @@ class CalculateTargetCoverage(SGEJobTask):
 
     def __init__(self,*args,**kwargs):
         super(CalculateTargetCoverage,self).__init__(*args,**kwargs)
-        self.seqtype_dir = os.path.join(self.scratch,self.sample_type.upper())
+        self.seqtype_dir = "{0}/{1}".format(self.scratch,self.sample_type.upper())
         self.sample_dir = os.path.join(self.seqtype_dir,self.sample_name+'.'+self.pseudo_prepid)
-        self.padded_target_cvg_file = "/nfs/{0}/ALIGNMENT/BUILD37/DRAGEN/EXOME/{1}.{2}/{1}.{2}.padded.target.cov.tsv".format(self.scratch,self.sample_name,self.pseudo_prepid)
-        self.recal_bam = "/nfs/{0}/ALIGNMENT/BUILD37/DRAGEN/EXOME/{1}.{2}/{1}.{2}.realn.recal.bam".format(self.scratch,self.sample_name,self.pseudo_prepid)
-        self.script = "/nfs/{0}/ALIGNMENT/BUILD37/DRAGEN/EXOME/{1}.{2}/scripts/{1}.{2}.{3}.sh".format(
-            self.scratch,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
+        self.padded_target_cvg_file = "{0}/{1}.{2}/{1}.{2}.padded.target.cov.tsv".format(self.seqtype_dir,self.sample_name,self.pseudo_prepid)
+        self.recal_bam = "{0}/{1}.{2}/{1}.{2}.realn.recal.bam".format(self.seqtype_dir,self.sample_name,self.pseudo_prepid)
+        self.script = "{0}/{1}.{2}/scripts/{1}.{2}.{3}.sh".format(
+            self.seqtype_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
         kwargs["sample_name"] = self.sample_name
         super(CalculateTargetCoverage, self).__init__(*args, **kwargs)
 
@@ -2978,7 +3084,6 @@ class CalculateTargetCoverage(SGEJobTask):
         with open(self.script,'w') as o:
             o.write(self.calc_target_cov_cmd + "\n")
 
-        print self.calc_target_cov_cmd
         """
         Run the GATK's CalculateTargetCoverage cmd for CNV calling
         """
@@ -2986,6 +3091,9 @@ class CalculateTargetCoverage(SGEJobTask):
                      [self.calc_target_cov_cmd],self.sample_name,self.__class__.__name__)
 
 class NormalizeSomaticReadCounts(SGEJobTask):
+    """ Normalization step in the CNV pipeline
+    """
+    
     sample_name = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
@@ -2998,15 +3106,16 @@ class NormalizeSomaticReadCounts(SGEJobTask):
 
     def __init__(self,*args,**kwargs):
         super(NormalizeSomaticReadCounts,self).__init__(*args,**kwargs)
-        self.padded_target_cvg_file = "/nfs/{0}/ALIGNMENT/BUILD37/DRAGEN/EXOME/{1}.{2}/{1}.{2}.padded.target.cov.tsv".format(self.scratch,self.sample_name,self.pseudo_prepid)
-        self.preTangentNormalized = "/nfs/{0}/ALIGNMENT/BUILD37/DRAGEN/EXOME/{1}.{2}/{1}.{2}.ptn.tsv".format(self.scratch,self.sample_name,self.pseudo_prepid)
-        self.tangentNormalized = "/nfs/{0}/ALIGNMENT/BUILD37/DRAGEN/EXOME/{1}.{2}/{1}.{2}.tn.tsv".format(self.scratch,self.sample_name,self.pseudo_prepid)
+        self.seqtype_dir = "{0}/{1}".format(self.scratch,self.sample_type.upper())
+        self.padded_target_cvg_file = "{0}/{1}.{2}/{1}.{2}.padded.target.cov.tsv".format(self.seqtype_dir,self.sample_name,self.pseudo_prepid)
+        self.preTangentNormalized = "{0}/{1}.{2}/{1}.{2}.ptn.tsv".format(self.seqtype_dir,self.sample_name,self.pseudo_prepid)
+        self.tangentNormalized = "{0}/{1}.{2}/{1}.{2}.tn.tsv".format(self.seqtype_dir,self.sample_name,self.pseudo_prepid)
         kwargs["sample_name"] = self.sample_name
         super(NormalizeSomaticReadCounts, self).__init__(*args, **kwargs)
 
         capture_kit = getCaptureKit(self.pseudo_prepid)
         panelOfNormals = getPanelOfNormals(capture_kit,self.sample_type)
-        panelOfNormals = '/home/jb3816/PROJECTS/GATK-4.0-alpha-CNV/normal100bp.pon'
+        panelOfNormals = '/nfs/seqscratch09/normal100bp.pon'
         self.normalize_cmd = ("{java} -jar {gatk4} NormalizeSomaticReadCounts "
             "-I {padded_target_cvg_file} "
             "-PON {panelOfNormals} "
@@ -3039,6 +3148,9 @@ class NormalizeSomaticReadCounts(SGEJobTask):
                      [self.normalize_cmd],self.sample_name,self.__class__.__name__)
 
 class PerformSegmentation(SGEJobTask):
+    """ Perform segmentation of normalized copy number ratios
+    """
+    
     sample_name = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
     capture_kit_bed = luigi.Parameter()
@@ -3051,16 +3163,17 @@ class PerformSegmentation(SGEJobTask):
 
     def __init__(self,*args,**kwargs):
         super(PerformSegmentation,self).__init__(*args,**kwargs)
-        self.padded_target_cvg_file = "/nfs/{0}/ALIGNMENT/BUILD37/DRAGEN/EXOME/{1}.{2}/{1}.{2}.padded.target.cov.tsv".format(self.scratch,self.sample_name,self.pseudo_prepid)
-        self.preTangentNormalized = "/nfs/{0}/ALIGNMENT/BUILD37/DRAGEN/EXOME/{1}.{2}/{1}.{2}.ptn.tsv".format(self.scratch,self.sample_name,self.pseudo_prepid)
-        self.tangentNormalized = "/nfs/{0}/ALIGNMENT/BUILD37/DRAGEN/EXOME/{1}.{2}/{1}.{2}.tn.tsv".format(self.scratch,self.sample_name,self.pseudo_prepid)
-        self.segments = "/nfs/{0}/ALIGNMENT/BUILD37/DRAGEN/EXOME/{1}.{2}/{1}.{2}.seg".format(self.scratch,self.sample_name,self.pseudo_prepid)
+        self.seqtype_dir = "{0}/{1}".format(self.scratch,self.sample_type.upper())
+        self.padded_target_cvg_file = "{0}/{1}.{2}/{1}.{2}.padded.target.cov.tsv".format(self.seqtype_dir,self.sample_name,self.pseudo_prepid)
+        self.preTangentNormalized = "{0}/{1}.{2}/{1}.{2}.ptn.tsv".format(self.seqtype_dir,self.sample_name,self.pseudo_prepid)
+        self.tangentNormalized = "{0}/{1}.{2}/{1}.{2}.tn.tsv".format(self.seqtype_dir,self.sample_name,self.pseudo_prepid)
+        self.segments = "{0}/{1}.{2}/{1}.{2}.seg".format(self.seqtype_dir,self.sample_name,self.pseudo_prepid)
         kwargs["sample_name"] = self.sample_name
         super(PerformSegmentation, self).__init__(*args, **kwargs)
 
         capture_kit = getCaptureKit(self.pseudo_prepid)
         panelOfNormals = getPanelOfNormals(capture_kit,self.sample_type)
-        panelOfNormals = '/home/jb3816/PROJECTS/GATK-4.0-alpha-CNV/normal100bp.pon'
+        panelOfNormals = "/nfs/seqscratch09/normal100bp.pon"
         self.seg_cmd = ("{java} -jar {gatk4} PerformSegmentation "
             "-TN {tangentNormalized} "
             "-O {segments}"
@@ -3112,8 +3225,14 @@ class CvgBinning(SGEJobTask):
         self.log_dir = os.path.join(self.sample_dir,'logs')
         self.log_file = os.path.join(self.log_dir,self.sample_name+'.{0}.cvgbinning.log'.format(self.pseudo_prepid))
 
-        if not os.path.isdir(self.output_dir): ## Recursively create the directory if it doesnt exist
-            os.makedirs(self.output_dir)
+        try: ## This syntax is needed to avoid race conditions in certain cases  
+            if not os.path.isdir(self.output_dir): ## Recursively create the directory if it doesnt exist
+                os.makedirs(self.output_dir)
+        except OSError,e:
+            if e.errno != 17:
+                raise Exception("Problem Creating Directory : {0}".format(e))
+            pass
+
 
         self.human_chromosomes = []
         self.human_chromosomes.extend(range(1, 23))
@@ -3177,17 +3296,20 @@ class GQBinning(SGEJobTask):
         self.log_dir = os.path.join(self.sample_dir,'logs')
         self.log_file = os.path.join(self.log_dir,self.sample_name+'.{0}.gqbinning.log'.format(self.pseudo_prepid))
 
-        if not os.path.isdir(self.output_dir): ## Recursively create the directory if it doesnt exist
-            os.makedirs(self.output_dir)
+        try:
+            if not os.path.isdir(self.output_dir): ## Recursively create the directory if it doesnt exist
+                os.makedirs(self.output_dir)
+        except OSError,e:
+            if e.errno != 17:
+                raise Exception("Problem Creating Directory : {0}".format(e))
+            pass
+        
     
         self.human_chromosomes = []
         self.human_chromosomes.extend(range(1, 23))
         self.human_chromosomes = [str(x) for x in self.human_chromosomes]
         self.human_chromosomes.extend(['X', 'Y','MT'])
                        
-        #self.binning_cmd = "{0} {1} --sample_id {2} --block_size {3} --output_dir {4} {5} --mode gq &> {6}".format(
-            #config().pypy,config().binner_loc,self.sample_name+'.'+self.pseudo_prepid,config().block_size,self.output_dir,
-            #self.gvcf,self.log_file)
 
         self.binning_cmd = """ {0} {1} 10000 {2} {3} {4} &> {5} """.format(
             config().pypy,config().gq_binner,self.gvcf,self.sample_name+'.'+self.pseudo_prepid,self.output_dir,self.log_file)
@@ -3277,8 +3399,7 @@ class AlignmentMetrics(SGEJobTask):
                      self.__class__.__name__)
        
 class RunCvgMetrics(SGEJobTask):
-    """ 
-    A luigi task
+    """ Task to get the coverage metrics 
     """
 
     sample_name = luigi.Parameter()
@@ -3408,8 +3529,7 @@ class RunCvgMetrics(SGEJobTask):
                      self.sample_name,self.__class__.__name__)
        
 class DuplicateMetrics(SGEJobTask):
-    """
-    Parse Duplicate Metrics from dragen logs
+    """ Parse Duplicate Metrics from dragen logs
     """
     
     sample_name = luigi.Parameter()
@@ -3468,6 +3588,9 @@ class DuplicateMetrics(SGEJobTask):
                         else:
                             self.dlog = self.dragen_log
 
+        if not os.path.exists(self.dlog):
+            raise Exception("The dragen log file could not be found !")
+
         self.cmd = """grep 'duplicates marked' %s"""%(self.dlog)
         self.cmd2 = """grep 'Number of duplicate reads' %s|head -1"""%(self.dlog)
         
@@ -3479,7 +3602,8 @@ class DuplicateMetrics(SGEJobTask):
         Dependencies for this task is the existence of the log file 
         """
         
-        return MyExtTask(self.dlog)
+        #return MyExtTask(self.dlog)
+        return self.clone(CopyBam)
     
     def output(self):
         """
@@ -3492,6 +3616,8 @@ class DuplicateMetrics(SGEJobTask):
         """
         Execute this task
         """
+        
+        
         ## The regular expression to catch the percentage duplicates in the grep string
         catch_dup = re.compile('.*\((.*)%\).*')
         catch_dup2 = re.compile('.*\[(.*)\].*')
@@ -3570,8 +3696,7 @@ class DuplicateMetrics(SGEJobTask):
                 break ## Exit the loop since we have completed the task 
 
 class VariantCallingMetrics(SGEJobTask):
-    """
-    Run the picard tool for qc evaluation of the variant calls 
+    """ Run the picard tool for qc evaluation of the variant calls 
     """
     sample_name = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
@@ -3632,8 +3757,7 @@ class VariantCallingMetrics(SGEJobTask):
                       self.remove_cmd2],self.sample_name,self.__class__.__name__)
                 
 class GenotypeConcordance(SGEJobTask):
-    """
-    Run the gatk tool for evaluation of the variant calls
+    """ Run the gatk tool for evaluation of the variant calls
     with older production pipeline variant calls
     """
 
@@ -3760,8 +3884,7 @@ class GenotypeConcordance(SGEJobTask):
         return out_vcf
             
 class ContaminationCheck(SGEJobTask):
-    """
-    Run VerifyBamID to check for sample contamination
+    """ Run VerifyBamID to check for sample contamination
     """
 
     sample_name = luigi.Parameter()
@@ -3832,9 +3955,34 @@ class ContaminationCheck(SGEJobTask):
                      self.sample_name,self.__class__.__name__)
 
                
-                
+def update_alignseqfile(location,chgvid,pseudo_prepid):
+    """ Update alignseqfile loc in seqdb
+
+    location : str ; the path to the alignseqfileloc
+    chgvid : str ; the chgvid for the sample
+    pseudo_prepid : str ; the pseudo_prepid for the sample
+    """
+
+    update_statement = (""" UPDATE dragen_qc_metrics SET """
+                        """ AlignSeqFileLoc = '{0}' WHERE """
+                        """ pseudo_prepid = {1} AND """
+                        """ CHGVID = '{2}' """.format(
+                            location,pseudo_prepid,chgvid))    
+    try:
+        db = get_connection("seqdb")
+        cur = db.cursor()
+        cur.execute(update_statement)
+        db.commit()
+        db.close()       
+    except MySQLdb.Error, e:
+        raise Exception("ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1]))
+    finally:
+        if db.open:
+            db.close()    
+    
+
 class UpdateSeqdbMetrics(SGEJobTask):
-    """Populate database with output files    
+    """ Populate database with output files    
     """
     
     sample_name = luigi.Parameter()
@@ -3885,13 +4033,26 @@ class UpdateSeqdbMetrics(SGEJobTask):
         self.pipeline_step_id = get_pipeline_step_id(
             self.__class__.__name__,"seqdb")
 
+        
+        self.raw_vcfs = os.path.join(self.sample_dir,"{0}.{1}.raw*vcf*".format(self.sample_name,self.pseudo_prepid))
+        self.indel_vcfs = os.path.join(self.sample_dir,"{0}.{1}.indel*".format(self.sample_name,self.pseudo_prepid))
+        self.snp_vcfs = os.path.join(self.sample_dir,"{0}.{1}.snp*".format(self.sample_name,self.pseudo_prepid))
+        self.analysis_vcfs = os.path.join(self.sample_dir,"{0}.{1}.analysisReady.vcf*".format(self.sample_name,self.pseudo_prepid))
+        self.fixed_vcf = os.path.join(self.sample_dir,"{0}.{1}.analysisReady.fixed.vcf".format(self.sample_name,self.pseudo_prepid))
+        self.tmp_vcf = os.path.join(self.sample_dir,"{0}.{1}.tmp.vcf".format(self.sample_name,self.pseudo_prepid))
+        self.files_to_remove = [self.raw_vcfs,self.indel_vcfs,self.snp_vcfs,self.analysis_vcfs,self.fixed_vcf,self.tmp_vcf]
+                                       
     def requires(self):
         """
         The requirement for this task
         the outputfile from different tasks should
         be present
         """
-
+        
+        yield self.clone(AnnotateVCF)
+        yield self.clone(GQBinning)
+        yield self.clone(CvgBinning)
+        
         yield self.clone(AlignmentMetrics)
         yield self.clone(RunCvgMetrics)
         yield self.clone(DuplicateMetrics)
@@ -3939,8 +4100,13 @@ class UpdateSeqdbMetrics(SGEJobTask):
                     self.update_genotype_concordance_metrics()
                 self.update_contamination_metrics()
                 self.update_seqgender()
-                #self.update_qc_message()
-
+                self.update_qc_message()
+                ## Update alignseqfile location here to keep track of scratch location
+                update_alignseqfile(self.seqtype_dir,self.sample_name,self.pseudo_prepid)
+                ## Remove all temp files
+                for tmp_file in self.files_to_remove:
+                    os.system("rm {0}".format(tmp_file))
+                    
                 db = get_connection("seqdb")
                 cur = db.cursor()
                 ## Update dragen_status
@@ -3987,9 +4153,9 @@ class UpdateSeqdbMetrics(SGEJobTask):
                 raise Exception("ERROR %d IN CONNECTION: %s" %(e.args[0],e.args[1]))
             else:
                 print >> self.LOG_FILE,"MySQL error 1062: Duplicate primary key, this chgvid,prepid,seqtype was already present in the qc table!"
-        #finally:
-            #if db.open():
-                #db.close()
+        finally:
+            if db.open():
+                db.close()
             
     def check_qc(self):
         """
@@ -4001,7 +4167,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         Returns : Boolean ; True/False
         """
 
-        if (self.check_alignment() and self.check_duplicates() and self.check_variantcalling() and self.check_coverage() and self.check_contamination(),self.check_gender()):
+        if (self.check_alignment() and self.check_duplicates() and self.check_variantcalling() and self.check_coverage() and self.check_contamination()):
             return True
         else:
             return False
@@ -4016,10 +4182,9 @@ class UpdateSeqdbMetrics(SGEJobTask):
         self.passed_qc = "Passed Bioinfo QC"
         message=[]
         if self.check_qc():
-            print "QC Passed"
-            if self.issue_contamination_warning == True: ## Check for contamination warning
-                message.append("Warning sample contamination is high, but below qc fail threshold")    
+            message.append(self.passed_qc)
         else: ## Check individual qc checks again for updating qc message
+            message.append(self.failed_qc)
             if self.issue_contamination_warning == True: ## Check for contamination warning
                 message.append("Warning sample contamination is high, but below qc fail threshold")
             if not self.check_alignment():
@@ -4032,9 +4197,8 @@ class UpdateSeqdbMetrics(SGEJobTask):
                 message.append("Failed Coverage Check")
             if not self.check_contamination():
                 message.append("Failed Contamination Check")
-            if not self.check_gender():
-                message.append("Failed Gender Check")
-            print "QC review needed"
+            #if not self.check_gender():
+                #message.append("Failed Gender Check")
             
         final_message = ';'.join(message)
         self.updatedatabase(self.qc_table,'QCMessage',final_message)
@@ -4384,10 +4548,10 @@ class UpdateSeqdbMetrics(SGEJobTask):
         result = self.get_metrics(query)
         perc_duplicate_reads = float(result[0][0])
         if self.sample_type.upper() == 'GENOME':
-            return (perc_duplicate_reads <= 0.20)
+            return (perc_duplicate_reads <= 20)
 
         else:
-            return (perc_duplicate_reads <= 0.30)
+            return (perc_duplicate_reads <= 30)
         
 
     def check_variantcalling(self):

@@ -69,6 +69,7 @@ class config(luigi.Config):
     bedtools = luigi.Parameter()
     bgzip = luigi.Parameter()
     gatk = luigi.Parameter()
+    gatk4 = luigi.Parameter()
     java = luigi.Parameter()
     picard = luigi.Parameter()
     pypy = luigi.Parameter()
@@ -77,17 +78,21 @@ class config(luigi.Config):
     tabix = luigi.Parameter()
     verifybamid = luigi.Parameter()
     vcffilter = luigi.Parameter()
+    #locations
+    #scratch = luigi.Parameter()
+    base = luigi.Parameter()
+    python_path = luigi.Parameter()
     #files
     bait_file = luigi.Parameter()
     bait_file_X = luigi.Parameter()
     bait_file_Y = luigi.Parameter()
     bait_bed_file = luigi.Parameter()
     ccds_bed_file = luigi.Parameter()
-    relatedness_markers = luigi.Parameter()
     relatedness_refs = luigi.Parameter()
+    relatedness_markers = luigi.Parameter()
     binner_loc = luigi.Parameter()
-    gq_binner = luigi.Parameter()
     coverage_binner = luigi.Parameter()
+    gq_binner = luigi.Parameter()    
     snpEff_cfg = luigi.Parameter()
     target_file = luigi.Parameter()
     target_file_X = luigi.Parameter()
@@ -95,6 +100,7 @@ class config(luigi.Config):
     transpose_awk = luigi.Parameter()
     subset_vcf_awk = luigi.Parameter()
     deannotater = luigi.Parameter()
+    add_info_annotation = luigi.Parameter()
     #gatk resources
     contam1000g_vcf = luigi.Parameter(description="The 1000g vcf file subsetted to SeqCap Regions to be used for contamination check")
     ref = luigi.Parameter()
@@ -110,11 +116,8 @@ class config(luigi.Config):
     #variables
     create_targetfile = luigi.BooleanParameter()
     max_mem = luigi.IntParameter()
+    cnv_target_padding = luigi.Parameter()
     block_size = luigi.Parameter(description='The block size over which to do the binning')
-    #locations
-    python_path = luigi.Parameter()
-    #scratch = luigi.Parameter()
-    base = luigi.Parameter()
 
 class db(luigi.Config):
     """Database config variable will be read from the
@@ -1937,7 +1940,7 @@ class FixMergedMNPInfo(SGEJobTask):
                 db.close()
             
                 self.fix_phased_vcf(self.phased_vcf,self.deannotated_vcf_gz,self.fixed_vcf)
-                self.LOG_FILE.close()
+                
                 
                 db = get_connection("seqdb")
                 cur = db.cursor()
@@ -1958,6 +1961,7 @@ class FixMergedMNPInfo(SGEJobTask):
             finally:
                 if db.open:
                     db.close()
+                self.LOG_FILE.close()
                 break                
         
     def fix_phased_vcf(self,phased_vcf,deannotated_vcf_gz,fixed_vcf):
@@ -1976,7 +1980,7 @@ class FixMergedMNPInfo(SGEJobTask):
                     print >> OUT,line
                 else:
                     ## Check for a MNP
-                    if self.check_mnp(line):                       
+                    if self.check_mnp(line):
                         ## get DP,AD_ref,AD_alt
                         chrom = line.split('\t')[0]
                         pos = int(line.split('\t')[1])
@@ -1985,7 +1989,7 @@ class FixMergedMNPInfo(SGEJobTask):
                             deannotated_vcf_gz,chrom,pos)
                         ## Construct a new vcf line
                         new_line = self.construct_fixed_vcf_line(line,[ad,dp,annotations])
-                        print new_line
+                        #print new_line
                         print >> OUT,new_line
                     else: ## A non MNP with no DP, raise an exception
                         raise Exception("A non MNP encountered with no DP in info field")
@@ -2076,7 +2080,29 @@ class FixMergedMNPInfo(SGEJobTask):
             sys.exit(1)
             
         return (';'.join(list(tb.query(chrom,pos,pos))[0][7].split(';')[3:]))
-    
+
+
+    def get_correct_record(self,records,pos):
+        """ Return the record having its position
+        equal to pos
+
+        record : a list of lists ; obtained using a tabix tabix query
+        pos : int ; the exact variant position we want
+       
+        returns : list ; the record corresponding to the exact pos
+        """
+
+        for record in records:
+            print record
+            if int(record[1]) == pos:
+                return record
+
+        ## The position was not found
+        message="The variant site {0} could not be found in the vcf prior to RBP".format(
+            pos)
+        print >> self.LOG_FILE,message
+        raise Exception(message)
+            
     def get_ad_dp_from_vcf(self,vcf,chrom,pos):
         """ Get DP, AD_REF, AD_ALT
         from a VCF file
@@ -2096,19 +2122,29 @@ class FixMergedMNPInfo(SGEJobTask):
             sys.exit(1)
         except:
             print >> self.LOG_FILE,"Something wrong with opening the indexed vcf file"
+            self.LOG_FILE.close()
             sys.exit(1)
             
-        records = list(tb.query(chrom,pos,pos))[0]
-        
-        info_fields = records[-2].split(':')
-        values = records[-1].split(':')
+        records = list(tb.query(chrom,pos,pos))
+        ## The above query returns all variant sites
+        ## spanning the pos which we have queried for
+        ## We only want the exact pos site, so check
+        ## for that condition
+        record = self.get_correct_record(records,pos)
+        info_fields = record[-2].split(':')
+        values = record[-1].split(':')
         found = 0
         for i in range(0,len(info_fields)):
             if info_fields[i] == 'DP':
                 dp = values[i]
                 found+=1
             if info_fields[i] == 'AD':
-                ad = values[i]  ## How to deal with multi allelic sites ? 
+                ad = values[i]  ## How to deal with multi allelic sites ?
+                if len(ad.split(',')) > 2:
+                    message="The variant site {0} could not be found in the vcf prior to RBP".format(
+                        pos)
+                    print >> self.LOG_FILE,message
+                    raise Exception(message)
                 found+=1
 
         if found != 2:
@@ -2182,7 +2218,7 @@ class AnnotateVCF(SGEJobTask):
                               snpEff_cfg=config().snpEff_cfg,
                               temp_vcf=self.temp_vcf)
             
-        bgzip_cmd = ("{0} {1}").format(config().bgzip,self.annotated_vcf)
+        bgzip_cmd = ("{0} -f {1}").format(config().bgzip,self.annotated_vcf)
         tabix_cmd = ("{0} -f {1}").format(config().tabix,self.annotated_vcf_gz)
 
         try:
@@ -2319,13 +2355,13 @@ class DeAnnotateVCF(SGEJobTask):
                 deannotated_vcf=self.deannotated_vcf,vcf=self.annotated_vcf_gz,
                 log=self.log_file))
 
-        bgzip_cmd = "{0} {1}".format(config().bgzip,self.deannotated_vcf)
+        bgzip_cmd = "{0} -f {1}".format(config().bgzip,self.deannotated_vcf)
         tabix_cmd = "{0} -f {1}".format(config().tabix,self.deannotated_vcf_gz)
         with open(self.script,'w') as OUT:
             OUT.write(self.cmd)
 
         run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
-                     [self.cmd,bgzip_cmd,tabix_cmd],self.sample_name,self.__class__.__name__)
+                     [self.cmd],self.sample_name,self.__class__.__name__)
 
     def requires(self):
         """ The dependency for this task
@@ -2390,8 +2426,17 @@ class RBP(SGEJobTask):
     def work(self):
         """ Run the actual command
         """
+
+        tempfile="{0}/{1}{2}.temp.sao.vcf".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+                
+        self.cmd1 = "bash {0} {1} {2}".format(
+            config().add_info_annotation,self.deannotated_vcf,tempfile)
+
+        self.cmd2 = "{0} -f {1}".format(config().bgzip,self.deannotated_vcf)
+        self.cmd3 = "{0} -f {1}".format(config().tabix,self.deannotated_vcf_gz)
         
-        self.cmd = (
+        self.cmd4 = (
             """ {java} -jar {gatk} -T ReadBackedPhasing -R {ref} """
             """ -I {recal_bam} --variant {vcf} -o {phased_vcf} """
             """ --phaseQualityThresh 20.0 --maxGenomicDistanceForMNP 2 """
@@ -2399,12 +2444,15 @@ class RBP(SGEJobTask):
                 java=config().java,gatk=config().gatk,ref=config().ref,
                 recal_bam=self.recal_bam,vcf=self.deannotated_vcf_gz,
                 phased_vcf=self.phased_vcf,log=self.log_file))
-        
+
         with open(self.script,'w') as OUT:
-                OUT.write(self.cmd)
-        
+                OUT.write(self.cmd1+'\n')
+                OUT.write(self.cmd2+'\n')
+                OUT.write(self.cmd3+'\n')
+                OUT.write(self.cmd4+'\n')
+
         run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
-                     [self.cmd],self.sample_name,self.__class__.__name__)
+                     [self.cmd1,self.cmd2,self.cmd3,self.cmd4],self.sample_name,self.__class__.__name__)
 
     def requires(self):
         """ The task dependency 
@@ -3727,7 +3775,27 @@ class ContaminationCheck(SGEJobTask):
                      self.sample_name,self.__class__.__name__)
 
                
-                
+def update_alignseqfile(location,chgvid,pseudo_prepid):
+    """ Update alignseqfile loc in seqdb
+
+    location : str ; the path to the alignseqfileloc
+    """
+
+    update_statement = (""" UPDATE dragen_qc_metrics SET AlignSeqFileLoc = '{0}' WHERE pseudo_prepid = {1} AND CHGVID = '{2}' """.format(location,pseudo_prepid,chgvid))
+    
+    try:
+        db = get_connection("seqdb")
+        cur = db.cursor()
+        cur.execute(update_statement)
+        db.commit()
+        db.close()       
+    except MySQLdb.Error, e:
+        raise Exception("ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1]))
+    finally:
+        if db.open:
+            db.close()    
+
+            
 class UpdateSeqdbMetrics(SGEJobTask):
     """Populate database with output files    
     """
@@ -3798,6 +3866,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         be present
         """
 
+        """
         yield self.clone(AlignmentMetrics)
         yield self.clone(RunCvgMetrics)
         yield self.clone(GQBinning)
@@ -3807,6 +3876,8 @@ class UpdateSeqdbMetrics(SGEJobTask):
         if get_productionvcf(self.pseudo_prepid,self.sample_name,self.sample_type) != None:
             yield self.clone(GenotypeConcordance)
         yield self.clone(CvgBinning)
+        """
+        yield self.clone(AnnotateVCF)
             
     def output(self):
         """
@@ -3859,7 +3930,8 @@ class UpdateSeqdbMetrics(SGEJobTask):
                     subprocess.check_call(['rm',self.fixed_vcf])
                 if os.path.exists(self.temp_vcf):
                     subprocess.check_call(['rm',self.temp_vcf])
-
+                    
+                update_alignseqfile(self.reanalysis_seqtype,self.sample_name,self.pseudo_prepid) 
                 db = get_connection("seqdb")
                 cur = db.cursor()
                 ## Update dragen_status
