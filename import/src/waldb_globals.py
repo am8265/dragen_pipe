@@ -117,20 +117,13 @@ def get_connection(db):
     """return a connection to the database specified
     """
     defaults_file = cfg.get("db", "cnf")
-    if db == "waldb":
+    try:
         return MySQLdb.connect(
             read_default_file=defaults_file,
-            read_default_group="client" + cfg.get("db", "waldb_group"))
-    elif db == "seqdb":
-        return MySQLdb.connect(
-            read_default_file=defaults_file,
-            read_default_group="client" + cfg.get("db", "seqdb_group"))
-    elif db == "dragen":
-        return MySQLdb.connect(
-            read_default_file=defaults_file,
-            read_default_group="client" + cfg.get("db", "dragen_group"))
-    else:
-        raise ValueError("specified database group is invalid")
+            read_default_group="client{}".format(db))
+    except Exception as e:
+        raise ValueError("specified database group {} is invalid in {}; error: "
+                         "{}".format(db, defaults_file, e))
 
 def get_last_insert_id(cur):
     """return the last autoincrement id for the cursor
