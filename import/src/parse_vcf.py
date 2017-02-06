@@ -766,7 +766,7 @@ if __name__ == "__main__":
                         type=partial(valid_numerical_argument, arg_name="sample_id"),
                         help="the id of the sample")
     parser.add_argument("OUTPUT_BASE", help="the base output file name structure")
-    parser.add_argument("-d", "--database", choices=["waldb", "dragen"],
+    parser.add_argument("-d", "--database", choices=["waldb", "dragen", "waldb4"],
                         help="the database to load to")
     parser.add_argument("-l", "--level", default="ERROR",
                         choices=LOGGING_LEVELS.keys(),
