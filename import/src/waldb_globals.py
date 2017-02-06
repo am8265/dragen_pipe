@@ -6,10 +6,12 @@ import gzip
 import MySQLdb
 import argparse
 import sys
+import luigi
 from operator import lt, le
 from ConfigParser import RawConfigParser
 import logging
 from db_statements import GET_SAMPLE_DIRECTORY
+from itertools import chain
 
 cfg = RawConfigParser()
 cfg.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "waldb.cfg"))
@@ -115,20 +117,13 @@ def get_connection(db):
     """return a connection to the database specified
     """
     defaults_file = cfg.get("db", "cnf")
-    if db == "waldb":
+    try:
         return MySQLdb.connect(
             read_default_file=defaults_file,
-            read_default_group="client" + cfg.get("db", "waldb_group"))
-    elif db == "seqdb":
-        return MySQLdb.connect(
-            read_default_file=defaults_file,
-            read_default_group="client" + cfg.get("db", "seqdb_group"))
-    elif db == "dragen":
-        return MySQLdb.connect(
-            read_default_file=defaults_file,
-            read_default_group="client" + cfg.get("db", "dragen_group"))
-    else:
-        raise ValueError("specified database group is invalid")
+            read_default_group="client{}".format(db))
+    except Exception as e:
+        raise ValueError("specified database group {} is invalid in {}; error: "
+                         "{}".format(db, defaults_file, e))
 
 def get_last_insert_id(cur):
     """return the last autoincrement id for the cursor
@@ -264,3 +259,18 @@ def strip_suffix(string, suffix):
     """Strip the given suffix if it's present
     """
     return string[:-len(suffix)] if string.endswith(suffix) else string
+
+class MultipleFilesTarget(luigi.Target):
+    """Target which checks for existence of all files passed in
+    """
+    def __init__(self, targets):
+        self.targets = list(chain(*targets))
+
+    def exists(self):
+        for fn in self.targets:
+            if not os.path.isfile(fn):
+                return False
+        return True
+
+    def get_targets(self):
+        return self.targets

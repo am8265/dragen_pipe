@@ -455,7 +455,7 @@ def output_novel_variant_entry(
         gene=format_NULL_value(gene), indel_length=indel_length,
         has_high_quality_call=int(high_quality_call)) + "\n")
 
-def parse_vcf(vcf, CHROM, sample_id, output_base,
+def parse_vcf(vcf, CHROM, sample_id, database, output_base,
               load_calls=True, chromosome_length=None):
     logger = logging.getLogger(__name__)
     logger.info("starting CHROM {}\n".format(CHROM))
@@ -465,7 +465,7 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
     # are multiple entries for the same indel
     # (because of repetitive genome/indel matching)
     indel_ids = set()
-    db = get_connection("waldb")
+    db = get_connection(database)
     try:
         cur = db.cursor()
         max_variant_id = get_max_variant_id(cur, CHROM)
@@ -748,8 +748,8 @@ def parse_vcf(vcf, CHROM, sample_id, output_base,
                 format(max_variant_id=max_variant_id,
                        current_max_variant_id=current_max_variant_id))
     finally:
-        logger.info("elapsed time: {} seconds\n".format(
-            time() - start_time))
+        logger.info("elapsed time on chromosome {}: {} seconds\n".format(
+            CHROM, time() - start_time))
         if db.open:
             db.close()
 
@@ -766,6 +766,8 @@ if __name__ == "__main__":
                         type=partial(valid_numerical_argument, arg_name="sample_id"),
                         help="the id of the sample")
     parser.add_argument("OUTPUT_BASE", help="the base output file name structure")
+    parser.add_argument("-d", "--database", choices=["waldb", "dragen", "waldb4"],
+                        help="the database to load to")
     parser.add_argument("-l", "--level", default="ERROR",
                         choices=LOGGING_LEVELS.keys(),
                         help="specify the logging level to use")
@@ -784,5 +786,5 @@ if __name__ == "__main__":
     formatter = logging.Formatter(cfg.get("logging", "format"))
     handler.setFormatter(formatter)
     logger.addHandler(handler)
-    parse_vcf(args.VCF, args.CHROMOSOME, args.SAMPLE_ID,
+    parse_vcf(args.VCF, args.CHROMOSOME, args.SAMPLE_ID, args.database,
               output_base_rp, not args.no_calls)

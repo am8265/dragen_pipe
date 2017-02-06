@@ -38,8 +38,7 @@ def check_if_sample_importing(cur):
     """
     cur.execute("SHOW FULL PROCESSLIST")
     for row in cur.fetchall():
-        (sql_id, user, host, db, command, time,
-         state, info, rows_sent, rows_examined) = row
+        (sql_id, user, host, db, command, time, state, info) = row[:8]
         if info and user == "bc2675" and "LOAD DATA" in info.upper():
             logger.warning("Job still committing:\n" + "\t".join(
                 [str(value) for value in row]))
@@ -167,6 +166,11 @@ class ParseVCF(SGEJobTask):
     level = luigi.ChoiceParameter(
         choices=LOGGING_LEVELS, significant=False,
         default="DEBUG", description="the logging level to use")
+    database = luigi.ChoiceParameter(
+        choices=["waldb", "dragen", "waldb4"], default="waldb",
+        description="the database to load to")
+    dont_load_data = luigi.BoolParameter(
+        description="don't actually load any data, used for testing purposes")
 
     def __init__(self, *args, **kwargs):
         super(ParseVCF, self).__init__(*args, **kwargs)
@@ -186,34 +190,35 @@ class ParseVCF(SGEJobTask):
         self.called_variants = self.output_base + ".calls.txt"
         self.variant_id_vcf = self.output_base + ".variant_id.vcf"
         self.matched_indels = self.output_base + ".matched_indels.txt"
-        seqdb = get_connection("seqdb")
-        try:
-            seq_cur = seqdb.cursor()
-            seq_cur.execute(GET_PIPELINE_STEP_ID.format(
-                chromosome=self.chromosome, data_type="Variant Data"))
-            self.pipeline_step_id = seq_cur.fetchone()[0]
-        finally:
-            if seqdb.open:
-                seqdb.close()
+        if not self.dont_load_data:
+            seqdb = get_connection("seqdb")
+            try:
+                seq_cur = seqdb.cursor()
+                seq_cur.execute(GET_PIPELINE_STEP_ID.format(
+                    chromosome=self.chromosome, data_type="Variant Data"))
+                self.pipeline_step_id = seq_cur.fetchone()[0]
+            finally:
+                if seqdb.open:
+                    seqdb.close()
 
     def requires(self):
         return self.clone(CopyDataToScratch)
 
     def work(self):
-        seqdb = get_connection("seqdb")
-        try:
-            seq_cur = seqdb.cursor()
-            seq_cur.execute(GET_TIMES_STEP_RUN.format(
-                prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
-            times_run = seq_cur.fetchone()[0] + 1
-            seq_cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
-                prep_id=self.prep_id, times_run=times_run,
-                pipeline_step_id=self.pipeline_step_id))
-            seqdb.commit()
-        finally:
-            if seqdb.open:
-                seqdb.close()
-        self.set_status_message = "Progress: Parsing VCF!"
+        if not self.dont_load_data:
+            seqdb = get_connection("seqdb")
+            try:
+                seq_cur = seqdb.cursor()
+                seq_cur.execute(GET_TIMES_STEP_RUN.format(
+                    prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
+                times_run = seq_cur.fetchone()[0] + 1
+                seq_cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
+                    prep_id=self.prep_id, times_run=times_run,
+                    pipeline_step_id=self.pipeline_step_id))
+                seqdb.commit()
+            finally:
+                if seqdb.open:
+                    seqdb.close()
         level = LOGGING_LEVELS[self.level]
         parse_logger = logging.getLogger("parse_vcf")
         parse_logger.setLevel(level)
@@ -225,7 +230,7 @@ class ParseVCF(SGEJobTask):
         parse_vcf(
             vcf=self.copied_files_dict["vcf"],
             CHROM=self.chromosome, sample_id=self.sample_id,
-            output_base=self.output_base,
+            database=self.database, output_base=self.output_base,
             chromosome_length=CHROMs[self.chromosome])
         for fn in (self.novel_variants, self.novel_indels,
                    self.novel_transcripts,
@@ -253,49 +258,55 @@ class ParseVCF(SGEJobTask):
                              "{vcf_count} in VCF, {table_count} in table".format(
                                  vcf_count=vcf_variants_count,
                                  table_count=calls_line_count))
-        db = get_connection("waldb")
-        seqdb = get_connection("seqdb")
-        try:
-            cur = db.cursor()
-            seq_cur = seqdb.cursor()
-            for table_name, table_file, is_variant_table in (
-                ("variant_chr" + self.chromosome, self.novel_variants, True),
-                ("indel_chr" + self.chromosome, self.novel_indels, False),
-                ("custom_transcript_ids_chr" + self.chromosome,
-                 self.novel_transcripts, False),
-                ("called_variant_chr" + self.chromosome, self.called_variants,
-                 False),
-                ("matched_indels", self.matched_indels, False)):
-                load_statement = (
-                    LOAD_TABLE_REPLACE if is_variant_table else LOAD_TABLE)
-                load_statement = load_statement.format(
-                    table_name=table_name, table_file=table_file)
-                try:
-                    cur.execute(load_statement)
-                except (MySQLdb.IntegrityError, MySQLdb.OperationalError):
-                    logger.error(
-                        "error with:\n" + load_statement, exc_info=True)
-                    sys.exit(1)
-            cur.execute(GET_NUM_CALLS_FOR_SAMPLE.format(
-                CHROM=self.chromosome, sample_id=self.sample_id))
-            db_count = cur.fetchone()[0]
-            if db_count != vcf_variants_count:
-                db.rollback()
-                raise ValueError(
-                    "incorrect number of calls in the called_variant table")
-            db.commit()
-            seq_cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
-                prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
-            seqdb.commit()
-        finally:
-            if db.open:
-                db.close()
-            if seqdb.open:
-                seqdb.close()
+        if not self.dont_load_data:
+            db = get_connection(self.database)
+            seqdb = get_connection("seqdb")
+            try:
+                cur = db.cursor()
+                seq_cur = seqdb.cursor()
+                for table_name, table_file, is_variant_table in (
+                    ("variant_chr" + self.chromosome, self.novel_variants, True),
+                    ("indel_chr" + self.chromosome, self.novel_indels, False),
+                    ("custom_transcript_ids_chr" + self.chromosome,
+                     self.novel_transcripts, False),
+                    ("called_variant_chr" + self.chromosome, self.called_variants,
+                     False),
+                    ("matched_indels", self.matched_indels, False)):
+                    load_statement = (
+                        LOAD_TABLE_REPLACE if is_variant_table else LOAD_TABLE)
+                    load_statement = load_statement.format(
+                        table_name=table_name, table_file=table_file)
+                    try:
+                        cur.execute(load_statement)
+                    except (MySQLdb.IntegrityError, MySQLdb.OperationalError):
+                        logger.error(
+                            "error with:\n" + load_statement, exc_info=True)
+                        sys.exit(1)
+                cur.execute(GET_NUM_CALLS_FOR_SAMPLE.format(
+                    CHROM=self.chromosome, sample_id=self.sample_id))
+                db_count = cur.fetchone()[0]
+                if db_count != vcf_variants_count:
+                    db.rollback()
+                    raise ValueError(
+                        "incorrect number of calls in the called_variant table")
+                db.commit()
+                seq_cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
+                    prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
+                seqdb.commit()
+            finally:
+                if db.open:
+                    db.close()
+                if seqdb.open:
+                    seqdb.close()
 
     def output(self):
-        return SQLTarget(
-            prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id)
+        if self.dont_load_data:
+            return MultipleFilesTarget(
+                [[self.novel_variants, self.novel_indels, self.novel_transcripts,
+                  self.called_variants, self.variant_id_vcf, self.matched_indels]])
+        else:
+            return SQLTarget(
+                prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id)
 
 class LoadBinData(SGEJobTask):
     """Import the DP/GQ binning data for a single chromosome for a sample
@@ -311,54 +322,64 @@ class LoadBinData(SGEJobTask):
         description="the (pseudo) prep_id for the sample")
     data_type = luigi.ChoiceParameter(
         choices=["DP", "GQ"], description="the type of binned data to load")
+    database = luigi.ChoiceParameter(
+        choices=["waldb", "dragen", "waldb4"], default="waldb",
+        description="the database to load to")
+    dont_load_data = luigi.BoolParameter(
+        description="don't actually load any data, used for testing purposes")
 
     def __init__(self, *args, **kwargs):
         super(LoadBinData, self).__init__(*args, **kwargs)
-        seqdb = get_connection("seqdb")
-        try:
-            seq_cur = seqdb.cursor()
-            seq_cur.execute(GET_PIPELINE_STEP_ID.format(
-                chromosome=self.chromosome, data_type="{data_type} Data".format(
-                data_type=self.data_type)))
-            self.pipeline_step_id = seq_cur.fetchone()[0]
-        finally:
-            if seqdb.open:
-                seqdb.close()
+        self.temp_fn = os.path.join(self.output_directory, os.path.basename(self.fn))
+        if not self.dont_load_data:
+            seqdb = get_connection("seqdb")
+            try:
+                seq_cur = seqdb.cursor()
+                seq_cur.execute(GET_PIPELINE_STEP_ID.format(
+                    chromosome=self.chromosome, data_type="{data_type} Data".format(
+                    data_type=self.data_type)))
+                self.pipeline_step_id = seq_cur.fetchone()[0]
+            finally:
+                if seqdb.open:
+                    seqdb.close()
 
     def work(self):
-        db = get_connection("waldb")
-        seqdb = get_connection("seqdb")
-        try:
-            cur = db.cursor()
-            seq_cur = seqdb.cursor()
-            seq_cur.execute(GET_TIMES_STEP_RUN.format(
-                prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
-            times_run = seq_cur.fetchone()[0] + 1
-            seq_cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
-                times_run=times_run, prep_id=self.prep_id,
-                pipeline_step_id=self.pipeline_step_id))
-            seqdb.commit()
-            copy(self.fn, self.output_directory)
-            temp_fn = os.path.join(self.output_directory, os.path.basename(self.fn))
-            statement = INSERT_BIN_STATEMENT.format(
-                data_file=temp_fn, data_type=self.data_type,
-                chromosome=self.chromosome, sample_id=self.sample_id)
-            cur.execute(statement)
-            db.commit()
-            seq_cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
-                prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
-            seqdb.commit()
-        except MySQLdb.InternalError:
-            logger.error("{statement} failed".format(statement=statement))
-        finally:
-            if db.open:
-                db.close()
-            if seqdb.open:
-                seqdb.close()
+        copy(self.fn, self.output_directory)
+        if not self.dont_load_data:
+            db = get_connection(self.database)
+            seqdb = get_connection("seqdb")
+            try:
+                cur = db.cursor()
+                seq_cur = seqdb.cursor()
+                seq_cur.execute(GET_TIMES_STEP_RUN.format(
+                    prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
+                times_run = seq_cur.fetchone()[0] + 1
+                seq_cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
+                    times_run=times_run, prep_id=self.prep_id,
+                    pipeline_step_id=self.pipeline_step_id))
+                seqdb.commit()
+                statement = INSERT_BIN_STATEMENT.format(
+                    data_file=self.temp_fn, data_type=self.data_type,
+                    chromosome=self.chromosome, sample_id=self.sample_id)
+                cur.execute(statement)
+                db.commit()
+                seq_cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
+                    prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
+                seqdb.commit()
+            except MySQLdb.InternalError:
+                logger.error("{statement} failed".format(statement=statement))
+            finally:
+                if db.open:
+                    db.close()
+                if seqdb.open:
+                    seqdb.close()
 
     def output(self):
-        return SQLTarget(
-            prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id)
+        if self.dont_load_data:
+            return MultipleFilesTarget([[self.temp_fn]])
+        else:
+            return SQLTarget(
+                prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id)
 
 class ImportSample(luigi.Task):
     """import a sample by requiring() a ParseVCF Task for each chromosome
@@ -389,10 +410,15 @@ class ImportSample(luigi.Task):
     dont_remove_tmp_dir_if_failure = luigi.BoolParameter(
         significant=False,
         description="don't remove the tmp dir if there's a failure")
+    database = luigi.ChoiceParameter(
+        choices=["waldb", "dragen", "waldb4"], default="waldb",
+        description="the database to load to")
+    dont_load_data = luigi.BoolParameter(
+        description="don't actually load any data, used for testing purposes")
 
     def __init__(self, *args, **kwargs):
         super(ImportSample, self).__init__(*args, **kwargs)
-        db = get_connection("waldb")
+        db = get_connection(self.database)
         try:
             cur = db.cursor()
             cur.execute(GET_SAMPLE_INFO.format(sample_id=self.sample_id))
@@ -419,7 +445,7 @@ class ImportSample(luigi.Task):
             raise ValueError(
                 "the data directory {} for the sample does not exist".format(
                 self.data_directory))
-        db = get_connection("waldb")
+        db = get_connection(self.database)
         try:
             cur = db.cursor()
             while check_if_sample_importing(cur):
@@ -441,7 +467,7 @@ class ImportSample(luigi.Task):
         super(ImportSample, self).__init__(*args, **kwargs)
         if os.path.isfile(self.vcf):
             if self.sequencing_type == "exome" and os.path.getsize(self.vcf) > 200000000:
-                db = get_connection("waldb")
+                db = get_connection(self.database)
                 try:
                     cur = db.cursor()
                     cur.execute(
@@ -464,14 +490,14 @@ class ImportSample(luigi.Task):
             ParseVCF, chromosome=CHROM, 
             output_base=self.output_directory + CHROM)
             for CHROM in CHROMs.iterkeys()] +
-            [self.clone(
-                LoadBinData,
-                fn=os.path.join(
-                    self.data_directory, "gq_binned",
-                    "{sample_name}.{prep_id}_gq_binned_10000_chr{chromosome}.txt".format(
-                        sample_name=self.sample_name, prep_id=self.prep_id,
-                        chromosome=CHROM)), chromosome=CHROM, data_type="GQ")
-                for CHROM in CHROMs.iterkeys()] +
+   #         [self.clone(
+   #             LoadBinData,
+   #             fn=os.path.join(
+   #                 self.data_directory, "gq_binned",
+   #                 "{sample_name}.{prep_id}_gq_binned_10000_chr{chromosome}.txt".format(
+   #                     sample_name=self.sample_name, prep_id=self.prep_id,
+   #                     chromosome=CHROM)), chromosome=CHROM, data_type="GQ")
+   #             for CHROM in CHROMs.iterkeys()] +
             [self.clone(
                 LoadBinData,
                 fn=os.path.join(
@@ -482,15 +508,16 @@ class ImportSample(luigi.Task):
                 for CHROM in CHROMs.iterkeys()])
     
     def run(self):
-        seqdb = get_connection("seqdb")
-        try:
-            seq_cur = seqdb.cursor()
-            seq_cur.execute(INCREMENT_TIMES_STEP_RUN.format(
-                prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
-            seqdb.commit()
-        finally:
-            if seqdb.open:
-                seqdb.close()
+        if not self.dont_load_data:
+            seqdb = get_connection("seqdb")
+            try:
+                seq_cur = seqdb.cursor()
+                seq_cur.execute(INCREMENT_TIMES_STEP_RUN.format(
+                    prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
+                seqdb.commit()
+            finally:
+                if seqdb.open:
+                    seqdb.close()
         variant_id_header = cfg.get("pipeline", "variant_id_header") + "\n"
         header = []
         info_encountered = False
@@ -539,31 +566,39 @@ class ImportSample(luigi.Task):
             p.communicate()
             if p.returncode:
                 raise subprocess.CalledProcessError(p.returncode, cmd)
-        copy(vcf_out, os.path.join(
-            self.data_directory, os.path.basename(vcf_out)))
-        copy(vcf_out + ".tbi", os.path.join(
-            self.data_directory, os.path.basename(vcf_out) + ".tbi"))
-        # copy other stuff/delete scratch directory, etc.
-        seqdb = get_connection("seqdb")
-        db = get_connection("waldb")
-        try:
-            seq_cur = seqdb.cursor()
-            cur = db.cursor()
-            seq_cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
-                prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
-            cur.execute(SET_SAMPLE_FINISHED.format(
-                sample_id=self.sample_id))
-            seqdb.commit()
-            db.commit()
-        finally:
-            if seqdb.open:
-                seqdb.close()
-            if db.open:
-                db.close()
+        if not self.dont_load_data:
+            # only back up/update DB if we're actually loading data
+            copy(vcf_out, os.path.join(
+                self.data_directory, os.path.basename(vcf_out)))
+            copy(vcf_out + ".tbi", os.path.join(
+                self.data_directory, os.path.basename(vcf_out) + ".tbi"))
+            # copy other stuff/delete scratch directory, etc.
+            seqdb = get_connection("seqdb")
+            db = get_connection(self.database)
+            try:
+                seq_cur = seqdb.cursor()
+                cur = db.cursor()
+                seq_cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
+                    prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
+                cur.execute(SET_SAMPLE_FINISHED.format(
+                    sample_id=self.sample_id))
+                seqdb.commit()
+                db.commit()
+            finally:
+                if seqdb.open:
+                    seqdb.close()
+                if db.open:
+                    db.close()
                 
     def output(self):
-        return SQLTarget(
-            prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id)
+        if self.dont_load_data:
+            # just check for existence of all files
+            return MultipleFilesTarget(
+                [target.get_targets() for target in self.input()])
+        else:
+            # check final DB status
+            return SQLTarget(
+                prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id)
 
 if __name__ == "__main__":
     luigi.run()
