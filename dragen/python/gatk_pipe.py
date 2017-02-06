@@ -151,6 +151,7 @@ class config(luigi.Config):
     tabix = luigi.Parameter()
     verifybamid = luigi.Parameter()
     vcffilter = luigi.Parameter()
+    clineff = luigi.Parameter()
     #files
     bait_file = luigi.Parameter()
     bait_file_X = luigi.Parameter()
@@ -844,6 +845,16 @@ class HaplotypeCaller(SGEJobTask):
             with open(os.devnull, 'w') as DEVNULL:
                 subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
 
+            rm_cmd = "rm {0} {1}".format(self.realn_bam,self.scratch_bam)
+            with open(self.script,'a') as o:
+                o.write(rm_cmd + "\n")
+            with open(self.log_file, "a") as log_fh, open(os.devnull,'w') as DEVNULL:
+                p = subprocess.Popen(shlex.split(rm_cmd), stdout=DEVNULL, stderr=log_fh)
+                p.wait()                    
+            if p.returncode:
+                raise subprocess.CalledProcessError(p.returncode, rm_cmd)
+            
+            
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
 
@@ -2387,30 +2398,20 @@ class AnnotateVCF(SGEJobTask):
         self.temp_vcf = "{0}/{1}.{2}.analysisReady.vcf.tmp".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid)
         
-        annotate_rsids_cmd = ("{java} -jar {snpSift} annotate "
-                              "{dbsnp} {fixed_vcf} 2>> {error_file} 1> {temp_vcf}"
-                             ).format(java=config().java,
-                                      snpSift=config().snpSift,
-                                      dbsnp = config().annotatedbSNP,
-                                      fixed_vcf = self.fixed_vcf,
-                                      error_file = self.log_file,
-                                      temp_vcf = self.temp_vcf)
-        
-        snpEff_cmd = ("{java} -Xmx5G -jar {snpEff} eff "
-                     "GRCh37.74 -c {snpEff_cfg} "
-                     "-v -noMotif -noNextProt -noLog -nodownload -noStats "
-                     "-o vcf {temp_vcf}"
-                     ).format(java=config().java,
-                              snpEff=config().snpEff,
-                              snpEff_cfg=config().snpEff_cfg,
-                              temp_vcf=self.temp_vcf)
         #In case of overwritting previous vcf.gz and vcf.gz.tbi files
         if os.path.isfile(self.annotated_vcf_gz):
             subprocess.check_call(['rm',self.annotated_vcf_gz])
-            
+
+        annotation_cmd = (""" /nfs/goldstein/software/jdk1.8.0_05/bin/java """
+                          """ -Xmx6g -jar {0} -v -db """
+                          """ /nfs/seqscratch11/rp2801/ethnicity_1000g/dbsnp_fixed.vcf"""
+                          """ GRCh37.87 {1} > {2} 2> {3} """.format(
+                              config().clineff,self.fixed_vcf,
+                              self.annotated_vcf,self.log_file))
+        
         bgzip_cmd = ("{0} {1}").format(config().bgzip,self.annotated_vcf)
         tabix_cmd = ("{0} -f {1}").format(config().tabix,self.annotated_vcf_gz)
-
+        
         try:
             db = get_connection("seqdb")
             cur = db.cursor()
@@ -2422,23 +2423,10 @@ class AnnotateVCF(SGEJobTask):
             db.close()
             
             with open(self.script,'w') as o:
-                o.write(annotate_rsids_cmd + "\n")
-                o.write(snpEff_cmd + "\n")
+                o.write(annotation_cmd + "\n")
                 o.write(bgzip_cmd + "\n")
                 o.write(tabix_cmd + "\n")
 
-            ## Annotate with rsids first
-            proc = subprocess.Popen(annotate_rsids_cmd,shell=True)
-            proc.wait()
-            if proc.returncode: ## Non zero return code
-                raise subprocess.CalledProcessError(proc.returncode,annotaet_rsids_cmd)
-            
-            with open(self.annotated_vcf,'w') as vcf_out, \
-                open(self.log_file, "a") as log_fh:
-                    p = subprocess.Popen(shlex.split(snpEff_cmd), stdout=vcf_out, stderr=log_fh)
-                    p.wait()
-            if p.returncode:
-                raise subprocess.CalledProcessError(p.returncode, cmd)
             subprocess.check_call(shlex.split(snpEff_cmd))
             subprocess.check_call(shlex.split(bgzip_cmd))
             subprocess.check_call(shlex.split(tabix_cmd))
@@ -2684,8 +2672,6 @@ class ArchiveSample(SGEJobTask):
 
             ## Run the rsync
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
-            #os.system(cmd)
-            subprocess.check_call(['touch',self.copy_complete])
             ## Change folder permissions of base directory
             subprocess.check_output("chgrp bioinfo {0}".format(self.base_dir),shell=True)
             subprocess.check_output("chmod -R 775 {0}".format(self.base_dir),shell=True)
@@ -2696,14 +2682,14 @@ class ArchiveSample(SGEJobTask):
             since our scratch space has failed in the past."""
             rm_cmd = ['rm',self.bam,self.bam_index]
             rm_folder_cmd = ['rm','-rf',self.scratch_dir]
-            subprocess.call(rm_cmd)
+            #subprocess.call(rm_cmd)
             subprocess.call(rm_folder_cmd)
             
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
             ## Update the AlignSeqFile loc to the final archive location
             location = "{0}/{1}".format(config().base,self.sample_type.upper())
-            update_alignseqfile(location,self.chgvid,self.pseudo_prepid)
+            update_alignseqfile(location,self.sample_name,self.pseudo_prepid)
             
             ## Insert to dragen status and update finish time in database
             db = get_connection("seqdb")
@@ -4153,9 +4139,6 @@ class UpdateSeqdbMetrics(SGEJobTask):
                 raise Exception("ERROR %d IN CONNECTION: %s" %(e.args[0],e.args[1]))
             else:
                 print >> self.LOG_FILE,"MySQL error 1062: Duplicate primary key, this chgvid,prepid,seqtype was already present in the qc table!"
-        finally:
-            if db.open():
-                db.close()
             
     def check_qc(self):
         """
@@ -4252,6 +4235,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
                 cur = db.cursor()
                 cur.execute(query)
                 db_val = cur.fetchall()
+                db.close()
                 return db_val ## Pass control back
             except MySQLdb.Error, e:
                 if i == tries - 1:
@@ -4259,10 +4243,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
                 else:
                     time.sleep(60) ## Wait a minute before trying again
                     continue 
-            finally:
-                if db.open:
-                    db.close()                
-            
+                        
     def update_alignment_metrics(self):
         """
         Function to update the Alignment Metrics
