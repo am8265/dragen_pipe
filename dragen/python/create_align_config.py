@@ -10,11 +10,11 @@ def create_align_config(sample):
     raw_config="""
 
 #================================================================================
-# Dragen 1.7.1 Configuration File
+# Dragen 2.0.1 Configuration File
 #================================================================================
 #
 # Author:	Joshua Bridgers (jb3816)
-# Desc: 	Configuration file for Dragen 1.7.1 for alignment and variant
+# Desc: 	Configuration file for Dragen 2.0.1 for alignment and variant
 # 		calling from Casava 1.8 raw fastq files
 #
 #================================================================================
