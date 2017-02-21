@@ -294,9 +294,9 @@ def output_novel_variant(
         # custom annotations missense_variant+splice_region_variant and
         # splice_region_variant+synonymous_variant
         annotations_by_transcript = defaultdict(set)
-        for (effects, impact, gene, gene_id, feature_type, feature_id,
+        for x, (effects, impact, gene, gene_id, feature_type, feature_id,
              transcript_biotype, rank_total, HGVS_c, HGVS_p, cDNA_position,
-             CDS_position, protein_position, distance, errors) in anns:
+             CDS_position, protein_position, distance, errors) in enumerate(anns):
             # there appears to be a bug such that
             # 3_prime_UTR_truncation+exon_loss appears as
             # 3_prime_UTR_truncation&exon_loss and
@@ -308,6 +308,8 @@ def output_novel_variant(
                            replace("5_prime_UTR_truncation&exon_loss_variant",
                                    "5_prime_UTR_truncation+exon_loss_variant"))
             if "non_canonical_start_codon" in effects:
+                # this is supposed to be one compound effect, but is mistakenly
+                # annotated as two separate, so we recombine then
                 effects = effects.replace(
                     "initiator_codon_variant&non_canonical_start_codon",
                     "initiator_codon_variant+non_canonical_start_codon")
@@ -330,7 +332,12 @@ def output_novel_variant(
                     raise ValueError(
                         "error: invalid effect {effect} for {VariantID}".format(
                         effect=effect, VariantID=VariantID))
-                if impact not in effect_rankings[effect]:
+                if impact in effect_rankings[effect]:
+                    # sometimes the effects are out impact order, so need to not
+                    # overwrite the impact from the record in order to ensure
+                    # finding the proper impact for any subsequent effects
+                    true_impact = impact
+                else:
                     # this is likely due to SnpEff concatenating two or more
                     # effects into one annotation - we will try to select the
                     # next least deleterious impact that is valid for the effect
@@ -338,14 +345,15 @@ def output_novel_variant(
                     corrected_impact_found = False
                     for next_impact in impact_ordering[impact_idx + 1:]:
                         if next_impact in effect_rankings[effect]:
-                            impact = next_impact
+                            true_impact = next_impact
                             corrected_impact_found = True
                             break
                     if not corrected_impact_found:
                         raise ValueError(
                             "failed to find a valid (impact, effect) to match "
-                            "({impact}, {effect})".format(
-                                impact=impact, effect=effect))
+                            "({impact}, {effect}) @{VariantID}:{ann}".format(
+                                impact=impact, effect=effect,
+                                VariantID=VariantID, ann=anns[x]))
                 # sometimes SnpEff can annotate the same effect in transcripts
                 # and treat different case differently, but this will cause
                 # integrity errors, so they're converted to upper-case always
@@ -363,13 +371,15 @@ def output_novel_variant(
                         custom_transcript_ids[feature_id])
                 else:
                     if feature_id.startswith("ENST"):
-                        transcript_ids_dict[feature_id] = int(feature_id[4:])
+                        # remove ENST prefix and any versioning, e.g. .1
+                        transcript_ids_dict[feature_id] = int(
+                            feature_id[4:].split(".")[0])
                     else:
                         raise ValueError(
                             "failure getting a transcript ID for {}".format(
                                 feature_id))
                 annotations_key = (feature_id, effect)
-                effect_id = effect_rankings[effect][impact]
+                effect_id = effect_rankings[effect][true_impact]
                 effect_ids.append(effect_id)
                 if annotations_key in annotations:
                     if "N" in REF:
@@ -767,7 +777,7 @@ if __name__ == "__main__":
                         help="the id of the sample")
     parser.add_argument("OUTPUT_BASE", help="the base output file name structure")
     parser.add_argument("-d", "--database", choices=["waldb", "dragen", "waldb4"],
-                        help="the database to load to")
+                        default="waldb4", help="the database to load to")
     parser.add_argument("-l", "--level", default="ERROR",
                         choices=LOGGING_LEVELS.keys(),
                         help="specify the logging level to use")

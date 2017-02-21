@@ -12,6 +12,7 @@ from ConfigParser import RawConfigParser
 import logging
 from db_statements import GET_SAMPLE_DIRECTORY
 from itertools import chain
+from collections import OrderedDict, Counter, defaultdict
 
 cfg = RawConfigParser()
 cfg.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "waldb.cfg"))
@@ -274,3 +275,11 @@ class MultipleFilesTarget(luigi.Target):
 
     def get_targets(self):
         return self.targets
+
+class OrderedCounter(Counter, OrderedDict):
+    pass
+
+class OrderedDefaultDict(OrderedDict, defaultdict):
+    def __init__(self, default_factory=None, *args, **kwargs):
+        super(OrderedDefaultDict, self).__init__(*args, **kwargs)
+        self.default_factory = default_factory

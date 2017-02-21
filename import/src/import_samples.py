@@ -16,7 +16,8 @@ from db_statements import *
 cfg = get_cfg()
 
 class ImportSamples(ProcessSamples.ProcessSamples):
-    def __init__(self, seqscratch="_ssd", force_failed_samples=False,
+    def __init__(self, database="waldb4", seqscratch="_ssd",
+                 force_failed_samples=False,
                  run_locally=False, qdel_jobs=True,
                  local_scheduler=False, **kwargs):
         super(ImportSamples, self).__init__(
@@ -28,10 +29,11 @@ class ImportSamples(ProcessSamples.ProcessSamples):
             r"^(?:ParseVCF|LoadGQData|LoadDPData)\.{sample_name}\."
             r"{0}\.chr(?:1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|"
             r"16|17|18|19|20|21|22|X|Y|MT)$")
+        self.database = database
         self.seqscratch = seqscratch
 
     def _get_samples(self):
-        db = get_connection("waldb")
+        db = get_connection(self.database)
         try:
             cur = db.cursor()
             query = GET_SAMPLES_TO_IMPORT.format(
@@ -50,11 +52,12 @@ class ImportSamples(ProcessSamples.ProcessSamples):
         sample_id, sample_type = args
         cmd = ("luigi --module data_import_pipeline ImportSample --sample-id "
                "{sample_id} --seqscratch {seqscratch} --workers 75 "
+               "--database {database} "
                "--dont-remove-tmp-dir-if-failure "
                "--logging-conf-file {logging_conf_file}{run_locally}"
                "{local_scheduler}".format(
                    sample_id=sample_id, seqscratch=self.seqscratch,
-                   logging_conf_file="logging.conf",
+                   logging_conf_file="logging.conf", database=self.database,
                    run_locally=" --run-locally" if self.run_locally else "",
                    local_scheduler=" --local-scheduler" if self.local_scheduler
                    else ""))
@@ -66,7 +69,7 @@ class ImportSamples(ProcessSamples.ProcessSamples):
             timeout = 7200
         return cmd, timeout
 
-def main(seqscratch, force_failed_samples, run_locally,
+def main(database, seqscratch, force_failed_samples, run_locally,
          local_scheduler, debug_level):
     # set up logging
     formatter = logging.Formatter(cfg.get("logging", "format"))
@@ -86,7 +89,7 @@ def main(seqscratch, force_failed_samples, run_locally,
     logger.addHandler(handler)
     # import samples
     import_samples = ImportSamples(
-        seqscratch=seqscratch,
+        database=database, seqscratch=seqscratch,
         force_failed_samples=force_failed_samples,
         qdel_jobs=not run_locally, run_locally=run_locally,
         local_scheduler=local_scheduler)
@@ -95,6 +98,9 @@ def main(seqscratch, force_failed_samples, run_locally,
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=CustomFormatter)
+    parser.add_argument("-d", "--database", default="waldb4",
+                        choices=["waldb", "waldb2", "waldb4"], 
+                        help="the database to import to")
     parser.add_argument("-s", "--seqscratch",
                         choices=["09", "10", "11", "_ssd"], default="_ssd",
                         help="the scratch drive to use")
@@ -111,5 +117,5 @@ if __name__ == "__main__":
                         action=DereferenceKeyAction,
                         help="specify the logging level to use")
     args = parser.parse_args()
-    main(args.seqscratch, args.force_failed_samples, args.run_locally,
-         args.local_scheduler, args.level)
+    main(args.database, args.seqscratch, args.force_failed_samples,
+         args.run_locally, args.local_scheduler, args.level)
