@@ -471,7 +471,7 @@ class ImportSample(luigi.Task):
                 try:
                     cur = db.cursor()
                     cur.execute(
-                        "UPDATE sample SET failure = 1 WHERE sample_id = "
+                        "UPDATE sample SET sample_failure = 1 WHERE sample_id = "
                         "{sample_id}".format(sample_id=self.sample_id))
                     db.commit()
                     db.close()
@@ -490,14 +490,14 @@ class ImportSample(luigi.Task):
             ParseVCF, chromosome=CHROM, 
             output_base=self.output_directory + CHROM)
             for CHROM in CHROMs.iterkeys()] +
-   #         [self.clone(
-   #             LoadBinData,
-   #             fn=os.path.join(
-   #                 self.data_directory, "gq_binned",
-   #                 "{sample_name}.{prep_id}_gq_binned_10000_chr{chromosome}.txt".format(
-   #                     sample_name=self.sample_name, prep_id=self.prep_id,
-   #                     chromosome=CHROM)), chromosome=CHROM, data_type="GQ")
-   #             for CHROM in CHROMs.iterkeys()] +
+            [self.clone(
+                LoadBinData,
+                fn=os.path.join(
+                    self.data_directory, "gq_binned",
+                    "{sample_name}.{prep_id}_gq_binned_10000_chr{chromosome}.txt".format(
+                        sample_name=self.sample_name, prep_id=self.prep_id,
+                        chromosome=CHROM)), chromosome=CHROM, data_type="GQ")
+                for CHROM in CHROMs.iterkeys()] +
             [self.clone(
                 LoadBinData,
                 fn=os.path.join(
