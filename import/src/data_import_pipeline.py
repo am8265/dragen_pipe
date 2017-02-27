@@ -234,7 +234,8 @@ class ParseVCF(SGEJobTask):
         parse_vcf(
             vcf=self.copied_files_dict["vcf"],
             CHROM=self.chromosome, sample_id=self.sample_id,
-            database=self.database, output_base=self.output_base,
+            database=self.database, min_dp_to_include=self.min_dp_to_include,
+            output_base=self.output_base,
             chromosome_length=CHROMs[self.chromosome])
         for fn in (self.novel_variants, self.novel_indels,
                    self.novel_transcripts,
@@ -249,7 +250,7 @@ class ParseVCF(SGEJobTask):
                 fields = VCF_fields_dict(line.strip("\n").split("\t"))
                 dp = int(dict(zip(fields["FORMAT"].split(":"),
                                   fields["call"].split(":")))["DP"])
-                if dp < min_dp_to_include:
+                if dp < self.min_dp_to_include:
                     # make sure not to count variants with depth less than 3
                     continue
                 info = fields["INFO"]
