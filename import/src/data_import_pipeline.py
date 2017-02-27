@@ -23,6 +23,9 @@ import logging
 from time import sleep
 
 cfg = get_cfg()
+# the maximum number of tables to load concurrently
+max_tables_to_load = cfg.getint("pipeline", "max_tables_to_load")
+table_load_wait_time = cfg.getint("pipeline", "table_load_wait_time")
 CHROMs = OrderedDict([[chromosome.upper(), int(length)]
                       for chromosome, length in cfg.items("chromosomes")])
 logger = logging.getLogger(__name__)
@@ -46,19 +49,34 @@ def get_task_list_to_run(cur, prep_id):
                 steps_needed.append(step_name)
     return steps_needed
 
+def get_num_tables_loading(cur):
+    """return the number of tables that are currently loading in the DB
+    """
+    num_tables = 0
+    cur.execute("SHOW FULL PROCESSLIST")
+    for row in cur.fetchall():
+        (sql_id, user, host, db, command, time, state, info) = row[:8]
+        if info and "LOAD DATA " in info.upper():
+            num_tables += 1
+    return num_tables
+
 def check_if_sample_importing(cur):
     """check if a sample was presumably stuck previously so we don't try to
     import until the previous one is finished/killed
     """
-    cur.execute("SHOW FULL PROCESSLIST")
-    for row in cur.fetchall():
-        (sql_id, user, host, db, command, time, state, info) = row[:8]
-        if info and user == "bc2675" and "LOAD DATA" in info.upper():
-            logger.warning("Job still committing:\n" + "\t".join(
-                [str(value) for value in row]))
-            return True
-    logger.debug("No other samples' commit jobs waiting")
-    return False
+    return get_num_tables_loading(cur) > 0
+
+def block_until_loading_slot_available(
+    cur, max_tables_to_load=max_tables_to_load,
+    table_load_wait_time=table_load_wait_time):
+    """infinite loop to wait until fewer than the maximum number of tables are
+    loading
+    """
+    while True:
+        if get_num_tables_loading(cur) < max_tables_to_load:
+            return
+        else:
+            sleep(table_load_wait_time)
 
 def get_num_lines_from_vcf(vcf, region=None, header=True):
     """return the number of variant lines in the specified VCF, gzipped optional
@@ -288,6 +306,7 @@ class ParseVCF(SGEJobTask):
             try:
                 cur = db.cursor()
                 seq_cur = seqdb.cursor()
+                block_until_loading_slot_available(cur)
                 for table_name, table_file, is_variant_table in (
                     ("variant_chr" + self.chromosome, self.novel_variants, True),
                     ("indel_chr" + self.chromosome, self.novel_indels, False),
@@ -374,6 +393,7 @@ class LoadBinData(SGEJobTask):
             seqdb = get_connection("seqdb")
             try:
                 cur = db.cursor()
+                block_until_loading_slot_available(cur)
                 seq_cur = seqdb.cursor()
                 seq_cur.execute(GET_TIMES_STEP_RUN.format(
                     prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
@@ -475,9 +495,13 @@ class ImportSample(luigi.Task):
                 "the data directory {} for the sample does not exist".format(
                 self.data_directory))
         db = get_connection(self.database)
+        seqdb = get_connection("seqdb")
         try:
             cur = db.cursor()
+            seq_cur = seqdb.cursor()
             while check_if_sample_importing(cur):
+                logger.warning(
+                    "Data still loading for other task...sleeping 10 seconds")
                 sleep(10)
             logger.debug("Loading {sample_name}:{sequencing_type}:{capture_kit}:"
                          "{prep_id}".format(capture_kit=capture_kit, **self.__dict__))
