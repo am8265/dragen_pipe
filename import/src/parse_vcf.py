@@ -541,6 +541,11 @@ def parse_vcf(vcf, CHROM, sample_id, database, output_base,
                 call = {"sample_id":sample_id, "GQ":call_stats["GQ"],
                         "DP":call_stats["DP"],
                         "QUAL":int(round(float(fields["QUAL"])))}
+                # we will not load calls less than 3 DP
+                if int(call["DP"]) < MIN_DP_TO_INCLUDE:
+                    # just output the record unchanged
+                    vcf_out.write("\t".join(line_fields) + "\n")
+                    continue
                 high_quality_call = call_is_high_quality(
                     int(round(float(fields["QUAL"]))),
                     int(round(float(INFO["MQ"]))) if "MQ" in INFO else 0,

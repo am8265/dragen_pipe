@@ -242,7 +242,12 @@ class ParseVCF(SGEJobTask):
         variants = set()
         with open(self.variant_id_vcf) as vcf:
             for line in vcf:
-                fields = VCF_fields_dict(line.split("\t"))
+                fields = VCF_fields_dict(line.strip("\n").split("\t"))
+                dp = int(dict(zip(fields["FORMAT"].split(":"),
+                                  fields["call"].split(":")))["DP"])
+                if dp < MIN_DP_TO_INCLUDE:
+                    # make sure not to count variants with depth less than 3
+                    continue
                 info = fields["INFO"]
                 if info.startswith("VariantID="):
                     for variant_id in info.split(";")[0].split("=")[1].split(","):

@@ -21,6 +21,8 @@ CNF = "/nfs/goldstein/software/dragen/dragen.cnf" # defaults file for pipeline
 LOGGING_LEVELS = {
     "CRITICAL":logging.CRITICAL, "ERROR":logging.ERROR,
     "WARNING":logging.WARNING, "INFO":logging.INFO, "DEBUG":logging.DEBUG}
+# exclude variant calls below this read depth
+MIN_DP_TO_INCLUDE = 3
 
 class DereferenceKeyAction(argparse.Action):
     """Define a class for automatically converting the key specified from
