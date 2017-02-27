@@ -100,9 +100,7 @@ def get_all_indels(cur, CHROM):
     if CHROM in chromosome_indels_queried:
         logger.warning("{CHROM} was already queried".format(CHROM=CHROM))
         return
-    config_parser = SafeConfigParser()
-    config_parser.read(CNF)
-    genome = Fasta(config_parser.get("annodb", "REFERENCE_GENOME"))
+    genome = Fasta(cfg.get("ref", "genome"))
     sequence_by_chromosome[CHROM] = genome[str(CHROM)][:].seq
     chromosome_lengths[CHROM] = len(sequence_by_chromosome[CHROM])
     genome.close()

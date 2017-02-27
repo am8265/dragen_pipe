@@ -16,8 +16,6 @@ from collections import OrderedDict, Counter, defaultdict
 
 cfg = RawConfigParser()
 cfg.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "waldb.cfg"))
-
-CNF = "/nfs/goldstein/software/dragen/dragen.cnf" # defaults file for pipeline
 LOGGING_LEVELS = {
     "CRITICAL":logging.CRITICAL, "ERROR":logging.ERROR,
     "WARNING":logging.WARNING, "INFO":logging.INFO, "DEBUG":logging.DEBUG}
