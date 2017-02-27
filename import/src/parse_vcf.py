@@ -17,6 +17,7 @@ import tabix
 import logging
 
 cfg = get_cfg()
+block_size = cfg.getint("pipeline", "block_size")
 HGVS_P_REGEX = re.compile(HGVS_P_PATTERN)
 
 def get_max_variant_id(cur, CHROM):
@@ -187,7 +188,7 @@ def get_variant_id(novel_fh, novel_indels_fh, novel_transcripts_fh,
     if len(alt) > 255:
         alt = alt[:255]
     POS += offset
-    block_id = POS / BLOCK_SIZE
+    block_id = POS / block_size
     cur.execute(VARIANT_EXISTS_QUERY.format(
         CHROM=CHROM, POS=POS, REF=REF, ALT=alt, indel_length=indel_length))
     rows = cur.fetchall()
@@ -465,7 +466,7 @@ def output_novel_variant_entry(
         gene=format_NULL_value(gene), indel_length=indel_length,
         has_high_quality_call=int(high_quality_call)) + "\n")
 
-def parse_vcf(vcf, CHROM, sample_id, database, output_base,
+def parse_vcf(vcf, CHROM, sample_id, database, min_dp_to_include, output_base,
               load_calls=True, chromosome_length=None):
     logger = logging.getLogger(__name__)
     logger.info("starting CHROM {}\n".format(CHROM))
@@ -542,7 +543,7 @@ def parse_vcf(vcf, CHROM, sample_id, database, output_base,
                         "DP":call_stats["DP"],
                         "QUAL":int(round(float(fields["QUAL"])))}
                 # we will not load calls less than 3 DP
-                if int(call["DP"]) < MIN_DP_TO_INCLUDE:
+                if int(call["DP"]) < min_dp_to_include:
                     # just output the record unchanged
                     vcf_out.write("\t".join(line_fields) + "\n")
                     continue
@@ -783,6 +784,9 @@ if __name__ == "__main__":
     parser.add_argument("OUTPUT_BASE", help="the base output file name structure")
     parser.add_argument("-d", "--database", choices=["waldb", "dragen", "waldb4"],
                         default="waldb4", help="the database to load to")
+    parser.add_argument("-m", "--min_dp_to_include", type=int,
+                        default=cfg.getint("pipeline", "min_dp_to_include"),
+                        help="ignore variant calls below this read depth")
     parser.add_argument("-l", "--level", default="ERROR",
                         choices=LOGGING_LEVELS.keys(),
                         help="specify the logging level to use")
@@ -802,4 +806,4 @@ if __name__ == "__main__":
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     parse_vcf(args.VCF, args.CHROMOSOME, args.SAMPLE_ID, args.database,
-              output_base_rp, not args.no_calls)
+              args.min_dp_to_inclue, output_base_rp, not args.no_calls)

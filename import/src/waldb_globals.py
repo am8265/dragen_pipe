@@ -22,7 +22,6 @@ LOGGING_LEVELS = {
     "CRITICAL":logging.CRITICAL, "ERROR":logging.ERROR,
     "WARNING":logging.WARNING, "INFO":logging.INFO, "DEBUG":logging.DEBUG}
 # exclude variant calls below this read depth
-MIN_DP_TO_INCLUDE = 3
 
 class DereferenceKeyAction(argparse.Action):
     """Define a class for automatically converting the key specified from
@@ -45,7 +44,6 @@ class DereferenceKeyAction(argparse.Action):
 VCF_COLUMNS = ["CHROM", "POS", "rs_number", "REF", "ALT", "QUAL", "FILTER",
                "INFO", "FORMAT", "call"]
 VCF_COLUMNS_DICT = dict([(column, x) for x, column in enumerate(VCF_COLUMNS)])
-BLOCK_SIZE = 10000 # the bases in a block of variant calls (for indexing)
 VALID_GTS = set(["0", "1"]) # valid values in GT field, i.e. REF/ALT
 # the table format to output for calls
 VARIANT_CALL_FORMAT = ("{" + "}\t{".join(

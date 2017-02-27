@@ -169,6 +169,10 @@ class ParseVCF(SGEJobTask):
     database = luigi.ChoiceParameter(
         choices=["waldb", "dragen", "waldb4"], default="waldb",
         description="the database to load to")
+    min_dp_to_include = luigi.NumericalParameter(
+        min_value=0, max_value=sys.maxsize, var_type=int,
+        default=cfg.getint("pipeline", "min_dp_to_include"),
+        description="ignore variant calls below this read depth")
     dont_load_data = luigi.BoolParameter(
         description="don't actually load any data, used for testing purposes")
 
@@ -245,7 +249,7 @@ class ParseVCF(SGEJobTask):
                 fields = VCF_fields_dict(line.strip("\n").split("\t"))
                 dp = int(dict(zip(fields["FORMAT"].split(":"),
                                   fields["call"].split(":")))["DP"])
-                if dp < MIN_DP_TO_INCLUDE:
+                if dp < min_dp_to_include:
                     # make sure not to count variants with depth less than 3
                     continue
                 info = fields["INFO"]
@@ -418,6 +422,10 @@ class ImportSample(luigi.Task):
     database = luigi.ChoiceParameter(
         choices=["waldb", "dragen", "waldb4"], default="waldb",
         description="the database to load to")
+    min_dp_to_include = luigi.NumericalParameter(
+        min_value=0, max_value=sys.maxsize, var_type=int,
+        default=cfg.getint("pipeline", "min_dp_to_include"),
+        description="ignore variant calls below this read depth")
     dont_load_data = luigi.BoolParameter(
         description="don't actually load any data, used for testing purposes")
 
