@@ -63,7 +63,7 @@ class ImportSamples(ProcessSamples.ProcessSamples):
                    else ""))
         if sample_type in ("exome", "custom_capture"):
             # allow 10 minutes for exomes
-            timeout = 600
+            timeout = 1800
         elif sample_type in ("genome", "merged"):
             # 2 hours for genomes
             timeout = 7200
