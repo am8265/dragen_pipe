@@ -204,3 +204,10 @@ SELECT AlignSeqFileLoc
 FROM dragen_qc_metrics
 WHERE pseudo_prepid = {prep_id}
 """
+STEP_FINISHED = """
+SELECT 1
+FROM dragen_pipeline_step p
+INNER JOIN dragen_pipeline_step_desc d ON p.pipeline_step_id = d.id
+WHERE p.pseudo_prepid = {prep_id} AND d.step_name = "Imported {step_name}"
+    AND p.finished = 1
+"""

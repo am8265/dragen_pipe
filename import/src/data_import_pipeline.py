@@ -32,6 +32,20 @@ formatter = logging.Formatter(cfg.get("logging", "format"))
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
+def get_task_list_to_run(cur, prep_id):
+    """get the list of all tasks that still need to be run for the sample
+    """
+    steps_needed = []
+    for data_type in ("Variant", "DP", "GQ"):
+        for CHROM in CHROMs:
+            step_name = "Chromosome {CHROM} {data_type} Data".format(
+                CHROM=CHROM, data_type=data_type)
+            cur.execute(STEP_FINISHED.format(
+                prep_id=prep_id, step_name=step_name))
+            if not cur.fetchone():
+                steps_needed.append(step_name)
+    return steps_needed
+
 def check_if_sample_importing(cur):
     """check if a sample was presumably stuck previously so we don't try to
     import until the previous one is finished/killed
@@ -440,6 +454,7 @@ class ImportSample(luigi.Task):
             if row:
                 (sample_name, sequencing_type, capture_kit, prep_id) = row
                 kwargs["sample_name"] = sample_name
+                self.sample_name = sample_name
                 self.sequencing_type = sequencing_type
                 self.prep_id = prep_id
                 if "prep_id" not in kwargs:
@@ -464,8 +479,13 @@ class ImportSample(luigi.Task):
             cur = db.cursor()
             while check_if_sample_importing(cur):
                 sleep(10)
+            logger.debug("Loading {sample_name}:{sequencing_type}:{capture_kit}:"
+                         "{prep_id}".format(capture_kit=capture_kit, **self.__dict__))
             seqdb = get_connection("seqdb")
             seq_cur = seqdb.cursor()
+            if not self.dont_load_data:
+                logger.debug("The following still need to be loaded: {}".format(
+                    get_task_list_to_run(seq_cur, self.prep_id)))
             seq_cur.execute(GET_PIPELINE_FINISHED_ID)
             self.pipeline_step_id = seq_cur.fetchone()[0]
         finally:
