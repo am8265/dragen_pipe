@@ -522,6 +522,18 @@ class ImportSample(luigi.Task):
                 for CHROM in CHROMs.iterkeys()])
     
     def run(self):
+        # verify that each VariantID annotated chromosome's VCF is present,
+        # otherwise re-create
+        variant_id_vcfs_missing = []
+        for CHROM in CHROMs.iterkeys():
+            if not os.path.isfile(os.path.join(
+                self.output_directory, CHROM + ".variant_id.vcf")):
+                variant_id_vcfs_missing.append(CHROM)
+        if variant_id_vcfs_missing:
+            yield [self.clone(ParseVCF, chromosome=CHROM,
+                              output_base=self.output_directory + CHROM,
+                              dont_load_data=True) for CHROM in
+                   variant_id_vcfs_missing]
         if not self.dont_load_data:
             seqdb = get_connection("seqdb")
             try:
