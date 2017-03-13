@@ -74,6 +74,7 @@ class config(luigi.Config):
     picard = luigi.Parameter()
     pypy = luigi.Parameter()
     snpEff = luigi.Parameter()
+    clineff = luigi.Parameter()
     snpSift = luigi.Parameter()
     tabix = luigi.Parameter()
     verifybamid = luigi.Parameter()
@@ -94,6 +95,7 @@ class config(luigi.Config):
     coverage_binner = luigi.Parameter()
     gq_binner = luigi.Parameter()    
     snpEff_cfg = luigi.Parameter()
+    clineff_cfg = luigi.Parameter()
     target_file = luigi.Parameter()
     target_file_X = luigi.Parameter()
     target_file_Y = luigi.Parameter()
@@ -175,7 +177,7 @@ class CopyBam(SGEJobTask):
 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
     #job_name = self.sample_name + '.' + self.__class__.__name__ 
 
     def __init__(self, *args, **kwargs):
@@ -281,7 +283,7 @@ class RealignerTargetCreator(SGEJobTask):
 
     n_cpu = 4
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(RealignerTargetCreator, self).__init__(*args, **kwargs)
@@ -381,7 +383,7 @@ class IndelRealigner(SGEJobTask):
 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(IndelRealigner, self).__init__(*args, **kwargs)
@@ -485,7 +487,7 @@ class BaseRecalibrator(SGEJobTask):
 
     n_cpu = 4
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(BaseRecalibrator, self).__init__(*args, **kwargs)
@@ -585,7 +587,7 @@ class PrintReads(SGEJobTask):
     
     n_cpu = 4
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(PrintReads, self).__init__(*args, **kwargs)
@@ -687,7 +689,7 @@ class HaplotypeCaller(SGEJobTask):
 
     n_cpu = 4
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(HaplotypeCaller, self).__init__(*args, **kwargs)
@@ -803,7 +805,7 @@ class GenotypeGVCFs(SGEJobTask):
     
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(GenotypeGVCFs, self).__init__(*args, **kwargs)
@@ -904,7 +906,7 @@ class SelectVariantsSNP(SGEJobTask):
 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(SelectVariantsSNP, self).__init__(*args, **kwargs)
@@ -991,6 +993,7 @@ class SelectVariantsSNP(SGEJobTask):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
             pipeline_step_id=self.pipeline_step_id)
 
+
 class SelectVariantsINDEL(SGEJobTask):
     sample_name = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
@@ -1000,7 +1003,7 @@ class SelectVariantsINDEL(SGEJobTask):
 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(SelectVariantsINDEL, self).__init__(*args, **kwargs)
@@ -1105,7 +1108,7 @@ class VariantRecalibratorSNP(SGEJobTask):
 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(VariantRecalibratorSNP, self).__init__(*args, **kwargs)
@@ -1232,7 +1235,7 @@ class VariantRecalibratorINDEL(SGEJobTask):
 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(VariantRecalibratorINDEL, self).__init__(*args, **kwargs)
@@ -1339,7 +1342,7 @@ class ApplyRecalibrationSNP(SGEJobTask):
 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
     
     def __init__(self, *args, **kwargs):
         super(ApplyRecalibrationSNP, self).__init__(*args, **kwargs)
@@ -1442,7 +1445,7 @@ class ApplyRecalibrationINDEL(SGEJobTask):
     
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(ApplyRecalibrationINDEL, self).__init__(*args, **kwargs)
@@ -1549,7 +1552,7 @@ class VariantFiltrationSNP(SGEJobTask):
     
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(VariantFiltrationSNP, self).__init__(*args, **kwargs)
@@ -1647,7 +1650,7 @@ class VariantFiltrationINDEL(SGEJobTask):
 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(VariantFiltrationINDEL, self).__init__(*args, **kwargs)
@@ -1746,7 +1749,7 @@ class CombineVariants(SGEJobTask):
 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(CombineVariants, self).__init__(*args, **kwargs)
@@ -1895,7 +1898,7 @@ class FixMergedMNPInfo(SGEJobTask):
 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self,*args,**kwargs):
         super(FixMergedMNPInfo,self).__init__(*args,**kwargs)
@@ -2163,7 +2166,7 @@ class AnnotateVCF(SGEJobTask):
 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(AnnotateVCF, self).__init__(*args, **kwargs)
@@ -2200,24 +2203,14 @@ class AnnotateVCF(SGEJobTask):
         self.temp_vcf = "{0}/{1}.{2}.analysisReady.fixed.vcf.tmp".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid)
 
-        annotate_rsids_cmd = ("{java} -jar {snpSift} annotate "
-                              "{dbsnp} {fixed_vcf} 2>> {error_file} 1> {temp_vcf}"
-                             ).format(java=config().java,
-                                      snpSift=config().snpSift,
-                                      dbsnp = config().annotatedbSNP,
-                                      fixed_vcf = self.fixed_vcf,
-                                      error_file = self.log_file,
-                                      temp_vcf = self.temp_vcf)
-        
-        snpEff_cmd = ("{java} -Xmx5G -jar {snpEff} eff "
-                     "GRCh37.74 -c {snpEff_cfg} "
-                     "-v -noMotif -noNextProt -noLog -nodownload -noStats "
-                     "-o vcf {temp_vcf}"
-                     ).format(java=config().java,
-                              snpEff=config().snpEff,
-                              snpEff_cfg=config().snpEff_cfg,
-                              temp_vcf=self.temp_vcf)
-            
+
+        annotation_cmd = (""" /nfs/goldstein/software/jdk1.8.0_05/bin/java """
+                          """ -Xmx6g -jar {0} -c {1} -v -db """
+                          """ {2}"""
+                          """ GRCh37.87 {3} > {4} 2> {5} """.format(
+                              config().clineff,config().clineff_cfg,config().annotatedbSNP,
+                              self.fixed_vcf,self.annotated_vcf,self.log_file))
+
         bgzip_cmd = ("{0} -f {1}").format(config().bgzip,self.annotated_vcf)
         tabix_cmd = ("{0} -f {1}").format(config().tabix,self.annotated_vcf_gz)
 
@@ -2232,43 +2225,17 @@ class AnnotateVCF(SGEJobTask):
             db.close()
             
             with open(self.script,'w') as o:
-                o.write(annotate_rsids_cmd + "\n")
-                o.write(snpEff_cmd + "\n")
+                o.write(annotation_cmd + "\n")
                 o.write(bgzip_cmd + "\n")
                 o.write(tabix_cmd + "\n")
-                
-            #In case of overwritting previous vcf.gz and vcf.gz.tbi files
-            if os.path.exists(self.annotated_vcf_gz):
-                print "deleting.."
-                subprocess.check_call(['rm',self.annotated_vcf_gz])
 
-            ## Annotate with rsids first
-            proc = subprocess.Popen(annotate_rsids_cmd,shell=True)
-            proc.wait()
-            if proc.returncode: ## Non zero return code
-                raise subprocess.CalledProcessError(proc.returncode,annotate_rsids_cmd)
-            
-            with open(self.annotated_vcf,'w') as vcf_out, \
-                open(self.log_file, "a") as log_fh:
-                    p = subprocess.Popen(shlex.split(snpEff_cmd), stdout=vcf_out, stderr=log_fh)
-                    p.wait()
-            if p.returncode:
-                raise subprocess.CalledProcessError(p.returncode, cmd)
-            
-            #subprocess.check_call(shlex.split(snpEff_cmd))
+            proc = subprocess.Popen(annotation_cmd,shell=True)
+            proc.wait()            
+            if proc.returncode:
+                raise subprocess.CalledProcessError(proc.returncode,annotation_cmd)
             subprocess.check_call(shlex.split(bgzip_cmd))
             subprocess.check_call(shlex.split(tabix_cmd))
-            
-            
-            ## Assign Permissions
-            #print self.scratch_dir
-            #subprocess.check_call(['chmod -R 775',self.scratch_dir])
-            cmd = "chmod -R 775 {0}".format(self.scratch_dir)
-            proc = subprocess.Popen(cmd,shell=True)
-            proc.wait()
-            if proc.returncode: ## Non zero return code
-                raise subprocess.CalledProcessError(proc.returncode,cmd)
-            
+
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
 
@@ -2286,6 +2253,7 @@ class AnnotateVCF(SGEJobTask):
                         pipeline_step_id=self.pipeline_step_id))
             db.commit()
             db.close()
+            
         finally:
             if db.open:
                 db.close()
@@ -2312,7 +2280,7 @@ class DeAnnotateVCF(SGEJobTask):
 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
     
     def __init__(self, *args, **kwargs):
         super(DeAnnotateVCF,self).__init__(*args,**kwargs)
@@ -2390,7 +2358,7 @@ class RBP(SGEJobTask):
 
     n_cpu = 1 
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(RBP,self).__init__(*args,**kwargs)
@@ -2482,7 +2450,7 @@ class CleanDirectory(SGEJobTask):
     ## System Parameters
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self,*args,**kwargs):
         super(CleanDirectory,self).__init__(*args,**kwargs)
@@ -2555,14 +2523,14 @@ class ArchiveSample(SGEJobTask):
     
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(ArchiveSample, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
-            self.scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+            reanalysis_scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.base_dir = "{0}/{1}/{2}.{3}".format(
-            config().base,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
+            self.scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.log_file = "{0}/logs/{1}.{2}.{3}.log".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
         self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
@@ -2575,6 +2543,10 @@ class ArchiveSample(SGEJobTask):
             self.base_dir,self.sample_name,self.pseudo_prepid)
         self.bam_index = "{0}/{1}.{2}.bam.bai".format(
             self.base_dir,self.sample_name,self.pseudo_prepid)
+        self.realn_bam = "{0}/{1}.{2}.realn.bam".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.realn_bam_index = "{0}/{1}.{2}.realn.bam.bai".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
         self.annotated_vcf_gz = "{0}/{1}.{2}.analysisReady.annotated.vcf.gz".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid)
         self.g_vcf_gz = "{0}/{1}.{2}.g.vcf.gz".format(
@@ -2621,40 +2593,30 @@ class ArchiveSample(SGEJobTask):
         ## copy over the fastq directory as well
         self.fastq_loc = os.path.join(self.sample_dir,'fastq')
         ## create a dummy one if it doesnt exist
-        if not os.path.exists(self.fastq_loc):
-            os.makedirs(self.fastq_loc)
+        #if not os.path.exists(self.fastq_loc):
+            #os.makedirs(self.fastq_loc)
         ## create a dummy geno_concordance file if it doesnt exist , this is because there are times when this task
         ## will not be scheduled (failure to locate a production vcf) , then the rsync will fail even though all the
         ## preceeding tasks were sucessful
         if not os.path.exists(self.geno_concordance_out):
             os.system("touch %s"%self.geno_concordance_out)
-            ## create the base directory if it does not exist
-        if not os.path.exists(self.base_dir):
-            os.makedirs(self.base_dir)
+        ## create the base directory if it does not exist
+        #if not os.path.exists(self.base_dir):
+            #os.makedirs(self.base_dir)
 
-        if not os.path.exists(self.script_dir):
-            os.makedirs(self.script_dir)
+        if not os.path.exists(self.gq_binned):
+            os.makedirs(self.gq_binned)
         ## refer to rsync man for more on options, its all the options in archive mode less preserving the permissions
         ## the o will not take effect unless run by a superuser and the g will default to your default group, i have removed
-        ## the o option for safety. 
-        if self.sample_type.upper() != 'GENOME': ## There is another additional capture specificity file 
-            cmd = ("rsync --timeout=25000 -vrltgD "
-                   "{script_dir} {log_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
-                   "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
-                   "{cvg_binned} {gq_binned} {alignment_out} {cvg_out} "
-                   "{cvg_ccds_out} {cvg_X_out} {cvg_Y_out} {cvg_cs_out} {dup_out} "
-                   "{variant_call_out} {geno_concordance_out} {contamination_out} {fastq_loc} {base_dir}"
-                   ).format(**self.__dict__)
-        else:
-            cmd = ("rsync --timeout=25000 -vrltgoD "
-                   "{script_dir} {log_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
-                   "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
-                   "{cvg_binned} {gq_binned} {alignment_out} {cvg_out} "
-                   "{cvg_ccds_out} {cvg_X_out} {cvg_Y_out} {dup_out} "
-                   "{variant_call_out} {geno_concordance_out} {contamination_out} {fastq_loc} {base_dir}"
-                   "{base_dir}"
-                  ).format(**self.__dict__)
-                                
+        ## the o option for safety.
+        
+        cmd = ("rsync --timeout=25000 -vrltgD "
+               "{script_dir} {log_dir} {annotated_vcf_gz} "
+               "{annotated_vcf_gz_index} "
+               "{cvg_binned} {gq_binned} "
+               "{variant_call_out} {geno_concordance_out} "
+               "{contamination_out} {base_dir}").format(**self.__dict__)
+            
         try:
             ## Insert start time to database
             db = get_connection("seqdb")
@@ -2671,24 +2633,24 @@ class ArchiveSample(SGEJobTask):
 
             ## Run the rsync
             subprocess.check_call(shlex.split(cmd), stdout=DEVNULL,stderr=subprocess.STDOUT,close_fds=True)
-            #os.system(cmd)
-            subprocess.check_call(['touch',self.copy_complete])
             ## Change folder permissions of base directory
-            subprocess.check_output("chgrp bioinfo {0}".format(self.base_dir),shell=True)
-            subprocess.check_output("chmod -R 775 {0}".format(self.base_dir),shell=True)
-
+            #subprocess.check_output("chgrp bioinfo {0}".format(self.base_dir),shell=True)
+            #subprocess.check_output("chmod -R 775 {0}".format(self.base_dir),shell=True)
+            
             """Original dragen BAM could be technically deleted earlier after the
             realigned BAM has been created on scratch space but it is safer to
             delete after the final realigned, recalculated BAM has been archived
             since our scratch space has failed in the past."""
-            rm_cmd = ['rm',self.bam,self.bam_index]
+            #rm_cmd = ['rm',self.bam,self.bam_index]
             rm_folder_cmd = ['rm','-rf',self.scratch_dir]
-            subprocess.call(rm_cmd)
             subprocess.call(rm_folder_cmd)
-
+            
             DBID,prepID = getDBIDMaxPrepID(self.pseudo_prepid)
             userID = getUserID()
-
+            ## Update the AlignSeqFile loc to the final archive location
+            location = "{0}/{1}".format(self.scratch,self.sample_type.upper())
+            update_alignseqfile(location,self.sample_name,self.pseudo_prepid)
+            
             ## Insert to dragen status and update finish time in database
             db = get_connection("seqdb")
             cur = db.cursor()
@@ -2714,12 +2676,12 @@ class ArchiveSample(SGEJobTask):
         yield self.clone(GQBinning)
         yield self.clone(CvgBinning)
         yield self.clone(UpdateSeqdbMetrics)
-        #return self.clone(CleanDirectory)
         
     def output(self):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
             pipeline_step_id=self.pipeline_step_id)
 
+       
 
 class SQLTarget(luigi.Target):
     """Target describing verification of the entries in the database"""
@@ -2957,7 +2919,7 @@ class CreateGenomeBed(SGEJobTask):
     ## System Parameters
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
     
    
     def __init__(self,*args,**kwargs):
@@ -3022,7 +2984,7 @@ class CvgBinning(SGEJobTask):
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"    
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"    
     
     def __init__(self,*args,**kwargs):
 
@@ -3092,7 +3054,7 @@ class GQBinning(SGEJobTask):
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"  
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"  
     
     def __init__(self,*args,**kwargs):
         super(GQBinning,self).__init__(*args,**kwargs)
@@ -3161,7 +3123,7 @@ class AlignmentMetrics(SGEJobTask):
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
     
 
     def __init__(self,*args,**kwargs):
@@ -3220,7 +3182,7 @@ class RunCvgMetrics(SGEJobTask):
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self,*args,**kwargs):
         """
@@ -3351,7 +3313,7 @@ class DuplicateMetrics(SGEJobTask):
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"    
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"    
     
     def __init__(self,*args,**kwargs):
         super(DuplicateMetrics,self).__init__(*args,**kwargs)
@@ -3512,7 +3474,7 @@ class VariantCallingMetrics(SGEJobTask):
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
       
     def __init__(self,*args,**kwargs):
         super(VariantCallingMetrics,self).__init__(*args,**kwargs)
@@ -3576,7 +3538,7 @@ class GenotypeConcordance(SGEJobTask):
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self,*args,**kwargs):
         super(GenotypeConcordance,self).__init__(*args,**kwargs)
@@ -3711,7 +3673,7 @@ class ContaminationCheck(SGEJobTask):
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self,*args,**kwargs):
         super(ContaminationCheck,self).__init__(*args,**kwargs)
@@ -3808,7 +3770,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
     ## System Parameters 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"  
+    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"  
        
     def __init__(self,*args,**kwargs):
         super(UpdateSeqdbMetrics,self).__init__(*args,**kwargs)
@@ -3866,7 +3828,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         be present
         """
 
-        """
+        
         yield self.clone(AlignmentMetrics)
         yield self.clone(RunCvgMetrics)
         yield self.clone(GQBinning)
@@ -3876,7 +3838,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         if get_productionvcf(self.pseudo_prepid,self.sample_name,self.sample_type) != None:
             yield self.clone(GenotypeConcordance)
         yield self.clone(CvgBinning)
-        """
+        
         yield self.clone(AnnotateVCF)
             
     def output(self):
@@ -3918,8 +3880,9 @@ class UpdateSeqdbMetrics(SGEJobTask):
                     self.update_genotype_concordance_metrics()
                 self.update_contamination_metrics()
                 self.update_seqgender()
-                #self.update_qc_message()
-                
+                self.update_qc_message()
+
+                """
                 ## Remove temp files
                 if os.path.isfile(self.phased_vcf):
                     subprocess.check_call(['rm',self.phased_vcf])
@@ -3930,7 +3893,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
                     subprocess.check_call(['rm',self.fixed_vcf])
                 if os.path.exists(self.temp_vcf):
                     subprocess.check_call(['rm',self.temp_vcf])
-                    
+                """    
                 update_alignseqfile(self.reanalysis_seqtype,self.sample_name,self.pseudo_prepid) 
                 db = get_connection("seqdb")
                 cur = db.cursor()
@@ -3992,7 +3955,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         Returns : Boolean ; True/False
         """
 
-        if (self.check_alignment() and self.check_duplicates() and self.check_variantcalling() and self.check_coverage() and self.check_contamination(),self.check_gender()):
+        if (self.check_alignment() and self.check_duplicates() and self.check_variantcalling() and self.check_coverage() and self.check_contamination()):
             return True
         else:
             return False
@@ -4007,9 +3970,7 @@ class UpdateSeqdbMetrics(SGEJobTask):
         self.passed_qc = "Passed Bioinfo QC"
         message=[]
         if self.check_qc():
-            print "QC Passed"
-            if self.issue_contamination_warning == True: ## Check for contamination warning
-                message.append("Warning sample contamination is high, but below qc fail threshold")    
+            message.append(self.passed_qc)
         else: ## Check individual qc checks again for updating qc message
             if self.issue_contamination_warning == True: ## Check for contamination warning
                 message.append("Warning sample contamination is high, but below qc fail threshold")
@@ -4023,8 +3984,8 @@ class UpdateSeqdbMetrics(SGEJobTask):
                 message.append("Failed Coverage Check")
             if not self.check_contamination():
                 message.append("Failed Contamination Check")
-            if not self.check_gender():
-                message.append("Failed Gender Check")
+            #if not self.check_gender():
+                #message.append("Failed Gender Check")
             print "QC review needed"
             
         final_message = ';'.join(message)
