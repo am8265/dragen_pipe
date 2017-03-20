@@ -20,6 +20,7 @@ from waldb_globals import *
 from db_statements import *
 import sys
 import logging
+import Command
 from time import sleep
 
 cfg = get_cfg()
@@ -493,6 +494,13 @@ class ImportSample(luigi.Task):
             prep_id=self.prep_id,
             sequencing_type=self.sequencing_type.upper())
         self.data_directory = get_data_directory(sample_name, self.prep_id)
+        try:
+            cmd = "ls {} &> /dev/null".format(self.data_directory)
+            c = Command.Command(cmd)
+            c.run(5)
+        except Command.TimeoutException:
+            raise ValueError("the data directory {} is inaccessible".format(
+                self.data_directory))
         if not os.path.isdir(self.data_directory):
             raise ValueError(
                 "the data directory {} for the sample does not exist".format(
