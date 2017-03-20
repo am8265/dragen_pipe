@@ -56,7 +56,7 @@ def get_num_tables_loading(cur):
     cur.execute("SHOW FULL PROCESSLIST")
     for row in cur.fetchall():
         (sql_id, user, host, db, command, time, state, info) = row[:8]
-        if info and "LOAD DATA " in info.upper():
+        if db == "WalDB" and info and "LOAD DATA " in info.upper():
             num_tables += 1
     return num_tables
 
@@ -199,7 +199,7 @@ class ParseVCF(SGEJobTask):
         choices=LOGGING_LEVELS, significant=False,
         default="DEBUG", description="the logging level to use")
     database = luigi.ChoiceParameter(
-        choices=["waldb", "dragen", "waldb4"], default="waldb",
+        choices=["waldb", "dragen", "waldb4", "waldb1"], default="waldb",
         description="the database to load to")
     min_dp_to_include = luigi.NumericalParameter(
         min_value=0, max_value=sys.maxsize, var_type=int,
@@ -327,7 +327,10 @@ class ParseVCF(SGEJobTask):
                         sys.exit(1)
                 cur.execute(GET_NUM_CALLS_FOR_SAMPLE.format(
                     CHROM=self.chromosome, sample_id=self.sample_id))
-                db_count = cur.fetchone()[0]
+                variant_ids = set()
+                for variant_id in cur.fetchall():
+                    variant_ids.add(variant_id[0])
+                db_count = len(variant_ids)
                 if db_count != vcf_variants_count:
                     db.rollback()
                     raise ValueError(
@@ -366,7 +369,7 @@ class LoadBinData(SGEJobTask):
     data_type = luigi.ChoiceParameter(
         choices=["DP", "GQ"], description="the type of binned data to load")
     database = luigi.ChoiceParameter(
-        choices=["waldb", "dragen", "waldb4"], default="waldb",
+        choices=["waldb", "dragen", "waldb4", "waldb1"], default="waldb",
         description="the database to load to")
     dont_load_data = luigi.BoolParameter(
         description="don't actually load any data, used for testing purposes")
@@ -455,7 +458,7 @@ class ImportSample(luigi.Task):
         significant=False,
         description="don't remove the tmp dir if there's a failure")
     database = luigi.ChoiceParameter(
-        choices=["waldb", "dragen", "waldb4"], default="waldb",
+        choices=["waldb", "dragen", "waldb4", "waldb1"], default="waldb",
         description="the database to load to")
     min_dp_to_include = luigi.NumericalParameter(
         min_value=0, max_value=sys.maxsize, var_type=int,

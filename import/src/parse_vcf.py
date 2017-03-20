@@ -194,7 +194,7 @@ def get_variant_id(novel_fh, novel_indels_fh, novel_transcripts_fh,
     rows = cur.fetchall()
     if rows:
         variant_id = rows[0][0]
-        effect_ids = [row[1] for row in rows]
+        effect_ids = sorted(set([row[1] for row in rows]))
         has_high_quality_call =  rows[0][2]
         # treat the variant as novel if it doesn't have a high quality call in
         # the DB and the new call is high quality, so as to update the field
@@ -539,9 +539,14 @@ def parse_vcf(vcf, CHROM, sample_id, database, min_dp_to_include, output_base,
                     raise ValueError("invalid FILTER {} @ line {}".format(
                         fields["FILTER"], x))
                 call_stats = create_call_dict(fields["FORMAT"], fields["call"])
-                call = {"sample_id":sample_id, "GQ":call_stats["GQ"],
-                        "DP":call_stats["DP"],
-                        "QUAL":int(round(float(fields["QUAL"])))}
+                try:
+                    call = {"sample_id":sample_id, "GQ":call_stats["GQ"],
+                            "DP":call_stats["DP"],
+                            "QUAL":int(round(float(fields["QUAL"])))}
+                except KeyError:
+                    import pprint
+                    logger.error(pprint.pformat(fields))
+                    raise
                 # we will not load calls less than 3 DP
                 if int(call["DP"]) < min_dp_to_include:
                     # just output the record unchanged
@@ -782,8 +787,9 @@ if __name__ == "__main__":
                         type=partial(valid_numerical_argument, arg_name="sample_id"),
                         help="the id of the sample")
     parser.add_argument("OUTPUT_BASE", help="the base output file name structure")
-    parser.add_argument("-d", "--database", choices=["waldb", "dragen", "waldb4"],
-                        default="waldb4", help="the database to load to")
+    parser.add_argument("-d", "--database", default="waldb4",
+                        choices=["waldb", "dragen", "waldb4", "waldb1"],
+                        help="the database to load to")
     parser.add_argument("-m", "--min_dp_to_include", type=int,
                         default=cfg.getint("pipeline", "min_dp_to_include"),
                         help="ignore variant calls below this read depth")
