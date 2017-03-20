@@ -18,7 +18,7 @@ cfg = get_cfg()
 class ImportSamples(ProcessSamples.ProcessSamples):
     def __init__(self, database="waldb4", seqscratch="_ssd",
                  force_failed_samples=False,
-                 run_locally=False, qdel_jobs=True,
+                 run_locally=False, workers=75, qdel_jobs=True,
                  local_scheduler=False, **kwargs):
         super(ImportSamples, self).__init__(
             max_samples_concurrently=1, 
@@ -31,6 +31,7 @@ class ImportSamples(ProcessSamples.ProcessSamples):
             r"16|17|18|19|20|21|22|X|Y|MT)$")
         self.database = database
         self.seqscratch = seqscratch
+        self.workers = workers
 
     def _get_samples(self):
         db = get_connection(self.database)
@@ -51,12 +52,13 @@ class ImportSamples(ProcessSamples.ProcessSamples):
     def _get_command(self, sample_name, *args):
         sample_id, sample_type = args
         cmd = ("luigi --module data_import_pipeline ImportSample --sample-id "
-               "{sample_id} --seqscratch {seqscratch} --workers 75 "
+               "{sample_id} --seqscratch {seqscratch} --workers {workers} "
                "--database {database} "
                "--dont-remove-tmp-dir-if-failure "
                "--logging-conf-file {logging_conf_file}{run_locally}"
                "{local_scheduler}".format(
                    sample_id=sample_id, seqscratch=self.seqscratch,
+                   workers=self.workers,
                    logging_conf_file="logging.conf", database=self.database,
                    run_locally=" --run-locally" if self.run_locally else "",
                    local_scheduler=" --local-scheduler" if self.local_scheduler
@@ -70,7 +72,7 @@ class ImportSamples(ProcessSamples.ProcessSamples):
         return cmd, timeout
 
 def main(database, seqscratch, force_failed_samples, run_locally,
-         local_scheduler, debug_level):
+         workers, local_scheduler, debug_level):
     # set up logging
     formatter = logging.Formatter(cfg.get("logging", "format"))
     root_logger = logging.getLogger()
@@ -92,14 +94,14 @@ def main(database, seqscratch, force_failed_samples, run_locally,
         database=database, seqscratch=seqscratch,
         force_failed_samples=force_failed_samples,
         qdel_jobs=not run_locally, run_locally=run_locally,
-        local_scheduler=local_scheduler)
+        workers=workers, local_scheduler=local_scheduler)
     import_samples.process_samples()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=CustomFormatter)
     parser.add_argument("-d", "--database", default="waldb4",
-                        choices=["waldb", "waldb2", "waldb4"], 
+                        choices=["waldb", "waldb2", "waldb4", "waldb1"],
                         help="the database to import to")
     parser.add_argument("-s", "--seqscratch",
                         choices=["09", "10", "11", "_ssd"], default="_ssd",
@@ -110,6 +112,9 @@ if __name__ == "__main__":
                         "previous run (otherwise such samples are ignored)")
     parser.add_argument("--run_locally", default=False, action="store_true",
                         help="run locally instead of on the cluster")
+    parser.add_argument("-w", "--workers", type=int, default=75,
+                        help="the number of luigi workers to use (limit to "
+                        "restrict DB connections)")
     parser.add_argument("--local_scheduler", default=False, action="store_true",
                         help="use the local luigi scheduler instead of "
                         "luigi daemon")
@@ -118,4 +123,4 @@ if __name__ == "__main__":
                         help="specify the logging level to use")
     args = parser.parse_args()
     main(args.database, args.seqscratch, args.force_failed_samples,
-         args.run_locally, args.local_scheduler, args.level)
+         args.run_locally, args.workers, args.local_scheduler, args.level)
