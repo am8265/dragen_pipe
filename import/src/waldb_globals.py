@@ -239,8 +239,12 @@ def get_data_directory(sample_name, prep_id):
             prep_id=prep_id))
         row = seq_cur.fetchone()
         if row:
+            path = row[0]
+            if not path:
+                raise OSError("Data directory for {sample_name}:{prep_id} is not "
+                              "set".format(sample_name=sample_name, prep_id=prep_id))
             return os.path.join(
-                row[0], "{sample_name}.{prep_id}".format(
+                path, "{sample_name}.{prep_id}".format(
                     sample_name=sample_name, prep_id=prep_id))
         else:
             raise OSError("Can't find directory for {sample_name}:{prep_id}".
