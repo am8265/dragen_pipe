@@ -231,7 +231,7 @@ class ParseVCF(SGEJobTask):
             seqdb = get_connection("seqdb")
             try:
                 seq_cur = seqdb.cursor()
-                seq_cur.execute(GET_PIPELINE_STEP_ID.format(
+                seq_cur.execute(GET_DATA_LOADED_PIPELINE_STEP_ID.format(
                     chromosome=self.chromosome, data_type="Variant Data"))
                 self.pipeline_step_id = seq_cur.fetchone()[0]
             finally:
@@ -382,7 +382,7 @@ class LoadBinData(SGEJobTask):
             seqdb = get_connection("seqdb")
             try:
                 seq_cur = seqdb.cursor()
-                seq_cur.execute(GET_PIPELINE_STEP_ID.format(
+                seq_cur.execute(GET_DATA_LOADED_PIPELINE_STEP_ID.format(
                     chromosome=self.chromosome, data_type="{data_type} Data".format(
                     data_type=self.data_type)))
                 self.pipeline_step_id = seq_cur.fetchone()[0]

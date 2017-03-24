@@ -104,7 +104,7 @@ SELECT id
 FROM dragen_pipeline_step_desc
 WHERE step_name = "Sample Initialized in DB"
 """
-GET_PIPELINE_STEP_ID = """
+GET_DATA_LOADED_PIPELINE_STEP_ID = """
 SELECT id
 FROM dragen_pipeline_step_desc
 WHERE step_name = "Imported Chromosome {chromosome} {data_type}"
@@ -210,4 +210,30 @@ FROM dragen_pipeline_step p
 INNER JOIN dragen_pipeline_step_desc d ON p.pipeline_step_id = d.id
 WHERE p.pseudo_prepid = {prep_id} AND d.step_name = "Imported {step_name}"
     AND p.finished = 1
+"""
+GET_PIPELINE_STEP_ID = """
+SELECT id
+FROM dragen_pipeline_step_desc
+WHERE step_name = "{step_name}"
+"""
+GET_SAMPLES_TO_INITIALIZE = """
+SELECT p1.pseudo_prepid
+FROM dragen_pipeline_step p1
+LEFT JOIN dragen_pipeline_step p2 ON p1.pseudo_prepid = p2.pseudo_prepid
+WHERE p1.pipeline_step_id = {sample_archived_step_id} AND p1.finished = 1
+    AND p2.pipeline_step_id = {sample_initialized_step_id} AND p2.finished <> 1
+"""
+GET_SAMPLE_METADATA = """
+SELECT CHGVID, SeqType, capture_kit, priority
+FROM dragen_sample_metadata
+WHERE pseudo_prepid = {prep_id}
+"""
+INITIALIZE_SAMPLE = """
+INSERT INTO sample (sample_name, sample_type, capture_kit, prep_id, priority)
+VALUE ("{sample_name}", "{sample_type}", "{capture_kit}", {prep_id}, {priority})
+"""
+INITIALIZE_SAMPLE_SEQDB = """
+INSERT INTO dragen_pipeline_step (pseudo_prepid, pipeline_step_id, finish_time,
+    times_ran, finished)
+VALUE ({prep_id}, {sample_initialized_step_id}, NOW(), 1, 1)
 """
