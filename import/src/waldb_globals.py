@@ -13,6 +13,8 @@ import logging
 from db_statements import GET_SAMPLE_DIRECTORY
 from itertools import chain
 from collections import OrderedDict, Counter, defaultdict
+from functools import wraps
+import time
 
 cfg = RawConfigParser()
 cfg.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "waldb.cfg"))
@@ -278,10 +280,33 @@ class MultipleFilesTarget(luigi.Target):
     def get_targets(self):
         return self.targets
 
+# keep a count for each key and maintain the order in which keys were added
 class OrderedCounter(Counter, OrderedDict):
     pass
 
+# initialize any new key to the default value and maintain the order in which
+# keys were added
 class OrderedDefaultDict(OrderedDict, defaultdict):
     def __init__(self, default_factory=None, *args, **kwargs):
         super(OrderedDefaultDict, self).__init__(*args, **kwargs)
         self.default_factory = default_factory
+
+# wrapper to time a function
+def timer(fh=sys.stdout):
+    def timer_wrapper(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            current_time = time.time()
+            call = ("{func}({args}{separator}{kwargs})".format(
+                func=func.func_name, args=", ".join([str(arg) for arg in args]),
+                separator=", " if args and kwargs else "",
+                kwargs=", ".join(["{}={}".format(arg, value) for arg, value in
+                                  kwargs.iteritems()])))
+            fh.write("Calling {call} @{ctime}\n".format(call=call, ctime=time.ctime()))
+            result = func(*args, **kwargs)
+            fh.write("Finished {call} @{ctime}; elapsed time: {elapsed_time} seconds\n".
+                  format(call=call, ctime=time.ctime(),
+                         elapsed_time=time.time() - current_time))
+            return result
+        return wrapper
+    return timer_wrapper
