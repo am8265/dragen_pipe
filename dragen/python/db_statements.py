@@ -67,3 +67,9 @@ WHERE capture_kit="{captureKit}" AND sample_type="{sample_type}"
 """
 GET_READ_LENGTH = """
 """
+GET_SAMPLES_TO_RUN = (
+    """ SELECT G.pseudo_prepid,sample_name,sample_type,"""
+    """ capture_kit,priority FROM gatk_queue as G LEFT JOIN"""
+    """ dragen_pipeline_step as D ON G.pseudo_prepid = D.pseudo_prepid"""
+    """ WHERE D.pipeline_step_id = 31 AND D.finished = 0 AND G.sample_name LIKE 'SRR%'"""
+)
