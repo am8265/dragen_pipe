@@ -113,7 +113,7 @@ def get_capture_kit_info(curs,dragen_sample,debug):
     return list(capture_kit_bed)
 
 def get_next_sample(curs,debug):
-    query = ("SELECT sample_name,sample_type,pseudo_prepid,capture_kit,dragen_id "
+    query = ("SELECT g.pseudo_prepid,g.sample_name,g.capture_kit,g.priority FROM"
         "FROM gatk_queue "
         "WHERE PRIORITY < 99 "
         "ORDER BY PRIORITY ASC LIMIT 1 ")

@@ -273,8 +273,8 @@ int range_search(int val, std::vector<int> positions)
         return -1; // the value was not in any of the ranges    
     else
     {
-	auto it = std::lower_bound(positions.begin(),positions.end(),val); 
-	return (it - positions.begin() - 1); // get distance from beginning,and return the index in the vector
+	auto it = std::lower_bound(positions.begin(),positions.end(),val);
+	return (it - positions.begin() ); // get distance from beginning,and return the index in the vector
     }	    
 }
 
@@ -311,8 +311,10 @@ void create_ped(const std::string& gvcf_file, const std::string& vcf_file, const
 	{
 	    for (const auto& item : chrom)
 	    {
+		std::cout << item << "\n"; 
 		// Do a range search   
 		pos = range_search(item,vcf_positions[i]); // First search the vcf
+		
 		if (pos != -1)
 		{
 		    geno = vcf_genotypes[i][pos];
@@ -320,6 +322,7 @@ void create_ped(const std::string& gvcf_file, const std::string& vcf_file, const
 		else // Try the gvcf
 		{
 		    pos = range_search(item,gvcf_positions[i]);
+		    std::cout << pos << "\n";
 		    if (pos != -1)
 			geno = gvcf_genotypes[i][pos];
 		    else // The variant was not found in the gvcf too !
@@ -333,7 +336,8 @@ void create_ped(const std::string& gvcf_file, const std::string& vcf_file, const
 	    }
 	    ++i;
 	}
-	output << '\n';
+	std::cout << i; 
+	output << "\n";
    }
     else
 	throw "Error Writing to output file !";
