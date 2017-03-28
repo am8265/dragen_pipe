@@ -16,7 +16,8 @@ import random
 from dragen_globals import get_connection
 from db_statements import * 
 from datetime import datetime
-
+from email.mime.text import MIMEText
+import logging
 
 ##############################################################################
 ###                   Automates submission of the gatk                     ###
@@ -31,6 +32,17 @@ ERRORS = {}
 email = None
 num_processes = 0
 
+def send_email(message,subject):
+    """ Send notifications to desired email
+    message : str ; the message to email
+    """
+    msg = MIMEText(message)
+    msg["From"] = "mrpipeline@atav01.com"
+    msg["To"] = email
+    msg["Subject"] = subject
+    p = subprocess.Popen(["/usr/sbin/sendmail","-t","-oi"],stdin=subprocess.PIPE)
+    p.communicate(msg.as_string())
+    
 def execute_query(database,query,fetch):
     """ Execute db fetch statements
 
@@ -51,6 +63,7 @@ def execute_query(database,query,fetch):
             db.commit()
     except MySQLdb.Error, e:
         clean_tasks(force_exit=True)
+        logging.error("Error %d IN CONNECTION: %s" %(e.args[0],e.args[1]))
         raise Exception("Error %d IN CONNECTION: %s" %(e.args[0],e.args[1]))
     finally:
         db.close()
@@ -106,6 +119,9 @@ def clean_tasks(force_exit = False,test=False):
         if not task_details[0].is_alive():
             if task_details[0].exitcode:## Non zero return code, the task failed
                 ERRORS[name] = task_details[0].exitcode
+                if email:
+                    send_email("Pipeline Failed for sample {0}, please check log files".format(name),"Dragen gatk failure")
+                RUNNING.pop(name)
             else: ## Success
                 EXECUTED[name] = 'success!'
                 RUNNING.pop(name)
@@ -116,19 +132,19 @@ def clean_tasks(force_exit = False,test=False):
             time_elapsed = diff.total_seconds()
             sample_type = name.split('.')[-1]
             if force_exit == True:
-                print "Exiting wrapper; Killing sample %s ....\n"%name
+                logging.info("Exiting wrapper; Killing sample %s ....\n"%name)
                 kill_process(task_details[0])
                 kill_qstat_jobs(name, test = test)
             else:
                 if sample_type.upper() == 'GENOME':
                     if time_elapsed > 518400: ## Exceeded 6 days
-                        print "Genome sample %s exceeded 6 days Killing process ...\n"%name
+                        logging.warn("Genome sample %s exceeded 6 days Killing process ...\n"%name)
                         kill_process(task_details[0])
                         kill_qstat_jobs(name,test=test)
                         RUNNING.pop(name)
                 else:
                     if time_elapsed > 54000: ## Exceeded 15 hrs
-                        print "Exome sample %s exceeded 15 hours Killing process ...\n"%name
+                        logging.warn("Exome sample %s exceeded 15 hours Killing process ...\n"%name)
                         kill_process(task_details[0])
                         kill_qstat_jobs(name,test=test)
                         RUNNING.pop(name)
@@ -138,7 +154,10 @@ def kill_process(process):
     process : a multiprocessing process object
     """
     pid = process.pid
-    os.kill(pid,signal.SIGKILL)
+    try:
+        os.kill(pid,signal.SIGKILL)
+    except OSError: ## Process is already stopped 
+        return        
 
 def kill_qstat_jobs(task_name,test=False):
     """
@@ -152,8 +171,9 @@ def kill_qstat_jobs(task_name,test=False):
     job_name = '.'.join(task_name.split('.')[0:2])
     shell_cmd = ("""qstat -r -ne | grep -B 1 %s|"""
                  """cut -f1 -d' '|xargs qdel -j {}"""%(job_name))
-    proc = subprocess.Popen(shell_cmd,shell=True)
-    proc.wait()
+    with open(os.devnull, 'w') as FNULL:
+        proc = subprocess.Popen(shell_cmd,shell=True,stdout=FNULL)
+        proc.wait()
 
 def test_luigi(sample_info,baselogdir):
     """ This is a test target function for testing purposes
@@ -175,9 +195,9 @@ def test_luigi(sample_info,baselogdir):
         flag = 1
     finally:
         if flag == 1:
-            print "Keyboard interrupt, cleaning up process ... {0}.{1} \n".format(sample_name,pseudo_prepid)
+            logging.info("Keyboard interrupt, cleaning up process ... {0}.{1} \n".format(sample_name,pseudo_prepid))
     
-def run_luigi(sample_info,baselogdir):
+def run_luigi(sample_info,baselogdir,RUNNING):
     """ Execute the luigi command with the appropriate parameters as a system call     
 
     sample_info : tuple ; (pseudo_prepid,sample_name,...)
@@ -191,7 +211,6 @@ def run_luigi(sample_info,baselogdir):
     try:
         flag = 0
         key = sample_name+'.'+pseudo_prepid+'.'+sample_type
-        #cmd = (""" luigi --module gatk_pipe ArchiveSample --sample-name {0} --pseudo-prepid {1} --capture-kit-bed  {2} --sample-type {3} --scratch {4} --poll-time 120 --workers 2 --worker-wait-interval 180 --scheduler-remove-delay 86400 >> {5} 2>>{6}""".format(sample_name,pseudo_prepid,capture_bed,sample_type,scratch,out_file,error_file))
         cmd = (""" luigi --module gatk_pipe ArchiveSample --sample-name {0} --pseudo-prepid {1} --capture-kit-bed  {2} --sample-type {3} --scratch {4} --poll-time 120 --workers 2 --worker-wait-interval 180 --scheduler-remove-delay 86400""".format(sample_name,pseudo_prepid,capture_bed,sample_type,scratch))
         with open(out_file,'w') as OUT, open(error_file,'w') as ERR:
             proc = subprocess.Popen(shlex.split(cmd),stdout=OUT,stderr=ERR)
@@ -201,7 +220,7 @@ def run_luigi(sample_info,baselogdir):
         flag = 1
     finally:
         if flag == 1:
-            print "Keyboard interrupt, cleaning up process ... {0}.{1} \n".format(sample_name,pseudo_prepid)
+            logging.info("Keyboard interrupt, cleaning up process ... {0}.{1} \n".format(sample_name,pseudo_prepid))
         
 def start_pipeline(sample_info,baselogdir,test=False):
     """ Start a luigi gatk pipeline     
@@ -215,8 +234,8 @@ def start_pipeline(sample_info,baselogdir,test=False):
         if test:
             p = mp.Process(target=test_luigi,args=[sample_info,baselogdir],name=name)
         else:
-            p = mp.Process(target=run_luigi,args=[sample_info,baselogdir],name=name)
-        RUNNING[name] = (p,datetime.now())
+            p = mp.Process(target=run_luigi,args=[sample_info,baselogdir,RUNNING],name=name)
+            RUNNING[name] = (p,datetime.now())
         p.start()
         
    
@@ -232,9 +251,11 @@ def main(args):
     wait_time = args.wait_time
     scratch = "/nfs/%s/ALIGNMENT/BUILD37/DRAGEN"%args.scratch
     test = args.test
-
-    try:
-        while True:
+    running = True
+    logging.basicConfig(filename=os.path.join(baselogdir,"pipeline.log"),level=logging.INFO,
+                                              filemode="w")
+    while running:
+        try:
             for pseudo_prepid,sample_name,sample_type,capture_kit,priority in get_samples():
                 task_key = sample_name+'.'+str(pseudo_prepid)+'.'+sample_type
                 if task_key not in RUNNING and task_key not in ERRORS:
@@ -245,24 +266,30 @@ def main(args):
                         if len(wild_card_bam)>0:
                             start_pipeline(sample_tup,baselogdir,test=test)
                         else:
-                            print "Will not run {0}.{1} bam not found !".format(sample_name,pseudo_prepid)
+                            logging.debug("Will not run sample : {0}.{1} because bam was not found in scratch dir {2} !".format(sample_name,pseudo_prepid,scratch))
                     else:
                         while len(RUNNING.keys()) >= max_processes: ## Hold till processes are freed up
-                            print "Tasks Executed : ",EXECUTED
-                            print "Tasks Running : ",RUNNING
-                            print "Failed Tasks :",ERRORS
-                            print "Task Queued : ",task_key                            
+                            logging.info("Tasks Executed : {0}".format(EXECUTED))
+                            logging.info("Tasks Running : {0}".format(RUNNING))
+                            logging.info("Failed Tasks : {0}".format(ERRORS))
+                            logging.info("Task Queued : {0}".format(task_key))
                             sleep(wait_time)
-                            clean_tasks(force_exit = False,test=test)            
-    except KeyboardInterrupt:
-        print "Keyboard interrupt in main"
-        for key in RUNNING:
-            kill_process(RUNNING[key][0])
-            kill_qstat_jobs(key)
-    finally:
-        print "Exiting Main....\n"
-        sys.exit()                          
-        
+                            clean_tasks(force_exit = False,test=test)
+                        if len(wild_card_bam)>0:
+                            start_pipeline(sample_tup,baselogdir,test=test)
+                        else:
+                            logging.debug("Will not run sample : {0}.{1} because bam was not found in scratch dir {2} !".format(sample_name,pseudo_prepid,scratch))
+        except KeyboardInterrupt:
+            print "Keyboard interrupt in main, exiting after killing processes and deleting job submissions....\n"
+            for key in RUNNING:
+                kill_process(RUNNING[key][0])
+                kill_qstat_jobs(key)
+            running = False
+            
+    for key in RUNNING:
+        logging.info("Checking qstat jobs again ...")
+        kill_qstat_jobs(key)
+
                                
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Luigi wrapper script',description="This script is a wrapper for running the new dragen variant calling and qc pipeline.")
