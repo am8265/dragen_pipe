@@ -535,7 +535,7 @@ class ImportSample(luigi.Task):
                     sample_name=sample_name, prep_id=self.prep_id))
         super(ImportSample, self).__init__(*args, **kwargs)
         if os.path.isfile(self.vcf):
-            if self.sequencing_type == "exome" and os.path.getsize(self.vcf) > 200000000:
+            if self.sequencing_type == "exome" and os.path.getsize(self.vcf) > 248000000:
                 db = get_connection(self.database)
                 try:
                     cur = db.cursor()
