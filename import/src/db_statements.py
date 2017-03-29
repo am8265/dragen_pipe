@@ -220,8 +220,10 @@ GET_SAMPLES_TO_INITIALIZE = """
 SELECT p1.pseudo_prepid
 FROM dragen_pipeline_step p1
 LEFT JOIN dragen_pipeline_step p2 ON p1.pseudo_prepid = p2.pseudo_prepid
+    AND p1.pipeline_step_id = {sample_archived_step_id} AND p1.finished = 1
+    AND p2.pipeline_step_id = {sample_initialized_step_id} AND p2.finished = 1
 WHERE p1.pipeline_step_id = {sample_archived_step_id} AND p1.finished = 1
-    AND p2.pipeline_step_id = {sample_initialized_step_id} AND p2.finished <> 1
+    AND p2.pseudo_prepid IS NULL
 """
 GET_SAMPLE_METADATA = """
 SELECT CHGVID, SeqType, capture_kit, priority

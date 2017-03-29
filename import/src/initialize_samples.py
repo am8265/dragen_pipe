@@ -48,24 +48,25 @@ def initialize_samples(database, level=logging.DEBUG):
                 logger.warning("Found multiple records for {prep_id}".format(
                     prep_id=prep_id))
             else:
-                sample_name, sample_type, capture_kit, priority = row[0]
+                sample_name, sample_type, capture_kit, priority = rows[0]
                 try:
                     cur.execute(INITIALIZE_SAMPLE.format(
                         sample_name=sample_name, sample_type=sample_type,
                         capture_kit=capture_kit, prep_id=prep_id,
                         priority=priority))
-                    seq_cur.execute(INITIALIZE_SAMPLE_SEQDB.format(
-                        prep_id=prep_id,
-                        sample_initialized_step_id=sample_initialized_step_id))
-                    initialized_count += 1
                 except MySQLdb.IntegrityError:
                     logger.warning("{prep_id} is already initialized".format(
                         prep_id=prep_id))
+                seq_cur.execute(INITIALIZE_SAMPLE_SEQDB.format(
+                    prep_id=prep_id,
+                    sample_initialized_step_id=sample_initialized_step_id))
+                initialized_count += 1
         db.commit()
         seqdb.commit()
     except:
         db.rollback()
         seqdb.rollback()
+        raise
     finally:
         if seqdb.open:
             seqdb.close()
