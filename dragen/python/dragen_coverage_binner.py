@@ -194,8 +194,7 @@ def main():
             chromosome = contents[0]
             start = int(contents[1])
             stop = int(contents[2])
-            coverage = int(contents[3])
-
+            coverage = int(contents[3])            
             ######## INITIALIZATION SECTION #######
             
             # Convert 0-based to 1-based
