@@ -17,6 +17,7 @@ import tabix
 import logging
 
 cfg = get_cfg()
+block_size = cfg.getint("pipeline", "block_size")
 HGVS_P_REGEX = re.compile(HGVS_P_PATTERN)
 
 def get_max_variant_id(cur, CHROM):
@@ -187,13 +188,13 @@ def get_variant_id(novel_fh, novel_indels_fh, novel_transcripts_fh,
     if len(alt) > 255:
         alt = alt[:255]
     POS += offset
-    block_id = POS / BLOCK_SIZE
+    block_id = POS / block_size
     cur.execute(VARIANT_EXISTS_QUERY.format(
         CHROM=CHROM, POS=POS, REF=REF, ALT=alt, indel_length=indel_length))
     rows = cur.fetchall()
     if rows:
         variant_id = rows[0][0]
-        effect_ids = [row[1] for row in rows]
+        effect_ids = sorted(set([row[1] for row in rows]))
         has_high_quality_call =  rows[0][2]
         # treat the variant as novel if it doesn't have a high quality call in
         # the DB and the new call is high quality, so as to update the field
@@ -294,9 +295,9 @@ def output_novel_variant(
         # custom annotations missense_variant+splice_region_variant and
         # splice_region_variant+synonymous_variant
         annotations_by_transcript = defaultdict(set)
-        for (effects, impact, gene, gene_id, feature_type, feature_id,
+        for x, (effects, impact, gene, gene_id, feature_type, feature_id,
              transcript_biotype, rank_total, HGVS_c, HGVS_p, cDNA_position,
-             CDS_position, protein_position, distance, errors) in anns:
+             CDS_position, protein_position, distance, errors) in enumerate(anns):
             # there appears to be a bug such that
             # 3_prime_UTR_truncation+exon_loss appears as
             # 3_prime_UTR_truncation&exon_loss and
@@ -308,6 +309,8 @@ def output_novel_variant(
                            replace("5_prime_UTR_truncation&exon_loss_variant",
                                    "5_prime_UTR_truncation+exon_loss_variant"))
             if "non_canonical_start_codon" in effects:
+                # this is supposed to be one compound effect, but is mistakenly
+                # annotated as two separate, so we recombine then
                 effects = effects.replace(
                     "initiator_codon_variant&non_canonical_start_codon",
                     "initiator_codon_variant+non_canonical_start_codon")
@@ -330,7 +333,12 @@ def output_novel_variant(
                     raise ValueError(
                         "error: invalid effect {effect} for {VariantID}".format(
                         effect=effect, VariantID=VariantID))
-                if impact not in effect_rankings[effect]:
+                if impact in effect_rankings[effect]:
+                    # sometimes the effects are out impact order, so need to not
+                    # overwrite the impact from the record in order to ensure
+                    # finding the proper impact for any subsequent effects
+                    true_impact = impact
+                else:
                     # this is likely due to SnpEff concatenating two or more
                     # effects into one annotation - we will try to select the
                     # next least deleterious impact that is valid for the effect
@@ -338,14 +346,15 @@ def output_novel_variant(
                     corrected_impact_found = False
                     for next_impact in impact_ordering[impact_idx + 1:]:
                         if next_impact in effect_rankings[effect]:
-                            impact = next_impact
+                            true_impact = next_impact
                             corrected_impact_found = True
                             break
                     if not corrected_impact_found:
                         raise ValueError(
                             "failed to find a valid (impact, effect) to match "
-                            "({impact}, {effect})".format(
-                                impact=impact, effect=effect))
+                            "({impact}, {effect}) @{VariantID}:{ann}".format(
+                                impact=impact, effect=effect,
+                                VariantID=VariantID, ann=anns[x]))
                 # sometimes SnpEff can annotate the same effect in transcripts
                 # and treat different case differently, but this will cause
                 # integrity errors, so they're converted to upper-case always
@@ -363,13 +372,15 @@ def output_novel_variant(
                         custom_transcript_ids[feature_id])
                 else:
                     if feature_id.startswith("ENST"):
-                        transcript_ids_dict[feature_id] = int(feature_id[4:])
+                        # remove ENST prefix and any versioning, e.g. .1
+                        transcript_ids_dict[feature_id] = int(
+                            feature_id[4:].split(".")[0])
                     else:
                         raise ValueError(
                             "failure getting a transcript ID for {}".format(
                                 feature_id))
                 annotations_key = (feature_id, effect)
-                effect_id = effect_rankings[effect][impact]
+                effect_id = effect_rankings[effect][true_impact]
                 effect_ids.append(effect_id)
                 if annotations_key in annotations:
                     if "N" in REF:
@@ -455,7 +466,7 @@ def output_novel_variant_entry(
         gene=format_NULL_value(gene), indel_length=indel_length,
         has_high_quality_call=int(high_quality_call)) + "\n")
 
-def parse_vcf(vcf, CHROM, sample_id, database, output_base,
+def parse_vcf(vcf, CHROM, sample_id, database, min_dp_to_include, output_base,
               load_calls=True, chromosome_length=None):
     logger = logging.getLogger(__name__)
     logger.info("starting CHROM {}\n".format(CHROM))
@@ -528,9 +539,19 @@ def parse_vcf(vcf, CHROM, sample_id, database, output_base,
                     raise ValueError("invalid FILTER {} @ line {}".format(
                         fields["FILTER"], x))
                 call_stats = create_call_dict(fields["FORMAT"], fields["call"])
-                call = {"sample_id":sample_id, "GQ":call_stats["GQ"],
-                        "DP":call_stats["DP"],
-                        "QUAL":int(round(float(fields["QUAL"])))}
+                try:
+                    call = {"sample_id":sample_id, "GQ":call_stats["GQ"],
+                            "DP":call_stats["DP"],
+                            "QUAL":int(round(float(fields["QUAL"])))}
+                except KeyError:
+                    import pprint
+                    logger.error(pprint.pformat(fields))
+                    raise
+                # we will not load calls less than 3 DP
+                if int(call["DP"]) < min_dp_to_include:
+                    # just output the record unchanged
+                    vcf_out.write("\t".join(line_fields) + "\n")
+                    continue
                 high_quality_call = call_is_high_quality(
                     int(round(float(fields["QUAL"]))),
                     int(round(float(INFO["MQ"]))) if "MQ" in INFO else 0,
@@ -766,8 +787,12 @@ if __name__ == "__main__":
                         type=partial(valid_numerical_argument, arg_name="sample_id"),
                         help="the id of the sample")
     parser.add_argument("OUTPUT_BASE", help="the base output file name structure")
-    parser.add_argument("-d", "--database", choices=["waldb", "dragen", "waldb4"],
+    parser.add_argument("-d", "--database", default="waldb4",
+                        choices=["waldb", "dragen", "waldb4", "waldb1"],
                         help="the database to load to")
+    parser.add_argument("-m", "--min_dp_to_include", type=int,
+                        default=cfg.getint("pipeline", "min_dp_to_include"),
+                        help="ignore variant calls below this read depth")
     parser.add_argument("-l", "--level", default="ERROR",
                         choices=LOGGING_LEVELS.keys(),
                         help="specify the logging level to use")
@@ -787,4 +812,4 @@ if __name__ == "__main__":
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     parse_vcf(args.VCF, args.CHROMOSOME, args.SAMPLE_ID, args.database,
-              output_base_rp, not args.no_calls)
+              args.min_dp_to_inclue, output_base_rp, not args.no_calls)

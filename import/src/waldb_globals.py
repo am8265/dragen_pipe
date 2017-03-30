@@ -12,14 +12,16 @@ from ConfigParser import RawConfigParser
 import logging
 from db_statements import GET_SAMPLE_DIRECTORY
 from itertools import chain
+from collections import OrderedDict, Counter, defaultdict
+from functools import wraps
+import time
 
 cfg = RawConfigParser()
 cfg.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "waldb.cfg"))
-
-CNF = "/nfs/goldstein/software/dragen/dragen.cnf" # defaults file for pipeline
 LOGGING_LEVELS = {
     "CRITICAL":logging.CRITICAL, "ERROR":logging.ERROR,
     "WARNING":logging.WARNING, "INFO":logging.INFO, "DEBUG":logging.DEBUG}
+# exclude variant calls below this read depth
 
 class DereferenceKeyAction(argparse.Action):
     """Define a class for automatically converting the key specified from
@@ -42,7 +44,6 @@ class DereferenceKeyAction(argparse.Action):
 VCF_COLUMNS = ["CHROM", "POS", "rs_number", "REF", "ALT", "QUAL", "FILTER",
                "INFO", "FORMAT", "call"]
 VCF_COLUMNS_DICT = dict([(column, x) for x, column in enumerate(VCF_COLUMNS)])
-BLOCK_SIZE = 10000 # the bases in a block of variant calls (for indexing)
 VALID_GTS = set(["0", "1"]) # valid values in GT field, i.e. REF/ALT
 # the table format to output for calls
 VARIANT_CALL_FORMAT = ("{" + "}\t{".join(
@@ -240,8 +241,12 @@ def get_data_directory(sample_name, prep_id):
             prep_id=prep_id))
         row = seq_cur.fetchone()
         if row:
+            path = row[0]
+            if not path:
+                raise OSError("Data directory for {sample_name}:{prep_id} is not "
+                              "set".format(sample_name=sample_name, prep_id=prep_id))
             return os.path.join(
-                row[0], "{sample_name}.{prep_id}".format(
+                path, "{sample_name}.{prep_id}".format(
                     sample_name=sample_name, prep_id=prep_id))
         else:
             raise OSError("Can't find directory for {sample_name}:{prep_id}".
@@ -274,3 +279,34 @@ class MultipleFilesTarget(luigi.Target):
 
     def get_targets(self):
         return self.targets
+
+# keep a count for each key and maintain the order in which keys were added
+class OrderedCounter(Counter, OrderedDict):
+    pass
+
+# initialize any new key to the default value and maintain the order in which
+# keys were added
+class OrderedDefaultDict(OrderedDict, defaultdict):
+    def __init__(self, default_factory=None, *args, **kwargs):
+        super(OrderedDefaultDict, self).__init__(*args, **kwargs)
+        self.default_factory = default_factory
+
+# wrapper to time a function
+def timer(fh=sys.stdout):
+    def timer_wrapper(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            current_time = time.time()
+            call = ("{func}({args}{separator}{kwargs})".format(
+                func=func.func_name, args=", ".join([str(arg) for arg in args]),
+                separator=", " if args and kwargs else "",
+                kwargs=", ".join(["{}={}".format(arg, value) for arg, value in
+                                  kwargs.iteritems()])))
+            fh.write("Calling {call} @{ctime}\n".format(call=call, ctime=time.ctime()))
+            result = func(*args, **kwargs)
+            fh.write("Finished {call} @{ctime}; elapsed time: {elapsed_time} seconds\n".
+                  format(call=call, ctime=time.ctime(),
+                         elapsed_time=time.time() - current_time))
+            return result
+        return wrapper
+    return timer_wrapper

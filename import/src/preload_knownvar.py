@@ -20,16 +20,10 @@ from collections import defaultdict, OrderedDict
 cfg = waldb_globals.get_cfg()
 
 JAVA = "/nfs/goldstein/software/jdk1.8.0_05/bin/java"
-SNPSIFT = "/nfs/goldstein/software/snpEff/4.1/SnpSift.jar"
-SNPEFF = "/nfs/goldstein/software/snpEff/4.1/snpEff.jar"
-SNPEFF_CFG = "/nfs/goldstein/software/snpEff/4.1/snpEff.config"
+CLINEFF = "/nfs/seqscratch09/clineff/clinEff/ClinEff.jar"
 DBSNP = "/nfs/seqscratch11/rp2801/ethnicity_1000g/dbsnp_fixed.vcf"
-
-ANNOTATE_RSIDS = (
-    "{java} -jar {SnpSift} annotate {dbsnp} {vcf} > {temp_vcf}")
 ANNOTATE_VCF = (
-    "{java} -Xmx5G -jar {snpEff} eff GRCh37.74 -c {snpEff_cfg} -v -noMotif "
-    "-noNextProt -noLog -nodownload -noStats -o vcf {temp_vcf}")
+    "{java} -Xmx6G -jar {clineff} GRCh37.87 -db {dbsnp} {vcf}")
 
 def main(vcf_fn, level=logging.DEBUG, load_tables=True):
     logger = logging.getLogger(__name__)
@@ -52,35 +46,24 @@ def main(vcf_fn, level=logging.DEBUG, load_tables=True):
     match_indels_handler.setFormatter(formatter)
     match_indels_logger.addHandler(handler)
     
-    temp_vcf = os.path.splitext(vcf_fn)[0] + ".dbsnp.vcf"
-    output_base = os.path.splitext(temp_vcf)[0] + ".final"
+    output_base = os.path.splitext(vcf_fn)[0] + ".final"
     final_vcf = output_base + ".vcf"
     novel_variants = output_base + ".novel_variants.{CHROM}.txt"
     novel_indels = output_base + ".novel_indels.{CHROM}.txt"
     novel_transcripts = output_base + ".novel_transcripts.{CHROM}.txt"
     matched_indels = output_base + ".matched_indels.{CHROM}.txt"
 
-    rsids_cmd = ANNOTATE_RSIDS.format(
-        java=JAVA, SnpSift=SNPSIFT, dbsnp=DBSNP, vcf=vcf_fn, temp_vcf=temp_vcf)
-    if os.path.exists(temp_vcf):
-        logger.info("SKIPPING:\n" + rsids_cmd)
-    else:
-        logger.info(rsids_cmd)
-        cmd, out_fn = [item.strip() for item in rsids_cmd.split(">")]
-        with open(out_fn, "w") as out_fh:
-            p = subprocess.Popen(shlex.split(cmd), stdout=out_fh)
-            p.communicate()
-    snpeff_cmd = ANNOTATE_VCF.format(
-        java=JAVA, snpEff=SNPEFF, snpEff_cfg=SNPEFF_CFG, temp_vcf=temp_vcf)
+    clineff_cmd = ANNOTATE_VCF.format(
+        java=JAVA, clineff=CLINEFF, dbsnp=DBSNP, vcf=vcf_fn)
     if os.path.exists(final_vcf):
-        logger.info("SKIPPING:\n" + snpeff_cmd)
+        logger.info("SKIPPING:\n" + clineff_cmd)
     else:
-        logger.info(snpeff_cmd)
+        logger.info(clineff_cmd)
         with open(final_vcf, "w") as out_fh:
-            p = subprocess.Popen(shlex.split(snpeff_cmd), stdout=out_fh)
+            p = subprocess.Popen(shlex.split(clineff_cmd), stdout=out_fh)
             p.communicate()
 
-    db = waldb_globals.get_connection("waldb")
+    db = waldb_globals.get_connection("waldb4")
     cur = db.cursor()
     (effect_rankings, high_impact_effect_ids, moderate_impact_effect_ids,
      low_impact_effect_ids, modifier_impact_effect_ids) = (
@@ -123,7 +106,7 @@ def main(vcf_fn, level=logging.DEBUG, load_tables=True):
             (variant_id, highest_impact, block_id, novel_variant_id,
              novel_transcripts_id) = parse_vcf.get_variant_id(
                  novel_variants_fh, novel_indels_fh, novel_transcripts_fh,
-                 matched_indels_fh, cur, current_chrom, POS, fields["REF"],
+                 matched_indels_fh, cur, 0, current_chrom, POS, fields["REF"],
                  fields["ALT"], fields["rs_number"], INFO["ANN"],
                  novel_variant_id, novel_transcripts_id, effect_rankings,
                  high_impact_effect_ids, moderate_impact_effect_ids,

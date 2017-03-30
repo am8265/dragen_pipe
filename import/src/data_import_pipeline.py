@@ -20,9 +20,13 @@ from waldb_globals import *
 from db_statements import *
 import sys
 import logging
+import Command
 from time import sleep
 
 cfg = get_cfg()
+# the maximum number of tables to load concurrently
+max_tables_to_load = cfg.getint("pipeline", "max_tables_to_load")
+table_load_wait_time = cfg.getint("pipeline", "table_load_wait_time")
 CHROMs = OrderedDict([[chromosome.upper(), int(length)]
                       for chromosome, length in cfg.items("chromosomes")])
 logger = logging.getLogger(__name__)
@@ -32,19 +36,48 @@ formatter = logging.Formatter(cfg.get("logging", "format"))
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
+def get_task_list_to_run(cur, prep_id):
+    """get the list of all tasks that still need to be run for the sample
+    """
+    steps_needed = []
+    for data_type in ("Variant", "DP", "GQ"):
+        for CHROM in CHROMs:
+            step_name = "Chromosome {CHROM} {data_type} Data".format(
+                CHROM=CHROM, data_type=data_type)
+            cur.execute(STEP_FINISHED.format(
+                prep_id=prep_id, step_name=step_name))
+            if not cur.fetchone():
+                steps_needed.append(step_name)
+    return steps_needed
+
+def get_num_tables_loading(cur):
+    """return the number of tables that are currently loading in the DB
+    """
+    num_tables = 0
+    cur.execute("SHOW FULL PROCESSLIST")
+    for row in cur.fetchall():
+        (sql_id, user, host, db, command, time, state, info) = row[:8]
+        if db == "WalDB" and info and "LOAD DATA " in info.upper():
+            num_tables += 1
+    return num_tables
+
 def check_if_sample_importing(cur):
     """check if a sample was presumably stuck previously so we don't try to
     import until the previous one is finished/killed
     """
-    cur.execute("SHOW FULL PROCESSLIST")
-    for row in cur.fetchall():
-        (sql_id, user, host, db, command, time, state, info) = row[:8]
-        if info and user == "bc2675" and "LOAD DATA" in info.upper():
-            logger.warning("Job still committing:\n" + "\t".join(
-                [str(value) for value in row]))
-            return True
-    logger.debug("No other samples' commit jobs waiting")
-    return False
+    return get_num_tables_loading(cur) > 0
+
+def block_until_loading_slot_available(
+    cur, max_tables_to_load=max_tables_to_load,
+    table_load_wait_time=table_load_wait_time):
+    """infinite loop to wait until fewer than the maximum number of tables are
+    loading
+    """
+    while True:
+        if get_num_tables_loading(cur) < max_tables_to_load:
+            return
+        else:
+            sleep(table_load_wait_time)
 
 def get_num_lines_from_vcf(vcf, region=None, header=True):
     """return the number of variant lines in the specified VCF, gzipped optional
@@ -167,8 +200,12 @@ class ParseVCF(SGEJobTask):
         choices=LOGGING_LEVELS, significant=False,
         default="DEBUG", description="the logging level to use")
     database = luigi.ChoiceParameter(
-        choices=["waldb", "dragen", "waldb4"], default="waldb",
+        choices=["waldb", "dragen", "waldb4", "waldb1"], default="waldb",
         description="the database to load to")
+    min_dp_to_include = luigi.NumericalParameter(
+        min_value=0, max_value=sys.maxsize, var_type=int,
+        default=cfg.getint("pipeline", "min_dp_to_include"),
+        description="ignore variant calls below this read depth")
     dont_load_data = luigi.BoolParameter(
         description="don't actually load any data, used for testing purposes")
 
@@ -194,7 +231,7 @@ class ParseVCF(SGEJobTask):
             seqdb = get_connection("seqdb")
             try:
                 seq_cur = seqdb.cursor()
-                seq_cur.execute(GET_PIPELINE_STEP_ID.format(
+                seq_cur.execute(GET_DATA_LOADED_PIPELINE_STEP_ID.format(
                     chromosome=self.chromosome, data_type="Variant Data"))
                 self.pipeline_step_id = seq_cur.fetchone()[0]
             finally:
@@ -230,7 +267,8 @@ class ParseVCF(SGEJobTask):
         parse_vcf(
             vcf=self.copied_files_dict["vcf"],
             CHROM=self.chromosome, sample_id=self.sample_id,
-            database=self.database, output_base=self.output_base,
+            database=self.database, min_dp_to_include=self.min_dp_to_include,
+            output_base=self.output_base,
             chromosome_length=CHROMs[self.chromosome])
         for fn in (self.novel_variants, self.novel_indels,
                    self.novel_transcripts,
@@ -242,7 +280,12 @@ class ParseVCF(SGEJobTask):
         variants = set()
         with open(self.variant_id_vcf) as vcf:
             for line in vcf:
-                fields = VCF_fields_dict(line.split("\t"))
+                fields = VCF_fields_dict(line.strip("\n").split("\t"))
+                dp = int(dict(zip(fields["FORMAT"].split(":"),
+                                  fields["call"].split(":")))["DP"])
+                if dp < self.min_dp_to_include:
+                    # make sure not to count variants with depth less than 3
+                    continue
                 info = fields["INFO"]
                 if info.startswith("VariantID="):
                     for variant_id in info.split(";")[0].split("=")[1].split(","):
@@ -264,6 +307,7 @@ class ParseVCF(SGEJobTask):
             try:
                 cur = db.cursor()
                 seq_cur = seqdb.cursor()
+                block_until_loading_slot_available(cur)
                 for table_name, table_file, is_variant_table in (
                     ("variant_chr" + self.chromosome, self.novel_variants, True),
                     ("indel_chr" + self.chromosome, self.novel_indels, False),
@@ -284,7 +328,10 @@ class ParseVCF(SGEJobTask):
                         sys.exit(1)
                 cur.execute(GET_NUM_CALLS_FOR_SAMPLE.format(
                     CHROM=self.chromosome, sample_id=self.sample_id))
-                db_count = cur.fetchone()[0]
+                variant_ids = set()
+                for variant_id in cur.fetchall():
+                    variant_ids.add(variant_id[0])
+                db_count = len(variant_ids)
                 if db_count != vcf_variants_count:
                     db.rollback()
                     raise ValueError(
@@ -323,7 +370,7 @@ class LoadBinData(SGEJobTask):
     data_type = luigi.ChoiceParameter(
         choices=["DP", "GQ"], description="the type of binned data to load")
     database = luigi.ChoiceParameter(
-        choices=["waldb", "dragen", "waldb4"], default="waldb",
+        choices=["waldb", "dragen", "waldb4", "waldb1"], default="waldb",
         description="the database to load to")
     dont_load_data = luigi.BoolParameter(
         description="don't actually load any data, used for testing purposes")
@@ -335,7 +382,7 @@ class LoadBinData(SGEJobTask):
             seqdb = get_connection("seqdb")
             try:
                 seq_cur = seqdb.cursor()
-                seq_cur.execute(GET_PIPELINE_STEP_ID.format(
+                seq_cur.execute(GET_DATA_LOADED_PIPELINE_STEP_ID.format(
                     chromosome=self.chromosome, data_type="{data_type} Data".format(
                     data_type=self.data_type)))
                 self.pipeline_step_id = seq_cur.fetchone()[0]
@@ -350,6 +397,7 @@ class LoadBinData(SGEJobTask):
             seqdb = get_connection("seqdb")
             try:
                 cur = db.cursor()
+                block_until_loading_slot_available(cur)
                 seq_cur = seqdb.cursor()
                 seq_cur.execute(GET_TIMES_STEP_RUN.format(
                     prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
@@ -411,8 +459,12 @@ class ImportSample(luigi.Task):
         significant=False,
         description="don't remove the tmp dir if there's a failure")
     database = luigi.ChoiceParameter(
-        choices=["waldb", "dragen", "waldb4"], default="waldb",
+        choices=["waldb", "dragen", "waldb4", "waldb1"], default="waldb",
         description="the database to load to")
+    min_dp_to_include = luigi.NumericalParameter(
+        min_value=0, max_value=sys.maxsize, var_type=int,
+        default=cfg.getint("pipeline", "min_dp_to_include"),
+        description="ignore variant calls below this read depth")
     dont_load_data = luigi.BoolParameter(
         description="don't actually load any data, used for testing purposes")
 
@@ -426,6 +478,7 @@ class ImportSample(luigi.Task):
             if row:
                 (sample_name, sequencing_type, capture_kit, prep_id) = row
                 kwargs["sample_name"] = sample_name
+                self.sample_name = sample_name
                 self.sequencing_type = sequencing_type
                 self.prep_id = prep_id
                 if "prep_id" not in kwargs:
@@ -441,17 +494,33 @@ class ImportSample(luigi.Task):
             prep_id=self.prep_id,
             sequencing_type=self.sequencing_type.upper())
         self.data_directory = get_data_directory(sample_name, self.prep_id)
+        try:
+            cmd = "ls {} &> /dev/null".format(self.data_directory)
+            c = Command.Command(cmd)
+            c.run(5)
+        except Command.TimeoutException:
+            raise ValueError("the data directory {} is inaccessible".format(
+                self.data_directory))
         if not os.path.isdir(self.data_directory):
             raise ValueError(
                 "the data directory {} for the sample does not exist".format(
                 self.data_directory))
         db = get_connection(self.database)
+        seqdb = get_connection("seqdb")
         try:
             cur = db.cursor()
+            seq_cur = seqdb.cursor()
             while check_if_sample_importing(cur):
+                logger.warning(
+                    "Data still loading for other task...sleeping 10 seconds")
                 sleep(10)
+            logger.debug("Loading {sample_name}:{sequencing_type}:{capture_kit}:"
+                         "{prep_id}".format(capture_kit=capture_kit, **self.__dict__))
             seqdb = get_connection("seqdb")
             seq_cur = seqdb.cursor()
+            if not self.dont_load_data:
+                logger.debug("The following still need to be loaded: {}".format(
+                    get_task_list_to_run(seq_cur, self.prep_id)))
             seq_cur.execute(GET_PIPELINE_FINISHED_ID)
             self.pipeline_step_id = seq_cur.fetchone()[0]
         finally:
@@ -466,12 +535,12 @@ class ImportSample(luigi.Task):
                     sample_name=sample_name, prep_id=self.prep_id))
         super(ImportSample, self).__init__(*args, **kwargs)
         if os.path.isfile(self.vcf):
-            if self.sequencing_type == "exome" and os.path.getsize(self.vcf) > 200000000:
+            if self.sequencing_type == "exome" and os.path.getsize(self.vcf) > 248000000:
                 db = get_connection(self.database)
                 try:
                     cur = db.cursor()
                     cur.execute(
-                        "UPDATE sample SET failure = 1 WHERE sample_id = "
+                        "UPDATE sample SET sample_failure = 1 WHERE sample_id = "
                         "{sample_id}".format(sample_id=self.sample_id))
                     db.commit()
                     db.close()
@@ -490,14 +559,14 @@ class ImportSample(luigi.Task):
             ParseVCF, chromosome=CHROM, 
             output_base=self.output_directory + CHROM)
             for CHROM in CHROMs.iterkeys()] +
-   #         [self.clone(
-   #             LoadBinData,
-   #             fn=os.path.join(
-   #                 self.data_directory, "gq_binned",
-   #                 "{sample_name}.{prep_id}_gq_binned_10000_chr{chromosome}.txt".format(
-   #                     sample_name=self.sample_name, prep_id=self.prep_id,
-   #                     chromosome=CHROM)), chromosome=CHROM, data_type="GQ")
-   #             for CHROM in CHROMs.iterkeys()] +
+            [self.clone(
+                LoadBinData,
+                fn=os.path.join(
+                    self.data_directory, "gq_binned",
+                    "{sample_name}.{prep_id}_gq_binned_10000_chr{chromosome}.txt".format(
+                        sample_name=self.sample_name, prep_id=self.prep_id,
+                        chromosome=CHROM)), chromosome=CHROM, data_type="GQ")
+                for CHROM in CHROMs.iterkeys()] +
             [self.clone(
                 LoadBinData,
                 fn=os.path.join(
@@ -508,6 +577,18 @@ class ImportSample(luigi.Task):
                 for CHROM in CHROMs.iterkeys()])
     
     def run(self):
+        # verify that each VariantID annotated chromosome's VCF is present,
+        # otherwise re-create
+        variant_id_vcfs_missing = []
+        for CHROM in CHROMs.iterkeys():
+            if not os.path.isfile(os.path.join(
+                self.output_directory, CHROM + ".variant_id.vcf")):
+                variant_id_vcfs_missing.append(CHROM)
+        if variant_id_vcfs_missing:
+            yield [self.clone(ParseVCF, chromosome=CHROM,
+                              output_base=self.output_directory + CHROM,
+                              dont_load_data=True) for CHROM in
+                   variant_id_vcfs_missing]
         if not self.dont_load_data:
             seqdb = get_connection("seqdb")
             try:
