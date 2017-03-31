@@ -52,22 +52,28 @@ def execute_query(database,query,fetch):
     
     return : Nothing
     """
-    try:
-        db = get_connection(database)
-        cur = db.cursor()
-        cur.execute(query)
-        if fetch == True: ## For select statements 
-            result = cur.fetchall()
-            return result
-        else: ## For insert and delete statements
-            db.commit()
-    except MySQLdb.Error, e:
-        clean_tasks(force_exit=True)
-        logging.error("Error %d IN CONNECTION: %s" %(e.args[0],e.args[1]))
-        raise Exception("Error %d IN CONNECTION: %s" %(e.args[0],e.args[1]))
-    finally:
-        db.close()
-            
+    attempts = 5
+    for i in range(0,attempts):
+        try:
+            db = get_connection(database)
+            cur = db.cursor()
+            cur.execute(query)
+            if fetch == True: ## For select statements 
+                result = cur.fetchall()
+                return result
+            else: ## For insert and delete statements
+                db.commit()
+            db.close()
+        except MySQLdb.Error, e:
+            if i == attempts-1:
+                logging.error("Error %d IN CONNECTION: %s ; Max attempts exhausted exiting....\n" %(e.args[0],e.args[1]))
+                clean_tasks(force_exit=True)
+                raise Exception("Error %d IN CONNECTION: %s" %(e.args[0],e.args[1]))
+            else:
+                logging.error("Error %d IN CONNECTION: %s ; Will attempt to reconnect....\n" %(e.args[0],e.args[1]))
+                sleep(20)
+                continue
+
 def get_samples():
     """ Get samples from the gatk_queue table
     """
@@ -134,7 +140,7 @@ def clean_tasks(force_exit = False,test=False):
             if force_exit == True:
                 logging.info("Exiting wrapper; Killing sample %s ....\n"%name)
                 kill_process(task_details[0])
-                kill_qstat_jobs(name, test = test)
+                kill_qstat_jobs(name)
             else:
                 if sample_type.upper() == 'GENOME':
                     if time_elapsed > 518400: ## Exceeded 6 days
@@ -238,7 +244,17 @@ def start_pipeline(sample_info,baselogdir,test=False):
             RUNNING[name] = (p,datetime.now())
         p.start()
         
-   
+def log_task_info():
+    """ log task information 
+    task_key : str ; key for the queued task 
+    """
+    for key in EXECUTED:
+        logging.info("Tasks Executed : {0} ; {1}".format(key,EXECUTED[key]))
+    for key in RUNNING:
+        logging.info("Tasks Running : {0} ; {1}".format(key,RUNNING[key]))
+    for key in ERRORS:
+        logging.info("Failed Tasks : {0} ; {1}".format(key,ERRORS[key]))
+    
 def main(args):
     """ The main function
     """    
@@ -269,9 +285,7 @@ def main(args):
                             logging.debug("Will not run sample : {0}.{1} because bam was not found in scratch dir {2} !".format(sample_name,pseudo_prepid,scratch))
                     else:
                         while len(RUNNING.keys()) >= max_processes: ## Hold till processes are freed up
-                            logging.info("Tasks Executed : {0}".format(EXECUTED))
-                            logging.info("Tasks Running : {0}".format(RUNNING))
-                            logging.info("Failed Tasks : {0}".format(ERRORS))
+                            log_task_info()
                             logging.info("Task Queued : {0}".format(task_key))
                             sleep(wait_time)
                             clean_tasks(force_exit = False,test=test)
@@ -279,6 +293,10 @@ def main(args):
                             start_pipeline(sample_tup,baselogdir,test=test)
                         else:
                             logging.debug("Will not run sample : {0}.{1} because bam was not found in scratch dir {2} !".format(sample_name,pseudo_prepid,scratch))
+
+            log_task_info()
+            sleep(wait_time)
+                    
         except KeyboardInterrupt:
             print "Keyboard interrupt in main, exiting after killing processes and deleting job submissions....\n"
             for key in RUNNING:
@@ -292,6 +310,7 @@ def main(args):
 
                                
 if __name__ == "__main__":
+    ## Add in logging levels for future 
     parser = argparse.ArgumentParser('Luigi wrapper script',description="This script is a wrapper for running the new dragen variant calling and qc pipeline.")
     parser.add_argument("--baselogdir",default="/nfs/seqscratch09/pipeline_logs/",help="Directory to log the luigi stdout and stderr, will create a timestamp and sample specific directory in here, timestamp is at the level of a day",required = False)
     parser.add_argument("--max-processes",dest='max_processes',default=300,help="The maximum number of processes to run",required=False,type=int)
