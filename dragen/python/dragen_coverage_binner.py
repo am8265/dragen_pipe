@@ -14,16 +14,14 @@ from utilities import is_gzipped,fh
 ###############################################################################
 
 
-def get_sample_id(dragen_file):
-    
+def get_sample_id(dragen_file):    
     """ Returns the sample id to print in the output file
     """
     
     return dragen_file.split('/')[-1].split('.')[0]
 
 
-def coverage_to_letter(coverage):
-    
+def coverage_to_letter(coverage):    
     """ Returns Letter encoding for coverage value
         coverage => numerical coverage value
     """
@@ -36,43 +34,21 @@ def coverage_to_letter(coverage):
         return 'c'
     elif(coverage < 30):
         return 'd'
-    elif(coverage < 40):
-        return 'e'
     elif(coverage < 50):
-        return 'f'
-    elif(coverage < 60):
-        return 'g'
-    elif(coverage < 80):
-        return 'h'
-    elif(coverage < 100):
-        return 'i'
-    elif(coverage < 150):
-        return 'j'
+        return 'e'
     elif(coverage < 200):
-        return 'k'
-    elif(coverage < 250):
-        return 'l'
-    elif(coverage < 300):
-        return 'm'
-    elif(coverage < 500):
-        return 'n'
-    elif(coverage < 600):
-        return 'o'
-    elif(coverage < 800):
-        return 'p'
-    elif(coverage < 1000):
-        return 'q'
+        return 'f'
     else:
-        return 'r'
+        return 'g'
       
-def bin_coverage_to_letter(coverage_val, coverage_len):
-    
+def bin_coverage_to_letter(coverage_val, coverage_len, block_size):    
     """ Return the printable form for the alpha-numeric coverage bins
         i.e. coverage_val = ['a','b','c'] coverage_len = [200,300,500]
         200a,300b,500c is returned
         coverage_val => a list of letter encoded coverage values
         coverage_len => a list of integers corresponding to the lengths of the
                         above letter encoded coverage values
+        block_size => int ; the block size 
     """
 
     return_coverage_string_list = []
@@ -82,14 +58,13 @@ def bin_coverage_to_letter(coverage_val, coverage_len):
         l = radix36_encoding(l)
         return_coverage_string_list.append(l+c) 
 
-    if check_len!=10000:
+    if check_len!=block_size:
         raise Exception("Incorrect binning string length")
     
     return ''.join(return_coverage_string_list)
 
 
-def update_coverage_bins(n, coverage, coverage_len, coverage_val):
-    
+def update_coverage_bins(n, coverage, coverage_len, coverage_val):    
     """ Update the coded coverage values according to the letter encodings
         i.e. if n = 100 , coverage = 'a' , coverage_val = ['b','c','a'] and 
         coverage_len = [100,200,200], the program will update the coverage_len
@@ -114,8 +89,7 @@ def update_coverage_bins(n, coverage, coverage_len, coverage_val):
 
     return [coverage_len, coverage_val]
 
-def radix36_encoding(number):
-    
+def radix36_encoding(number):    
     """ 
     number => numerical coverage value in decimal
     returns base36 encoded value for the above
@@ -146,7 +120,7 @@ def radix36_encoding(number):
       
 
 def radix36decode(number):
-    """Decode the radix36 number to decimal
+    """ Decode the radix36 number to decimal
     """
     return int(number,36)
 
@@ -212,8 +186,7 @@ def main():
                         update_coverage_bins(
                             B - sum_length, 'a', coverage_len, coverage_val)
 
-                    coverage_str = bin_coverage_to_letter(
-                        coverage_val, coverage_len)
+                    coverage_str = bin_coverage_to_letter(coverage_val, coverage_len, B)
                     if(coverage_str != exclusion_str):
                         bin_out.write("%s\t%s\n" % (
                             str(out_start/B), coverage_str))
@@ -231,11 +204,10 @@ def main():
                 coverage_val = []
             else:
                 gap = start - prev_stop
-                #print gap,out_start,coverage,current_B
                 
             ######### END OF INITALIZATION SECTION ##########
 
-            ################ ACTUAL LOGIC PROCESSING STARTS HERE ############
+            ################ ACTUAL LOGIC FOR PROCESSING STARTS HERE ############
             ## Divided into two stages, first is to process any gaps and then
             ## proceed with processing the actual interval
             
@@ -261,8 +233,7 @@ def main():
                     coverage_len, coverage_val = update_coverage_bins(
                         n, coverage_code, coverage_len, coverage_val)  # Update bins
                     # Get the printable output for coded coverage
-                    coverage_str = bin_coverage_to_letter(
-                        coverage_val, coverage_len)
+                    coverage_str = bin_coverage_to_letter(coverage_val, coverage_len, B)
                     if(coverage_str != exclusion_str):
                         bin_out.write("%s\t%s\n" % (
                             str(out_start/B), coverage_str))
@@ -281,7 +252,7 @@ def main():
                     coverage_len, coverage_val = update_coverage_bins(
                         n, coverage_code, coverage_len, coverage_val)
                     coverage_str = bin_coverage_to_letter(
-                        coverage_val, coverage_len)
+                        coverage_val, coverage_len, B)
                     if(coverage_str != exclusion_str):
                         bin_out.write("%s\t%s\n" % (
                             str(out_start/B), coverage_str))
@@ -311,7 +282,7 @@ def main():
                             coverage_len, coverage_val = update_coverage_bins(
                                 n, coverage_code, coverage_len, coverage_val)
                             coverage_str = bin_coverage_to_letter(
-                                coverage_val, coverage_len)
+                                coverage_val, coverage_len, B)
                             if(coverage_str != exclusion_str):
                                 bin_out.write("%s\t%s\n" % (
                                     str(out_start/B), coverage_str))
@@ -359,7 +330,7 @@ def main():
                 coverage_len, coverage_val = update_coverage_bins(
                     n, coverage_code, coverage_len, coverage_val)
                 coverage_str = bin_coverage_to_letter(
-                    coverage_val, coverage_len)
+                    coverage_val, coverage_len, B)
                 if(coverage_str != exclusion_str):
                     bin_out.write("%s\t%s\n" %
                                   (str(out_start/B), coverage_str))
@@ -377,7 +348,7 @@ def main():
                 coverage_len, coverage_val = update_coverage_bins(
                     n, coverage_code, coverage_len, coverage_val)
                 coverage_str = bin_coverage_to_letter(
-                    coverage_val, coverage_len)
+                    coverage_val, coverage_len, B)
                 if(coverage_str != exclusion_str):
                     bin_out.write("%s\t%s\n" %
                                   (str(out_start/B), coverage_str))
@@ -401,8 +372,7 @@ def main():
                         coverage_code = coverage_to_letter(coverage)
                         coverage_len, coverage_val = update_coverage_bins(
                             n, coverage_code, coverage_len, coverage_val)
-                        coverage_str = bin_coverage_to_letter(
-                            coverage_val, coverage_len)
+                        coverage_str = bin_coverage_to_letter(coverage_val, coverage_len, B)
                         if(coverage_str != exclusion_str):
                             bin_out.write("%s\t%s\n" % (
                                 str(out_start/B), coverage_str))
@@ -443,7 +413,7 @@ def main():
                 coverage_len,coverage_val = update_coverage_bins(B - sum_length, 'a',
                                      coverage_len, coverage_val)
 
-            coverage_str = bin_coverage_to_letter(coverage_val, coverage_len)
+            coverage_str = bin_coverage_to_letter(coverage_val, coverage_len, B)
             if(coverage_str != exclusion_str):
                 bin_out.write("%s\t%s\n" %
                               (str(out_start/B), coverage_str))
