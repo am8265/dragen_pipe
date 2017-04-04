@@ -186,8 +186,7 @@ def main():
                         update_coverage_bins(
                             B - sum_length, 'a', coverage_len, coverage_val)
 
-                    coverage_str = bin_coverage_to_letter(
-                        coverage_val, coverage_len, B)
+                    coverage_str = bin_coverage_to_letter(coverage_val, coverage_len, B)
                     if(coverage_str != exclusion_str):
                         bin_out.write("%s\t%s\n" % (
                             str(out_start/B), coverage_str))
@@ -234,8 +233,7 @@ def main():
                     coverage_len, coverage_val = update_coverage_bins(
                         n, coverage_code, coverage_len, coverage_val)  # Update bins
                     # Get the printable output for coded coverage
-                    coverage_str = bin_coverage_to_letter(
-                        coverage_val, coverage_len, B)
+                    coverage_str = bin_coverage_to_letter(coverage_val, coverage_len, B)
                     if(coverage_str != exclusion_str):
                         bin_out.write("%s\t%s\n" % (
                             str(out_start/B), coverage_str))
@@ -374,8 +372,7 @@ def main():
                         coverage_code = coverage_to_letter(coverage)
                         coverage_len, coverage_val = update_coverage_bins(
                             n, coverage_code, coverage_len, coverage_val)
-                        coverage_str = bin_coverage_to_letter(
-                            coverage_val, coverage_len, B)
+                        coverage_str = bin_coverage_to_letter(coverage_val, coverage_len, B)
                         if(coverage_str != exclusion_str):
                             bin_out.write("%s\t%s\n" % (
                                 str(out_start/B), coverage_str))
