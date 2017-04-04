@@ -153,16 +153,9 @@ class config(luigi.Config):
     vcffilter = luigi.Parameter()
     clineff = luigi.Parameter()
     #files
-    bait_file = luigi.Parameter()
-    bait_file_X = luigi.Parameter()
-    bait_file_Y = luigi.Parameter()
-    bait_bed_file = luigi.Parameter()
     ccds_bed_file = luigi.Parameter()
-    relatedness_markers = luigi.Parameter()
-    relatedness_refs = luigi.Parameter()
-    binner_loc = luigi.Parameter()
-    gq_binner = luigi.Parameter()
     coverage_binner = luigi.Parameter()
+    gq_binner = luigi.Parameter()
     snpEff_cfg = luigi.Parameter()
     clineff_cfg = luigi.Parameter()
     target_file = luigi.Parameter()
@@ -2552,12 +2545,10 @@ class SubsetVCF(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-
     ## System Parameters
     n_cpu = 1
     parallel_env = "threaded"
     shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
-
 
     def __init__(self,*args,**kwargs):
         super(SubsetVCF,self).__init__(*args,**kwargs)
@@ -2565,26 +2556,33 @@ class SubsetVCF(SGEJobTask):
             self.scratch,self.sample_type.upper(),self.sample_name,self.pseudo_prepid)
         self.annotated_vcf_gz = "{0}/{1}.{2}.analysisReady.annotated.vcf.gz".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.original_vcf_gz = "{0}/{1}.{2}.analysisReady.annotated.original.vcf.gz".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
         self.restricted_vcf = "{0}/{1}.{2}.analysisReady.annotated.restricted.vcf".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid)
         self.restricted_vcf_gz = "{0}/{1}.{2}.analysisReady.annotated.restricted.vcf.gz".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid)
         self.log_file = "{0}/logs/{1}.{2}.subsetvcf.log".format(
-            self.scratch_dir,self.sample_name,self.pseudo_prepid)
-        
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)        
         self.subset_cmd = "{0} {1} -B {2} -h > {3} 2> {4}".format(
             config().tabix,self.annotated_vcf_gz,self.capture_kit_bed,
             self.restricted_vcf,self.log_file)        
         self.bgzip_cmd = "{0} -f {1}".format(config().bgzip,self.restricted_vcf)
-        self.tabix_cmd = "{0} -f {1}".format(config().tabix,self.restricted_vcf_gz)
+        self.rename1 = "mv {0} {1}".format(self.annotated_vcf_gz,self.original_vcf_gz)
+        self.rename2 = "mv {0} {1}".format(self.restricted_vcf_gz,self.annotated_vcf_gz)
+        self.tabix_cmd1 = "{0} -f {1}".format(config().tabix,self.original_vcf_gz)
+        self.tabix_cmd2 = "{0} -f {1}".format(config().tabix,self.annotated_vcf_gz)
         self.script = "{0}/scripts/{1}.{2}.{3}.sh".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid,self.__class__.__name__)
-
+        
         with open(self.script,'w') as OUT:
             OUT.write(self.subset_cmd+'\n')
             OUT.write(self.bgzip_cmd+'\n')
-            OUT.write(self.tabix_cmd+'\n')
-        
+            OUT.write(self.rename1+'\n')
+            OUT.write(self.rename2+'\n')
+            OUT.write(self.tabix_cmd1+'\n')
+            OUT.write(self.tabix_cmd2+'\n')
+
         ## Get the pipeline step id
         try:
             db = get_connection("seqdb")
@@ -2602,7 +2600,7 @@ class SubsetVCF(SGEJobTask):
         """
         
         run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
-                     [self.subset_cmd,self.bgzip_cmd,self.tabix_cmd],self.sample_name,
+                     [self.subset_cmd,self.bgzip_cmd,self.rename1,self.rename2,self.tabix_cmd1,self.tabix_cmd2,],self.sample_name,
                      self.__class__.__name__)
         
     def requires(self):
@@ -2659,6 +2657,10 @@ class ArchiveSample(SGEJobTask):
         self.g_vcf_gz_index = "{0}/{1}.{2}.g.vcf.gz.tbi".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid)
         self.annotated_vcf_gz_index = "{0}/{1}.{2}.analysisReady.annotated.vcf.gz.tbi".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.original_vcf_gz = "{0}/{1}.{2}.analysisReady.annotated.original.vcf.gz".format(
+            self.scratch_dir,self.sample_name,self.pseudo_prepid)
+        self.original_vcf_gz_index = "{0}/{1}.{2}.analysisReady.annotated.original.vcf.gz.tbi".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid)
         self.copy_complete = "{0}/copy_complete".format(
             config().base)
@@ -2738,7 +2740,14 @@ class ArchiveSample(SGEJobTask):
                    "{cvg_ccds_out} {cvg_X_out} {cvg_Y_out} {dup_out} "
                    "{variant_call_out} {geno_concordance_out} {contamination_out} {fastq_loc} {base_dir}"
                   ).format(**self.__dict__)
-                                
+            if os.path.exists(self.original_vcf_gz):
+                cmd = ("rsync --timeout=25000 -vrltgoD "
+                   "{script_dir} {log_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
+                   "{annotated_vcf_gz_index} {g_vcf_gz} {g_vcf_gz_index} "
+                   "{cvg_binned} {gq_binned} {alignment_out} {cvg_out} "
+                   "{cvg_ccds_out} {cvg_X_out} {cvg_Y_out} {dup_out} "
+                    "{variant_call_out} {geno_concordance_out} {contamination_out} {fastq_loc} {original_vcf_gz} {original_vcf_gz_index} {base_dir} "
+                  ).format(**self.__dict__)                                
         try:
             ## Insert start time to database
             db = get_connection("seqdb")
@@ -3314,10 +3323,10 @@ class CvgBinning(SGEJobTask):
         self.human_chromosomes = [str(x) for x in self.human_chromosomes]
         self.human_chromosomes.extend(['X', 'Y','MT'])
 
-        self.binning_cmd = "{0} {1} 10000 {2} {3} {4} >& {5}".format(config().pypy,config().coverage_binner,
-                                                                     self.sample_name+'.'+self.pseudo_prepid,self.genomecov_bed,
-                                                                     self.output_dir,self.log_file)
-
+        self.binning_cmd = "{0} {1} 1000 {2} {3} {4} >& {5}".format(config().pypy,config().coverage_binner,
+                                                                    self.sample_name+'.'+self.pseudo_prepid,self.genomecov_bed,
+                                                                    self.output_dir,self.log_file)
+        self.rm_cmd = "rm {0}".format(self.genomecov_bed)
         self.pipeline_step_id = get_pipeline_step_id(
             self.__class__.__name__,"seqdb")
 
@@ -3343,7 +3352,7 @@ class CvgBinning(SGEJobTask):
         with open(self.script,'w') as OUT:
             OUT.write(self.binning_cmd+'\n')
         run_shellcmd("seqdb",self.pipeline_step_id,self.pseudo_prepid,
-                     [self.binning_cmd],self.sample_name,
+                     [self.binning_cmd,self.rm_cmd],self.sample_name,
                      self.__class__.__name__)
 
 class GQBinning(SGEJobTask):
