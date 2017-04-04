@@ -57,11 +57,13 @@ def get_cursor(parameters,database):
 
 def run_sample(sample,dragen_id,dontexecute,parameters,database,debug):
     output_dir = sample.metadata['output_dir']
+    pseudo_prepid = sample.metadata['pseudo_prepid']
     sample_bam = "{output_dir}/{sample_name}.bam".format(
             output_dir=output_dir,
             sample_name=sample.metadata['sample_name'])
     db = get_cursor(parameters,database)
     curs = db.cursor()
+    submitTime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     if os.path.isfile(sample_bam) == False:
         cmd = ['dragen', '-f', '-v', '-c', sample.metadata['conf_file'], '--watchdog-active-timeout', '30000']
         if debug:
@@ -90,17 +92,20 @@ def run_sample(sample,dragen_id,dontexecute,parameters,database,debug):
             if error_code == 0:
                 db = get_cursor(parameters,database)
                 curs = db.cursor()
+                finishTime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
                 insert_query = ("INSERT INTO gatk_queue "
                     "SELECT * FROM tmp_dragen WHERE dragen_id={0}"
                     ).format(dragen_id)
                 rm_query = "DELETE FROM {0} WHERE dragen_id={1}".format("tmp_dragen",dragen_id)
+
                 if debug:
                     print insert_query
                     print rm_query
-
+                update_pipeline_step_id(curs,sample,submitTime,finishTime,debug)
                 curs.execute(insert_query)
                 curs.execute(rm_query)
+                db.commit()
                 db.close()
 
             else:
@@ -114,6 +119,33 @@ def run_sample(sample,dragen_id,dontexecute,parameters,database,debug):
         print "Sample {sample_name} bam file already exists!".format(sample_name=sample.metadata['sample_name'])
         update_queue(curs,dragen_id,debug)
         db.close()
+
+
+def update_pipeline_step_id(curs,sample,submitTime,finishTime,debug):
+    pseudo_prepid = sample.metadata['pseudo_prepid']
+    timesRunQuery = ("SELECT times_ran FROM dragen_pipeline_step "
+                    "WHERE pseudo_prepid = {} and pipeline_step_id = 11"
+                    ).format(pseudo_prepid)
+    curs.execute(timesRunQuery)
+    timesRun = curs.fetchone()
+
+    if timesRun:
+        pipelineID_update = ("UPDATE dragen_pipeline_step SET "
+                "submit_time = '{}', "
+                "finish_time = '{}', "
+                "times_ran = times_ran + 1 "
+                "WHERE pseudo_prepid = {} and pipeline_step_id = 11"
+                ).format(submitTime,finishTime,pseudo_prepid)
+        if debug:
+           print pipelineID_update
+        curs.execute(pipelineID_update)
+    else:
+        pipelineID_insert = ("INSERT INTO dragen_pipeline_step "
+                "(pseudo_prepid,pipeline_step_id,submit_time,finish_time,times_ran,finished) "
+                "VALUES ({},11,'{}','{}',1,1)").format(pseudo_prepid,submitTime,finishTime)
+        if debug:
+            print pipelineID_insert
+        curs.execute(pipelineID_insert)
 
 def update_queue(curs,dragen_id,debug):
     insert_query = ("INSERT INTO tmp_dragen "
@@ -168,22 +200,25 @@ def setup_dir(curs,sample,debug):
     for fastq_loc in sample.metadata['fastq_loc']:
         fastqs = glob(fastq_loc + '/*_R1_*fastq.gz')
         for fastq in fastqs:
-            fastq_counter+=1
-            new_fastq_read1 = first_read1.split('/')[-1].replace(
-                    '001.fastq.gz','{0:03d}.fastq.gz'.format(fastq_counter))
-            new_fastq_read2 = first_read2.split('/')[-1].replace(
-                    '001.fastq.gz','{0:03d}.fastq.gz'.format(fastq_counter))
-            ln_cmd1 = ['ln','-s',fastq,sample.metadata['fastq_dir']+'/'+new_fastq_read1]
-            ln_cmd2 = ['ln','-s',fastq.replace('_R1_','_R2_'),sample.metadata['fastq_dir']+'/'+new_fastq_read2]
+            if 'fastq16-rsync' in fastq:
+                pass
+            else:
+                fastq_counter+=1
+                new_fastq_read1 = first_read1.split('/')[-1].replace(
+                        '001.fastq.gz','{0:03d}.fastq.gz'.format(fastq_counter))
+                new_fastq_read2 = first_read2.split('/')[-1].replace(
+                        '001.fastq.gz','{0:03d}.fastq.gz'.format(fastq_counter))
+                ln_cmd1 = ['ln','-s',fastq,sample.metadata['fastq_dir']+'/'+new_fastq_read1]
+                ln_cmd2 = ['ln','-s',fastq.replace('_R1_','_R2_'),sample.metadata['fastq_dir']+'/'+new_fastq_read2]
 
-            if fastq_counter == 1:
-                sample.set('first_fastq1',sample.metadata['fastq_dir']+'/'+new_fastq_read1)
-                sample.set('first_fastq2',sample.metadata['fastq_dir']+'/'+new_fastq_read2)
-                sample.set('first_lane',sample.metadata['lane'][0][0][0])
-                sample.set('first_flowcell',sample.metadata['lane'][0][0][1])
+                if fastq_counter == 1:
+                    sample.set('first_fastq1',sample.metadata['fastq_dir']+'/'+new_fastq_read1)
+                    sample.set('first_fastq2',sample.metadata['fastq_dir']+'/'+new_fastq_read2)
+                    sample.set('first_lane',sample.metadata['lane'][0][0][0])
+                    sample.set('first_flowcell',sample.metadata['lane'][0][0][1])
 
-            subprocess.call(ln_cmd1)
-            subprocess.call(ln_cmd2)
+                subprocess.call(ln_cmd1)
+                subprocess.call(ln_cmd2)
     check_Fastq_Total_Size(sample,debug)
     set_seqtime(curs,sample)
 
@@ -197,15 +232,19 @@ def check_Fastq_Total_Size(sample,debug):
 
     if sample_type == 'genome':
         if fastq_filesize_sum < 53687091200: # < 50GB
+            print fastq_filesize_sum
             raise Exception, "Sum of fastq files is too small for a {} sample!".format(sample_type)
     elif sample_type == 'exome':
         if fastq_filesize_sum > 32212254720: # > 30GB
+            print fastq_filesize_sum
             raise Exception, "Sum of fastq files is too big for a {} sample!".format(sample_type)
     elif sample_type == 'rnaseq':
         if fastq_filesize_sum > 32212254720: # > 30GB
+            print fastq_filesize_sum
             raise Exception, "Sum of fastq files is too big for a {} sample!".format(sample_type)
     elif sample_type == 'custom_capture':
         if fastq_filesize_sum > 10737418240: # > 10GB
+            print fastq_filesize_sum
             raise Exception, "Sum of fastq files is too big for a {} sample!".format(sample_type)
     else:
         raise Exception, 'Unhandled sample_type found: {}!'.format(sample_type)
