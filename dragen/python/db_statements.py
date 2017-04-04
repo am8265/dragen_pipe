@@ -70,7 +70,7 @@ GET_READ_LENGTH = """
 GET_SAMPLES_TO_RUN = (
     """ SELECT D.pseudo_prepid, D.CHGVID, D.SeqType, D.capture_kit, D.priority """
     """FROM dragen_sample_metadata as D INNER JOIN (SELECT d1.pseudo_prepid """
-    """FROM dragen_pipeline_step as d1 INNER JOIN dragen_pipeline_step as d2 """
+    """FROM dragen_pipeline_step as d1 LEFT JOIN dragen_pipeline_step as d2 """
     """ON d1.pseudo_prepid = d2.pseudo_prepid WHERE d1.pipeline_step_id = 11 """
     """AND d1.finished = 1 AND d2.pipeline_step_id = 31 AND d2.finished = 0) as P """
     """ON D.pseudo_prepid = P.pseudo_prepid ORDER BY D.priority; """
