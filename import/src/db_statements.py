@@ -4,7 +4,7 @@ MySQL statements used in the pipeline
 
 # check novelty of variant/get its id
 VARIANT_EXISTS_QUERY = """
-SELECT DISTINCT variant_id, effect_id, has_high_quality_call
+SELECT variant_id, effect_id, has_high_quality_call
 FROM variant_chr{CHROM}
 WHERE POS = {POS} AND REF = "{REF}" AND ALT = "{ALT}"
     AND indel_length = {indel_length}
@@ -54,12 +54,12 @@ WHERE CHROM = "{CHROM}" AND POS = {POS} AND REF = "{REF}" AND ALT = "{ALT}"
 """
 GET_TRANSLATION_MD5_ID = """
 SELECT translation_md5_id
-FROM homo_sapiens_variation_74_37.transcript_translation_mapping
+FROM homo_sapiens_variation_87_37.transcript_translation_mapping
 WHERE stable_id = "{stable_id}"
 """
 GET_POLYPHEN_PREDICTION_MATRIX = """
 SELECT prediction_matrix
-FROM homo_sapiens_variation_74_37.protein_function_predictions
+FROM homo_sapiens_variation_87_37.protein_function_predictions
 WHERE translation_md5_id = {translation_md5_id}
     AND analysis_attrib_id = {attrib_id}
 """
@@ -85,7 +85,7 @@ WHERE CHGVID = "{sample_name}" AND SeqType = "{sample_type}" AND
     ExomeSamPrepKit = "{capture_kit}" AND prepId = {prep_id}
 """
 GET_NUM_CALLS_FOR_SAMPLE = """
-SELECT COUNT(DISTINCT(c.variant_id))
+SELECT c.variant_id
 FROM called_variant_chr{CHROM} c
 INNER JOIN variant_chr{CHROM} v ON c.variant_id = v.variant_id
 WHERE c.sample_id = {sample_id}
@@ -104,7 +104,7 @@ SELECT id
 FROM dragen_pipeline_step_desc
 WHERE step_name = "Sample Initialized in DB"
 """
-GET_PIPELINE_STEP_ID = """
+GET_DATA_LOADED_PIPELINE_STEP_ID = """
 SELECT id
 FROM dragen_pipeline_step_desc
 WHERE step_name = "Imported Chromosome {chromosome} {data_type}"
@@ -165,7 +165,7 @@ SET sample_finished = 1
 WHERE sample_id = {sample_id}
 """
 INSERT_BIN_STATEMENT = """
-LOAD DATA INFILE '{data_file}' INTO TABLE {data_type}_bins_chr{chromosome}
+LOAD DATA INFILE '{data_file}' IGNORE INTO TABLE {data_type}_bins_chr{chromosome}
     (@block_id, @bin_string)
     SET sample_id={sample_id}, block_id=@block_id, {data_type}_string=@bin_string
 """
@@ -198,4 +198,44 @@ GET_SAMPLE_INITIALIZED_STEP_ID = """
 SELECT id
 FROM dragen_pipeline_step_desc
 WHERE step_name = "Sample Initialized In DB"
+"""
+GET_SAMPLE_DIRECTORY = """
+SELECT AlignSeqFileLoc
+FROM dragen_qc_metrics
+WHERE pseudo_prepid = {prep_id}
+"""
+STEP_FINISHED = """
+SELECT 1
+FROM dragen_pipeline_step p
+INNER JOIN dragen_pipeline_step_desc d ON p.pipeline_step_id = d.id
+WHERE p.pseudo_prepid = {prep_id} AND d.step_name = "Imported {step_name}"
+    AND p.finished = 1
+"""
+GET_PIPELINE_STEP_ID = """
+SELECT id
+FROM dragen_pipeline_step_desc
+WHERE step_name = "{step_name}"
+"""
+GET_SAMPLES_TO_INITIALIZE = """
+SELECT p1.pseudo_prepid
+FROM dragen_pipeline_step p1
+LEFT JOIN dragen_pipeline_step p2 ON p1.pseudo_prepid = p2.pseudo_prepid
+    AND p1.pipeline_step_id = {sample_archived_step_id} AND p1.finished = 1
+    AND p2.pipeline_step_id = {sample_initialized_step_id} AND p2.finished = 1
+WHERE p1.pipeline_step_id = {sample_archived_step_id} AND p1.finished = 1
+    AND p2.pseudo_prepid IS NULL
+"""
+GET_SAMPLE_METADATA = """
+SELECT CHGVID, SeqType, capture_kit, priority
+FROM dragen_sample_metadata
+WHERE pseudo_prepid = {prep_id}
+"""
+INITIALIZE_SAMPLE = """
+INSERT INTO sample (sample_name, sample_type, capture_kit, prep_id, priority)
+VALUE ("{sample_name}", "{sample_type}", "{capture_kit}", {prep_id}, {priority})
+"""
+INITIALIZE_SAMPLE_SEQDB = """
+INSERT INTO dragen_pipeline_step (pseudo_prepid, pipeline_step_id, finish_time,
+    times_ran, finished)
+VALUE ({prep_id}, {sample_initialized_step_id}, NOW(), 1, 1)
 """

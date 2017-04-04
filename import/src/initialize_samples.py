@@ -1,92 +1,87 @@
 #!/nfs/goldstein/software/python2.7.7/bin/python
 """
-Initialize a list of samples in the DRAGEN db
+Initialize samples that have finished the DRAGEN pipeline in WalDB
 """
 
 import argparse
 import MySQLdb
-import sys
-import os
 import logging
-from dragen_globals import *
+from sys import stderr
+from waldb_globals import *
 from db_statements import *
 
-def initialize_samples(samples_fh, logging_level):
-    """Take the list of samples in the fh and initialize all samples in the
-    dragen db
-    """
+cfg = get_cfg()
+
+@timer(stderr)
+def initialize_samples(database, level=logging.DEBUG):
     logger = logging.getLogger(__name__)
-    logger.setLevel(logging_level)
+    logger.setLevel(level)
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setLevel(level)
+    formatter = logging.Formatter(cfg.get("logging", "format"))
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
     seqdb = get_connection("seqdb")
-    dragen = get_connection("dragen")
+    db = get_connection(database)
+    initialized_count = 0
     try:
         seq_cur = seqdb.cursor()
-        query = GET_PIPELINE_SAMPLE_INITIALIZED_ID
-        seq_cur.execute(query)
-        pipeline_step_id = seq_cur.fetchone()[0]
-        dragen_cur = dragen.cursor()
-        for line in samples_fh:
-            (family_id, sample_name, paternal_id, maternal_id, sex, phenotype,
-             sample_type, capture_kit) = line.strip().split("\t")
-            sample_metadata = {
-                "sample_name":sample_name, "sample_type":sample_type.lower(),
-                "capture_kit":capture_kit}
-            query = GET_SAMPLE_ID.format(**sample_metadata)
-            dragen_cur.execute(query)
-            if dragen_cur.fetchone():
-                logging.debug("{sample_name} is in DB".format(**sample_metadata))
-                continue
-            query = GET_SAMPLE_PREPID.format(
-                sample_name=sample_name, sample_type=sample_type,
-                capture_kit=capture_kit)
-            seq_cur.execute(query)
+        cur = db.cursor()
+        seq_cur.execute(GET_PIPELINE_STEP_ID.format(step_name="ArchiveSample"))
+        sample_archived_step_id = seq_cur.fetchone()[0]
+        seq_cur.execute(GET_PIPELINE_STEP_ID.format(
+            step_name="Sample Initialized in DB"))
+        sample_initialized_step_id = seq_cur.fetchone()[0]
+        seq_cur.execute(GET_SAMPLES_TO_INITIALIZE.format(
+            sample_archived_step_id=sample_archived_step_id,
+            sample_initialized_step_id=sample_initialized_step_id))
+        prep_ids = [row[0] for row in seq_cur.fetchall()]
+        nsamples = len(prep_ids)
+        logger.info("Found {nsamples} samples to initialize".format(nsamples=nsamples))
+        for prep_id in prep_ids:
+            seq_cur.execute(GET_SAMPLE_METADATA.format(prep_id=prep_id))
             rows = seq_cur.fetchall()
-            if len(rows) == 1:
-                pseudo_prep_id, prep_id, priority = rows[0]
-                if pseudo_prep_id is None:
-                    query = GET_PREPID.format(prepid=prep_id)
-                    seq_cur.execute(query)
-                    row = seq_cur.fetchone()
-                    if row:
-                        pseudo_prep_id = row[0]
-                data_directory = (
-                    "/nfs/fastq16/ALIGNMENT/BUILD37/DRAGEN/{sample_type}/"
-                    "{sample_name}.{pseudo_prep_id}".format(
-                        sample_type=sample_type.upper(),
-                        sample_name=sample_name, pseudo_prep_id=pseudo_prep_id))
-                if not os.path.isdir(data_directory):
-                    logging.warning("couldn't find data directory {}".format(
-                        data_directory))
-                    continue
-                sample_metadata["prep_id"] = pseudo_prep_id
-                sample_metadata["priority"] = priority
-                logging.info("inserting {sample_name}".format(**sample_metadata))
-                query = INITIALIZE_SAMPLE_PIPELINE_STEP.format(
-                    pipeline_step_id=pipeline_step_id, **sample_metadata)
-                seq_cur.execute(query)
-                query = INSERT_SAMPLE.format(**sample_metadata)
-                dragen_cur.execute(query)
-                seqdb.commit()
-                dragen.commit()
+            if not rows:
+                logger.warning("Couldn't get metadata for {prep_id}".format(
+                    prep_id=prep_id))
+            elif len(rows) > 1:
+                logger.warning("Found multiple records for {prep_id}".format(
+                    prep_id=prep_id))
             else:
-                logging.warning("Found {} records with query:{}".format(
-                    len(rows), query))
+                sample_name, sample_type, capture_kit, priority = rows[0]
+                try:
+                    cur.execute(INITIALIZE_SAMPLE.format(
+                        sample_name=sample_name, sample_type=sample_type,
+                        capture_kit=capture_kit, prep_id=prep_id,
+                        priority=priority))
+                except MySQLdb.IntegrityError:
+                    logger.warning("{prep_id} is already initialized".format(
+                        prep_id=prep_id))
+                seq_cur.execute(INITIALIZE_SAMPLE_SEQDB.format(
+                    prep_id=prep_id,
+                    sample_initialized_step_id=sample_initialized_step_id))
+                initialized_count += 1
+        db.commit()
+        seqdb.commit()
     except:
-        logging.error("Query failed:\n" + query)
+        db.rollback()
+        seqdb.rollback()
         raise
     finally:
-        samples_fh.close()
         if seqdb.open:
             seqdb.close()
-        if dragen.open:
-            dragen.close()
+        if db.open:
+            db.close()
+        logger.info("Initialized {initialized_count}/{nsamples} samples".format(
+            initialized_count=initialized_count, nsamples=nsamples))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=CustomFormatter)
-    parser.add_argument("SAMPLES_FN", type=argparse.FileType("r"),
-                        help="the sample list file")
+    parser.add_argument("-d", "--database", default="waldb4",
+                        choices=["waldb", "waldb2", "waldb4", "waldb1"],
+                        help="the database to initialize samples in")
     parser.add_argument("--level", default="DEBUG", action=DereferenceKeyAction,
                         choices=LOGGING_LEVELS, help="the logging level to use")
     args = parser.parse_args()
-    initialize_samples(args.SAMPLES_FN, args.level)
+    initialize_samples(args.database, args.level)
