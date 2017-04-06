@@ -18,6 +18,7 @@ def main(samples, sample_type, capture_kit, debug, priority, curs):
 
 def insert_pseudo_prepid(sample,debug):
     #INSERT first prep and get the new pseudo_prepid
+    print sample.metadata['prepid']
     query = ("INSERT INTO pseudo_prepid "
                 "(pseudo_prepid,prepid) "
                 "VALUES (NULL,{prepID}) "
@@ -104,10 +105,10 @@ if __name__ == "__main__":
         print "Parameters used: {0}".format(parameters)
 
     if args.test:
-        args.database="testDB"
+        args.database="testdb"
     else:
         args.database="sequenceDB"
-    db = MySQLdb.connect(db=args.database,
+    db = MySQLdb.connect(db='sequenceDB',
             read_default_group="client{database}".format(database=args.database),
             read_default_file=parameters["DB_CONFIG_FILE"],
             )

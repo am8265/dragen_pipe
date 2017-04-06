@@ -22,6 +22,24 @@ def get_prepid(curs, sample):
     prepids = [x[0] for x in prepids]
     return prepids
 
+def get_priority(curs,sample):
+    query = ("SELECT priority "
+            "FROM SampleT s "
+            "JOIN prepT p ON s.CHGVID=p.CHGVID "
+            "JOIN SeqType st ON st.prepid=p.prepid "
+            "WHERE p.CHGVID='{sample_name}' "
+            "AND st.seqtype='{sample_type}' "
+            "AND exomekit='{capture_kit}' "
+            "ORDER BY priority ASC "
+            "LIMIT 1"
+            ).format(sample_name=sample['sample_name'],
+                    sample_type=sample['sample_type'],
+                    capture_kit=sample['capture_kit'])
+    print query
+    curs.execute(query)
+    priority = curs.fetchone()
+    return priority[0]
+
 def get_pseudo_prepid(curs,sample):
     query = ("SELECT DISTINCT pseudo_prepid "
             "FROM pseudo_prepid pp "
@@ -74,11 +92,25 @@ def get_fastq_loc(curs, sample):
 
             Secondly when external samples are archived sometimes the FCIllumID
             is preserved otherwise its enumerated."""
-            print sample
+            #print sample
             #for externally submitted samples
             if seqsatalocs[0][1][0] == 'X':
                 if 'SRR' in sample['sample_name']: #specifically for SRR samples
-                    locs.append('/nfs/fastq16/SRR/{}/1'.format(sample['sample_name']))
+                    fastq_loc = glob(('/nfs/fastq1*/SRR/{}/1'
+                                ).format(sample['sample_name']))
+                    for flowcell in fastq_loc:
+                        locs.append(os.path.realpath(flowcell))
+                elif 'pgm' in sample['sample_name'][0:3] or 'PGM' in sample['sample_name'][0:3]:
+                    fastq_loc = glob(('/nfs/fastq1*/PGM/{}/[0-9]'
+                                ).format(sample['sample_name']))
+                    for flowcell in fastq_loc:
+                        locs.append(os.path.realpath(flowcell))
+                elif glob(('/nfs/seqscratch_ssd/tx_temp/tx_2118/{}/[0-9]'
+                    ).format(sample['sample_name'])) != []:
+                    fastq_loc = glob(('/nfs/seqscratch_ssd/tx_temp/tx_2118/{}/[0-9]'
+                                ).format(sample['sample_name']))
+                    for flowcell in fastq_loc:
+                        locs.append(os.path.realpath(flowcell))
                 elif glob(('/nfs/fastq1[0-9]/{}/{}/[0-9]'
                     ).format(corrected_sample_type,sample['sample_name'])) != []: #for external fastq16 samples with enumerated folders
                     fastq_loc = glob(('/nfs/fastq1[0-9]/{}/{}/[0-9]'
@@ -123,7 +155,6 @@ def get_fastq_loc(curs, sample):
                     else:
                         # For samples in the database but stored on the quantum and 
                         # have not had their location properly restored
-
                         fastq_loc = glob('/nfs/stornext/seqfinal/casava1.8/whole_{0}/{1}/*XX'.format(
                             corrected_sample_type.lower(),sample['sample_name']))
                         print fastq_loc,'/nfs/stornext/seqfinal/casava1.8/whole_{0}/{1}/*XX'.format(
@@ -167,6 +198,8 @@ def check_fastq_locs(locs):
         read2 = glob("{loc}/*R2_[0-9]*fastq*".format(loc=loc))
         if read2 != []:
             valid_locs.append(loc)
+        else:
+            print 'Did not find fastq mate pair for: {}!'.format(loc)
     return valid_locs
 
 def get_output_dir(sample):
@@ -175,7 +208,7 @@ def get_output_dir(sample):
     # Custom capture samples need to be partitioned by capture_kit or 
     # pseudo_prepid since they are often sequenced with multiple capture kits.
     # Example: EpiMIR and SchizoEpi
-    output_dir = ('/nfs/seqscratch12/ALIGNMENT/BUILD37/DRAGEN/{0}/{1}.{2}/'
+    output_dir = ('/nfs/seqscratch_ssd/ALIGNMENT/BUILD37/DRAGEN/{0}/{1}.{2}/'
         ).format(sample['sample_type'].upper(),sample['sample_name'],sample['pseudo_prepid'])
 
     return output_dir
@@ -229,7 +262,8 @@ class dragen_sample:
             self.metadata['capture_kit'] = ''
             #Genome samples are set using the most current capture kit for any case which requires a target region.
             self.metadata['bed_file_loc'] = '/nfs/goldsteindata/refDB/captured_regions/Build37/65MB_build37/SeqCap_EZ_Exome_v3_capture.bed'
-        self.metadata['prepid'] = get_prepid(curs, self.metadata)
+        self.metadata['prepid'] = get_prepid(curs,self.metadata)
+        self.metadata['priority'] = get_priority(curs,self.metadata)
         self.metadata['fastq_loc'] = get_fastq_loc(curs, self.metadata)
         self.metadata['lane'] = get_lanes(curs,self.metadata)
         self.metadata['output_dir'] = get_output_dir(self.metadata)

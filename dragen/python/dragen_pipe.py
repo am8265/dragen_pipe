@@ -103,6 +103,7 @@ def run_sample(sample,dragen_id,dontexecute,parameters,database,debug):
                     print insert_query
                     print rm_query
                 update_pipeline_step_id(curs,sample,submitTime,finishTime,debug)
+                update_dragen_metadata(curs,sample)
                 curs.execute(insert_query)
                 curs.execute(rm_query)
                 db.commit()
@@ -120,6 +121,20 @@ def run_sample(sample,dragen_id,dontexecute,parameters,database,debug):
         update_queue(curs,dragen_id,debug)
         db.close()
 
+def update_dragen_metadata(curs,sample):
+    sample_name = sample.metadata['sample_name']
+    pseudo_prepid = sample.metadata['pseudo_prepid']
+    sample_type = sample.metadata['sample_type']
+    capture_kit = sample.metadata['capture_kit']
+    prepid = sample.metadata['prepid']
+    priority = sample.metadata['priority']
+
+    query = ("INSERT INTO dragen_sample_metadata "
+            "(sample_name,pseudo_prepid,sample_type,capture_kit,prepid,priority) "
+            "VALUES ('{}',{},'{}','{}',{},{} ) "
+            ).format(sample_name,pseudo_prepid,sample_type,capture_kit,prepid,priority)
+    print query
+    curs.execute(query)
 
 def update_pipeline_step_id(curs,sample,submitTime,finishTime,debug):
     pseudo_prepid = sample.metadata['pseudo_prepid']
