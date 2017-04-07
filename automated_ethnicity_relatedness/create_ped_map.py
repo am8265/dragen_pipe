@@ -27,9 +27,7 @@ def get_coverage_from_bam(BAM,chrom,pos):
     pos : int ; the position
 
     returns : int ; the coverage at the site
-    """
-
-    
+    """    
     for pileupcolumn in BAM.pileup(chrom,pos-1,pos+1):
         if pileupcolumn.pos == pos-1: ## Match the exact site,
                 ## since bam files are 0-based and vcfs are 1-based,the site for which
@@ -44,7 +42,6 @@ def is_valid_snv(ref,alt):
            alt ; string ; the alt allele
     Returns : bool ; True if the conditions are met
     """
-
     if len(ref)!=1 or len(alt)!=1:
         return False
     if set(ref).issubset('ATCG') and set(alt).issubset('ATCG'):
@@ -78,8 +75,7 @@ def is_multiallelic(gt):
 
     Args : gt ; string ; e.g. 0/0,1/1,1/0,2/0,etc.etc.
     Returns : bool ; True if the site is multiallelic, False if not
-    """
-    
+    """    
     if set(gt.split('/')).issubset(set(['0','1','2','3'])): ## There are cases when there is a '.' in the GT field
         return (max([int(allele) for allele in gt.split('/')]) > 1)
     else:
@@ -99,7 +95,6 @@ def get_info_key(info,key,field):
            key ; string ; the specific info key for which we need the index
     Returns : int ; the index(0 based) of the key in the info column   
     """
-
     try:
         return field.split(':')[info.split(':').index(key)]
     except ValueError as e: ## Need to look for stray cases where DP is not defined in the info field, it is 0 in such cases  (atleast in what I have encountered) 
@@ -114,7 +109,6 @@ def get_genotypes_bam(ref,dp):
 
     return : list ; [allele1,allele2]
     """
-
     if dp >= 10:
         return [ref,ref]
     else:
@@ -158,9 +152,8 @@ def return_pedmap(vcf_hashmap,coordinates,bam,genome):
           bam : pysam object ; the bam file opened by pysam
           genome : pyfasta object ; the reference fasta 
 
-    Returns: List, List of tuples ; the ped file genotypes, the map file info ; these can later be processed for outputing a ped file
-    """
-    
+    Returns: (list, list of tuples) ; (the ped file genotypes, the map file info) ; these can later be processed for outputing a ped file
+    """    
     temp_ped = []
     temp_map = []
     temp_geno = [] ## For .geno files (for pca and ethnicity)
@@ -205,7 +198,6 @@ def get_ref_allele(genome,chrom,pos):
     
     return : str ; the reference allele 
     """
-
     return str(genome[chrom][pos-1:pos]) ## Again the fasta file will be 0-based,
                                          ## so pos will correspond to pos-1 in the fasta
 
@@ -219,7 +211,6 @@ def parse_vcf(line):
     Args ; line ; string ; The gvcf line 
     Returns ; list ; [chromosome, position, reference allele, alternate allele, genotype(GT)]
     """
-
     contents = line.strip('\n').split('\t')
     chrom,pos,rsid,ref,alt = contents[0:5]
     info = contents[-2]
@@ -233,8 +224,7 @@ def print_output(line,output_file):
     """ Print output line to file
 
     Args : line ; string ; the line(s) to print
-    """
-    
+    """    
     with open(output_file,'w') as OUT:
         OUT.write(line+'\n')
            
@@ -245,7 +235,6 @@ def iterate_vcf(vcf):
     Args : vcf ; string ; path to the gvcf file 
     Returns : dict;
     """
-
     vcf_hashmap = {}
     
     with open_by_magic(vcf) as VCF:
@@ -264,7 +253,6 @@ def parse_map_file(map_file):
     Args : map_file ; string ; the map file
     Returns : list ; the coordinates in the map file
     """
-
     coordinates = OrderedDict()
     with open(map_file,'r') as MAP:
         for line in MAP:
@@ -279,7 +267,6 @@ def parse_map_file(map_file):
 def main(args):
     """ Main Function
     """
-
     ## Unpack the arguments
     sample_id = args.sample_id
     sample_id = sample_id + '_' + args.pseudo_prepid
@@ -337,7 +324,7 @@ def main(args):
     print_output(output_geno_line,output_geno)
     
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser('Create a ped file from a vcf file and a bam file',description='Takes as input : \n1. A valid gvcf file\n2. Marker loci\nOutput : A ped file containing genotype information at the appropriate marker loci')
+    parser = argparse.ArgumentParser('Create a ped file from a vcf file and a bam file',description='Takes as input : \n1. A valid vcf file\n2. Marker loci\nOutput : A ped file containing genotype information at the appropriate marker loci')
     parser.add_argument('--sample_id','-sample_id',dest='sample_id',help='CHGVID',required=True)
     parser.add_argument('--family_id','-family_id',dest='family_id',required=False,help='The family id (if not given then we use the sample_id as the family id)',default='dummy')
     parser.add_argument('--vcf','-vcf',dest='vcf',help='The input vcf',required=True)
@@ -349,6 +336,7 @@ if __name__ == '__main__':
     ## since at IGM these attributes will ensure uniqueness of sample
     ## which is essential when you do downstream analysis with ped files
     ## The sample name will be a concatenation of sample_id, seqtype and prepid, for e.g. chgvid_seqtype_prepid
+    ## For dragen samples prepid should be replaced with the pseudo_prepid 
     parser.add_argument('--seqtype','-seq',dest='seq',help='The type of sequencing, i.e. Exome or Genome', required = True)
     parser.add_argument('--pseudo_prepid','-pseudo_prepid',dest='pseudo_prepid',help='The prepid for your sample',required=True)
     parser.add_argument('--outdir','-out',dest='out',help='Output dir, can give full path, output directories will be created if it doesnt exist',required=True)
