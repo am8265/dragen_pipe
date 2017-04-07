@@ -1,0 +1,7 @@
+## To run the automated ethnicity wrapper for dragen :
+luigi --module ethnicity_check_dragen WrapperEthnicity --workdir <any temp dir>
+
+
+## To run the automated ethnicity for the production pipeline :
+luigi --module ethnicity_check WrapperEthnicity --workdir <any temp dir>
+
