@@ -58,7 +58,7 @@ def get_pseudo_prepid(curs,sample):
 
 def get_bed_file_loc(curs,capture_kit):
     """Retrieve the bed file location for a given capture_kit name"""
-    query = (("SELECT region_file_lsrc FROM captureKit WHERE prepT_name='{0}' "
+    query = (("SELECT region_file_lsrc FROM captureKit WHERE name='{0}' "
         "and chr = 'all'"
         ).format(capture_kit))
     curs.execute(query)
