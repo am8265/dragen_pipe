@@ -14,7 +14,7 @@ from time import sleep,time
 from threading import Thread
 import random
 from dragen_globals import get_connection
-from db_statements import * 
+from db_statements import *
 from datetime import datetime
 from email.mime.text import MIMEText
 import logging
@@ -42,14 +42,14 @@ def send_email(message,subject):
     msg["Subject"] = subject
     p = subprocess.Popen(["/usr/sbin/sendmail","-t","-oi"],stdin=subprocess.PIPE)
     p.communicate(msg.as_string())
-    
+
 def execute_query(database,query,fetch):
     """ Execute db fetch statements
 
     database : The database to use for the query
     query : The query to be performed
     fetch : Bool; Indicates whether to fetch the results incase of a SELECT statement
-    
+
     return : Nothing
     """
     attempts = 5
@@ -83,12 +83,12 @@ def get_samples():
 
 def create_logdir(baselogdir,sample_name,pseudo_prepid):
     """ Create luigi stdout and stderr logging directory for a sample
-    
+
     baselogdir : str ; Base logging directory
     sample_name : str ; The sample name
     pseudo_prepid : int ; The pseudo_prepid
 
-    return : string ; Final path to the sample log directory 
+    return : string ; Final path to the sample log directory
     """
     now = datetime.now()
     timestamp = now.strftime("%Y%m%d")
@@ -103,17 +103,17 @@ def get_capturekit_info(sample_type,capture_kit):
     sample_type : string ; exome/genome/custom capture etc.
     capture_kit : string ; the capture kit type , e.g. Roche SeqCap EZ V3, 50MB, etc.
 
-    returns : string ; the capture bed file location 
-    """    
+    returns : string ; the capture bed file location
+    """
     if sample_type.upper() == 'GENOME':
          query = ("SELECT region_file_lsrc "
-            "FROM captureKit WHERE prepT_name='Roche SeqCap EZ V3' "
+            "FROM captureKit WHERE name='Roche' "
             "AND chr = 'all' ")
          result = execute_query("seqdb",query,fetch=True)
          return result[0][0]
     else:
         query = ("SELECT region_file_lsrc "
-                 "FROM captureKit WHERE prepT_name='{0}' "
+                 "FROM captureKit WHERE name='{0}' "
                  "AND chr = 'all'").format(capture_kit)
         result = execute_query("seqdb",query,fetch=True)
         return result[0][0]
@@ -154,7 +154,7 @@ def clean_tasks(force_exit = False,test=False):
                         kill_process(task_details[0])
                         kill_qstat_jobs(name,test=test)
                         RUNNING.pop(name)
-   
+
 def kill_process(process):
     """
     process : a multiprocessing process object
@@ -163,16 +163,16 @@ def kill_process(process):
     try:
         os.kill(pid,signal.SIGKILL)
     except OSError: ## Process is already stopped 
-        return        
+        return
 
 def kill_qstat_jobs(task_name,test=False):
     """
     task_name : str; e.g. sample_name.pseudo_prepid.sample_type
-    test : bool ; whether to run in test mode 
+    test : bool ; whether to run in test mode
     """
     if test:
         return True
-    
+
     ## Since qstat jobs are defined as sample_name.pseudo_prepid in gatk_pipeline
     job_name = '.'.join(task_name.split('.')[0:2])
     shell_cmd = ("""qstat -r -ne | grep -B 1 %s|"""
@@ -202,18 +202,18 @@ def test_luigi(sample_info,baselogdir):
     finally:
         if flag == 1:
             logging.info("Keyboard interrupt, cleaning up process ... {0}.{1} \n".format(sample_name,pseudo_prepid))
-    
+
 def run_luigi(sample_info,baselogdir,RUNNING):
-    """ Execute the luigi command with the appropriate parameters as a system call     
+    """ Execute the luigi command with the appropriate parameters as a system call
 
     sample_info : tuple ; (pseudo_prepid,sample_name,...)
     baselogdir : str; base directory to store the logs ; e.g. /nfs/seqscratch09/luigi_logs_test/
-    """   
+    """
     pseudo_prepid,sample_name,sample_type,capture_bed,scratch = sample_info
     final_log_dir = create_logdir(baselogdir,sample_name,pseudo_prepid)
     out_file = os.path.join(final_log_dir,sample_name+'_'+pseudo_prepid+'.stdout')
     error_file = os.path.join(final_log_dir,sample_name+'_'+pseudo_prepid+'.stderr')
-    
+
     try:
         flag = 0
         key = sample_name+'.'+pseudo_prepid+'.'+sample_type
@@ -221,15 +221,15 @@ def run_luigi(sample_info,baselogdir,RUNNING):
         with open(out_file,'w') as OUT, open(error_file,'w') as ERR:
             proc = subprocess.Popen(shlex.split(cmd),stdout=OUT,stderr=ERR)
             proc.wait()
-            exit(proc.returncode)            
+            exit(proc.returncode)
     except KeyboardInterrupt:
         flag = 1
     finally:
         if flag == 1:
             logging.info("Keyboard interrupt, cleaning up process ... {0}.{1} \n".format(sample_name,pseudo_prepid))
-        
+
 def start_pipeline(sample_info,baselogdir,test=False):
-    """ Start a luigi gatk pipeline     
+    """ Start a luigi gatk pipeline
     sample_info : tuple ; parameters for running a luigi job
     baselogdir : str ; the base directory to store the logs
     test : bool ; whether to run in test mode
@@ -243,10 +243,10 @@ def start_pipeline(sample_info,baselogdir,test=False):
             p = mp.Process(target=run_luigi,args=[sample_info,baselogdir,RUNNING],name=name)
             RUNNING[name] = (p,datetime.now())
         p.start()
-        
+
 def log_task_info():
-    """ log task information 
-    task_key : str ; key for the queued task 
+    """ log task information
+    task_key : str ; key for the queued task
     """
     for key in EXECUTED:
         logging.info("Tasks Executed : {0} ; {1}".format(key,EXECUTED[key]))
@@ -254,10 +254,10 @@ def log_task_info():
         logging.info("Tasks Running : {0} ; {1}".format(key,RUNNING[key]))
     for key in ERRORS:
         logging.info("Failed Tasks : {0} ; {1}".format(key,ERRORS[key]))
-    
+
 def main(args):
     """ The main function
-    """    
+    """
     ## Unpack parameters 
     ## Dont want to pass email around to clean_tasks,keeping it global should be pretty safe
     global email
@@ -296,19 +296,19 @@ def main(args):
 
             log_task_info()
             sleep(wait_time)
-                    
+
         except KeyboardInterrupt:
             print "Keyboard interrupt in main, exiting after killing processes and deleting job submissions....\n"
             for key in RUNNING:
                 kill_process(RUNNING[key][0])
                 kill_qstat_jobs(key)
             running = False
-            
+
     for key in RUNNING:
         logging.info("Checking qstat jobs again ...")
         kill_qstat_jobs(key)
 
-                               
+
 if __name__ == "__main__":
     ## Add in logging levels for future 
     parser = argparse.ArgumentParser('Luigi wrapper script',description="This script is a wrapper for running the new dragen variant calling and qc pipeline.")
