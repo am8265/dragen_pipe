@@ -126,15 +126,23 @@ def update_dragen_metadata(curs,sample):
     pseudo_prepid = sample.metadata['pseudo_prepid']
     sample_type = sample.metadata['sample_type']
     capture_kit = sample.metadata['capture_kit']
-    prepid = sample.metadata['prepid']
+    prepid = sample.metadata['prepid'][0]
     priority = sample.metadata['priority']
 
-    query = ("INSERT INTO dragen_sample_metadata "
-            "(sample_name,pseudo_prepid,sample_type,capture_kit,prepid,priority) "
-            "VALUES ('{}',{},'{}','{}',{},{} ) "
-            ).format(sample_name,pseudo_prepid,sample_type,capture_kit,prepid,priority)
-    print query
+    query = ("SELECT * from dragen_sample_metadata "
+            "WHERE pseudo_prepid = {} "
+            ).format(pseudo_prepid)
     curs.execute(query)
+    dbInfo = curs.fetchone()
+    if dbInfo:
+        pass
+    else:
+        insertQuery = ("INSERT INTO dragen_sample_metadata "
+                "(sample_name,pseudo_prepid,sample_type,capture_kit,prepid,priority) "
+                "VALUES ('{}',{},'{}','{}',{},{} ) "
+                ).format(sample_name,pseudo_prepid,sample_type,capture_kit,prepid,priority)
+        print insertQuery
+        curs.execute(insertQuery)
 
 def update_pipeline_step_id(curs,sample,submitTime,finishTime,debug):
     pseudo_prepid = sample.metadata['pseudo_prepid']
