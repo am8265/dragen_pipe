@@ -68,7 +68,7 @@ WHERE capture_kit="{captureKit}" AND sample_type="{sample_type}"
 GET_READ_LENGTH = """
 """
 GET_SAMPLES_TO_RUN = (
-    """ SELECT D.pseudo_prepid, D.CHGVID, D.SeqType, D.capture_kit, D.priority """
+    """ SELECT D.pseudo_prepid, D.sample_name, D.sample_type, D.capture_kit, D.priority """
     """FROM dragen_sample_metadata as D INNER JOIN (select d1.pseudo_prepid FROM """
     """dragen_pipeline_step as d1 WHERE d1.pseudo_prepid NOT IN (SELECT pseudo_prepid """
     """FROM dragen_pipeline_step as d2 WHERE d2.pipeline_step_id = 31 AND d2.finished = 1) """
