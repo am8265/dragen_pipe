@@ -21,6 +21,8 @@ cfg.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "waldb.cfg"))
 LOGGING_LEVELS = {
     "CRITICAL":logging.CRITICAL, "ERROR":logging.ERROR,
     "WARNING":logging.WARNING, "INFO":logging.INFO, "DEBUG":logging.DEBUG}
+CHROMs = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
+          "14", "15", "16", "17", "18", "19", "20", "21", "22", "X", "Y", "MT"]
 # exclude variant calls below this read depth
 
 class DereferenceKeyAction(argparse.Action):
