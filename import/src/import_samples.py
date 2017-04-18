@@ -18,11 +18,13 @@ cfg = get_cfg()
 class ImportSamples(ProcessSamples.ProcessSamples):
     def __init__(self, database="waldb4", seqscratch="_ssd",
                  force_failed_samples=False,
+                 sample_names=None,
                  run_locally=False, workers=75, qdel_jobs=True,
                  local_scheduler=False, **kwargs):
         super(ImportSamples, self).__init__(
             max_samples_concurrently=1, 
             force_failed_samples=force_failed_samples,
+            sample_names=sample_names,
             run_locally=run_locally, qdel_jobs=qdel_jobs,
             local_scheduler=local_scheduler, **kwargs)
         self.pattern = (
@@ -39,7 +41,10 @@ class ImportSamples(ProcessSamples.ProcessSamples):
             cur = db.cursor()
             query = GET_SAMPLES_TO_IMPORT.format(
                 failed_samples_clause="" if self.force_failed_samples
-                else " AND sample_failure = 0")
+                else " AND sample_failure = 0",
+            sample_name_clause=" AND sample_name LIKE "
+                "'{sample_names}'".format(sample_names=self.sample_names)
+                if self.sample_names else "")
             cur.execute(query)
             samples = []
             for row in cur.fetchall():
@@ -71,8 +76,8 @@ class ImportSamples(ProcessSamples.ProcessSamples):
             timeout = 7200
         return cmd, timeout
 
-def main(database, seqscratch, force_failed_samples, run_locally,
-         workers, local_scheduler, debug_level):
+def main(database, seqscratch, force_failed_samples, sample_names,
+         run_locally, workers, local_scheduler, debug_level):
     # set up logging
     formatter = logging.Formatter(cfg.get("logging", "format"))
     root_logger = logging.getLogger()
@@ -93,6 +98,7 @@ def main(database, seqscratch, force_failed_samples, run_locally,
     import_samples = ImportSamples(
         database=database, seqscratch=seqscratch,
         force_failed_samples=force_failed_samples,
+        sample_names=sample_names,
         qdel_jobs=not run_locally, run_locally=run_locally,
         workers=workers, local_scheduler=local_scheduler)
     import_samples.process_samples()
@@ -110,6 +116,8 @@ if __name__ == "__main__":
                         action="store_true",
                         help="try to import a sample even if it failed in a "
                         "previous run (otherwise such samples are ignored)")
+    parser.add_argument("--sample_names", help="only attempt to import samples "
+                        "with a sample_name matching the format string")
     parser.add_argument("--run_locally", default=False, action="store_true",
                         help="run locally instead of on the cluster")
     parser.add_argument("-w", "--workers", type=int, default=75,
@@ -123,4 +131,5 @@ if __name__ == "__main__":
                         help="specify the logging level to use")
     args = parser.parse_args()
     main(args.database, args.seqscratch, args.force_failed_samples,
-         args.run_locally, args.workers, args.local_scheduler, args.level)
+         args.sample_names, args.run_locally, args.workers,
+         args.local_scheduler, args.level)
