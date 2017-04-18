@@ -80,6 +80,8 @@ def calculate_polyphen_scores(
     polyphen_matrixes_by_stable_id, polyphen_stable_ids_to_ignore, logger):
     """return the PolyPhen scores for the given missense variant
     """
+    # make sure to strip off any versioning suffix
+    transcript_stable_id = transcript_stable_id.split(".")[0]
     scores = {}
     # for MNPs that overlap the start codon, on occasion the codon change is
     # specified with an "unknown" codon, e.g. "?" - so check for that and don't
@@ -147,6 +149,8 @@ def calculate_polyphen_scores(
                             transcript_stable_id)
                         scores["polyphen_" + polyphen_score] = None
                         continue
+                if (transcript_stable_id in
+                    polyphen_matrixes_by_stable_id[polyphen_score]):
                     packed_score = polyphen_matrixes_by_stable_id[polyphen_score][
                         transcript_stable_id][matrix_offset:matrix_offset + 2]
                     unpacked_value = unpack("H", packed_score)[0]
@@ -161,6 +165,10 @@ def calculate_polyphen_scores(
         # potentially altering multiple amino acids
         scores["polyphen_humdiv"] = max_polyphen_scores["humdiv"]
         scores["polyphen_humvar"] = max_polyphen_scores["humvar"]
+        logger.debug("{VariantID}: humdiv - {humdiv}".format(
+            VariantID=VariantID, humdiv=scores["polyphen_humdiv"]))
+        logger.debug("{VariantID}: humvar - {humvar}".format(
+            VariantID=VariantID, humvar=scores["polyphen_humvar"]))
     else:
         raise ValueError(
             "error: could not parse HGVS_p {HGVS_p} for "
@@ -812,4 +820,4 @@ if __name__ == "__main__":
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     parse_vcf(args.VCF, args.CHROMOSOME, args.SAMPLE_ID, args.database,
-              args.min_dp_to_inclue, output_base_rp, not args.no_calls)
+              args.min_dp_to_include, output_base_rp, not args.no_calls)
