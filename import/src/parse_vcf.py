@@ -19,6 +19,9 @@ import logging
 cfg = get_cfg()
 block_size = cfg.getint("pipeline", "block_size")
 HGVS_P_REGEX = re.compile(HGVS_P_PATTERN)
+# the maximum size of a float in the database
+MAX_FLOAT_DB = 3.402823466e38
+MIN_FLOAT_DB = -3.402823466e38
 
 def get_max_variant_id(cur, CHROM):
     """return the maximum variant_id for CHROM
@@ -696,6 +699,11 @@ def parse_vcf(vcf, CHROM, sample_id, database, min_dp_to_include, output_base,
                     if variant_stat not in INFO:
                         # NULL value for loading
                         INFO[variant_stat] = "\\N"
+                    elif INFO[variant_stat] == "Infinity":
+                        # GATK can, at least for VQSLOD, claim a value of "Infinity"
+                        INFO[variant_stat] = str(MAX_FLOAT_DB)
+                    elif INFO[variant_stat] == "-Infinity":
+                        INFO[variant_stat] = str(MIN_FLOAT_DB)
                 if nalleles == 1:
                     (call["variant_id"], call["block_id"],
                      call["highest_impact"], indel) = variant_ids[0]
