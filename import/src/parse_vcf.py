@@ -102,10 +102,11 @@ def calculate_polyphen_scores(
                              "divisible by 3: {HGVS_p}".format(
                                  VariantID=VariantID, HGVS_p=HGVS_p))
         num_amino_acid_changes = len_amino_acid_changes / 3
-        if num_amino_acid_changes != 0:
+        if num_amino_acid_changes != 1:
             logger.debug("Encountered multiple impacted amino acids for "
-                         "{VariantID}: {HGVS_p}".format(
-                             VariantID=VariantID, HGVS_p=HGVS_p))
+                         "{VariantID}: {HGVS_p} ({amino_acid_changes})".format(
+                             VariantID=VariantID, HGVS_p=HGVS_p,
+                             amino_acid_changes=amino_acid_changes))
         max_polyphen_scores = {"humdiv":None, "humvar":None}
         for offset in xrange(num_amino_acid_changes):
             matrix_offset = (3 + 2 * ((codon_position + offset - 1) * 20 +
@@ -191,7 +192,7 @@ def get_variant_id(novel_fh, novel_indels_fh, novel_transcripts_fh,
     if it's novel
     """
     # can safely overwrite REF, but need original ALT in order to match up with
-    # SnpEff annotations
+    # ClinEff annotations
     REF, alt, offset = simplify_REF_ALT_alleles(REF, ALT)
     indel_length = len(alt) - len(REF)
     if len(REF) > 255:
@@ -338,7 +339,7 @@ def output_novel_variant(
                     continue
                 if effect == "custom":
                     # these correspond to the deprecated INTRON_EXON_BOUNDARY
-                    # annotations which SnpEff now natively annotates
+                    # annotations which ClinEff now natively annotates
                     continue
                 if effect not in effect_rankings:
                     raise ValueError(
@@ -350,7 +351,7 @@ def output_novel_variant(
                     # finding the proper impact for any subsequent effects
                     true_impact = impact
                 else:
-                    # this is likely due to SnpEff concatenating two or more
+                    # this is likely due to ClinEff concatenating two or more
                     # effects into one annotation - we will try to select the
                     # next least deleterious impact that is valid for the effect
                     impact_idx = impact_ordering.index(impact)
@@ -366,7 +367,7 @@ def output_novel_variant(
                             "({impact}, {effect}) @{VariantID}:{ann}".format(
                                 impact=impact, effect=effect,
                                 VariantID=VariantID, ann=anns[x]))
-                # sometimes SnpEff can annotate the same effect in transcripts
+                # sometimes ClinEff can annotate the same effect in transcripts
                 # and treat different case differently, but this will cause
                 # integrity errors, so they're converted to upper-case always
                 feature_id = feature_id.upper()
@@ -395,12 +396,12 @@ def output_novel_variant(
                 effect_ids.append(effect_id)
                 if annotations_key in annotations:
                     if "N" in REF:
-                        # ignore the fact that SnpEff annotates multiple HGVS_c
+                        # ignore the fact that ClinEff annotates multiple HGVS_c
                         # when there's an N in the reference allele; just take
                         # the first one
                         continue
                     elif effect == "splice_region_variant":
-                        # splice_region_variant may be duplicated by SnpEff with
+                        # splice_region_variant may be duplicated by ClinEff with
                         # multiple impacts, e.g. HIGH (when joined with other
                         # effects) and LOW - more accurate to take the LOW
                         # impact, so update the annotations (which are sorted by
@@ -421,7 +422,7 @@ def output_novel_variant(
                     annotations_by_transcript[feature_id].add(effect)
                     if effect == "missense_variant":
                         # calculate PolyPhen scores if possible
-                        # sometimes SnpEff includes missense even when the
+                        # sometimes ClinEff includes missense even when the
                         # variant is an indel also, so ignore those
                         annotations[annotations_key].update(
                             calculate_polyphen_scores(
@@ -454,7 +455,7 @@ def output_novel_variant(
                 indel_length, high_quality_call, logger, **annotation_values)
     else:
         raise ValueError(
-            "error: {VariantID} has no SnpEff annotation(s)".
+            "error: {VariantID} has no ClinEff annotation(s)".
             format(VariantID=VariantID))
     return effect_ids, novel_transcripts_id
 
