@@ -14,17 +14,13 @@ from utilities import is_gzipped,fh
 ###############################################################################
 
 
-def get_sample_id(dragen_file):    
-    """ Returns the sample id to print in the output file
-    """
-    
+def get_sample_id(dragen_file):
+    """ Returns the sample id to print in the output file """
     return dragen_file.split('/')[-1].split('.')[0]
 
-
-def coverage_to_letter(coverage):    
+def coverage_to_letter(coverage):
     """ Returns Letter encoding for coverage value
-        coverage => numerical coverage value
-    """
+        coverage => numerical coverage value """
 
     if(coverage < 3):
         return 'a'
@@ -40,33 +36,32 @@ def coverage_to_letter(coverage):
         return 'f'
     else:
         return 'g'
-      
-def bin_coverage_to_letter(coverage_val, coverage_len, block_size):    
+
+def bin_coverage_to_letter(coverage_val, coverage_len, block_size):
     """ Return the printable form for the alpha-numeric coverage bins
         i.e. coverage_val = ['a','b','c'] coverage_len = [200,300,500]
         200a,300b,500c is returned
         coverage_val => a list of letter encoded coverage values
         coverage_len => a list of integers corresponding to the lengths of the
                         above letter encoded coverage values
-        block_size => int ; the block size 
-    """
+        block_size => int ; the block size """
 
     return_coverage_string_list = []
     check_len = 0
     for c,l in zip(coverage_val, coverage_len):
         check_len+=l
         l = radix36_encoding(l)
-        return_coverage_string_list.append(l+c) 
+        return_coverage_string_list.append(l+c)
 
     if check_len!=block_size:
         raise Exception("Incorrect binning string length")
-    
+
     return ''.join(return_coverage_string_list)
 
 
-def update_coverage_bins(n, coverage, coverage_len, coverage_val):    
+def update_coverage_bins(n, coverage, coverage_len, coverage_val):
     """ Update the coded coverage values according to the letter encodings
-        i.e. if n = 100 , coverage = 'a' , coverage_val = ['b','c','a'] and 
+        i.e. if n = 100 , coverage = 'a' , coverage_val = ['b','c','a'] and
         coverage_len = [100,200,200], the program will update the coverage_len
         to [100,200,300] and coverage_val to ['b','c','a']
         n => numerical value of coverage
@@ -89,12 +84,11 @@ def update_coverage_bins(n, coverage, coverage_len, coverage_val):
 
     return [coverage_len, coverage_val]
 
-def radix36_encoding(number):    
-    """ 
-    number => numerical coverage value in decimal
+def radix36_encoding(number):
+    """ number => numerical coverage value in decimal
     returns base36 encoded value for the above
     Refer to : http://stackoverflow.com/questions/1181919/python-base-36-encoding
-    """ 
+    """
 
     alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 
@@ -117,11 +111,9 @@ def radix36_encoding(number):
         base36 = alphabet[i] + base36
 
     return str(sign + base36)
-      
 
 def radix36decode(number):
-    """ Decode the radix36 number to decimal
-    """
+    """ Decode the radix36 number to decimal """
     return int(number,36)
 
 
@@ -140,7 +132,7 @@ def main():
         sample_id = sys.argv[2]
         dragen_bed_file = sys.argv[3]
         output_dir = sys.argv[4]
-        
+
         # Initialize variables and lists
         flag = 0
         coverage_len = []
@@ -159,7 +151,7 @@ def main():
 
         # Open File Handles For Input and Output Files
         dragen_bed_in = fh(dragen_bed_file)
-        
+
         bin_out = open(os.path.join(output_dir,sample_id + "_coverage_binned_" + str(B) + "_chr1.txt"), 'w')
 
         for line in dragen_bed_in:
@@ -168,9 +160,9 @@ def main():
             chromosome = contents[0]
             start = int(contents[1])
             stop = int(contents[2])
-            coverage = int(contents[3])            
+            coverage = int(contents[3])
             ######## INITIALIZATION SECTION #######
-            
+
             # Convert 0-based to 1-based
             start = start + 1
             stop = stop + 1
@@ -204,13 +196,13 @@ def main():
                 coverage_val = []
             else:
                 gap = start - prev_stop
-                
+
             ######### END OF INITALIZATION SECTION ##########
 
             ################ ACTUAL LOGIC FOR PROCESSING STARTS HERE ############
             ## Divided into two stages, first is to process any gaps and then
             ## proceed with processing the actual interval
-            
+
             ## gaps occur in the event that the start position begins at an arbitrary
             ## position skipping any genome coordinates from the beginning of a block
             ## all of these bases are assinged the bin coverage 'a'
@@ -259,7 +251,7 @@ def main():
 
                     # Update remaining gap
                     remaining_gap = gap - current_B
-                    
+
                     # Reinitialize key variables
                     current_B = B
                     out_start = out_start + B
@@ -272,11 +264,10 @@ def main():
                         # Change remaining gap to be the residual gap left
                         # after dividing the gaps into discrete block steps
                         remaining_gap = remaining_gap % current_B
-                        
-                        
+
                         while(num_blocks > 0):  # Iterate over the number of
                                                 # blocks
-              
+
                             n = current_B
                             coverage_code = 'a'
                             coverage_len, coverage_val = update_coverage_bins(
@@ -293,7 +284,7 @@ def main():
                             coverage_val = []
                             out_start = out_start + B
                             current_B = B
-                            
+
                         if(remaining_gap > 0):
                             n = remaining_gap
                             coverage_code = 'a'
@@ -311,7 +302,7 @@ def main():
                         # Update block size                
                         current_B = current_B - remaining_gap
             ########## Finished processing gaps #######
-                        
+
             ###### Begin Processing the actual interval now ######
             interval_len = stop - start
             if(current_B - interval_len > 0):  # Current block size
