@@ -18,11 +18,11 @@ def main(samples, sample_type, capture_kit, debug, priority, curs):
 
 def insert_pseudo_prepid(sample,debug):
     #INSERT first prep and get the new pseudo_prepid
-    print sample.metadata['prepid']
+    prepID = getPrepID(sample,debug)
     query = ("INSERT INTO pseudo_prepid "
                 "(pseudo_prepid,prepid) "
-                "VALUES (NULL,{prepID}) "
-            ).format(prepID=sample.metadata['prepid'][0])
+                "VALUES (NULL,{}) "
+            ).format(prepID)
     if debug:
         print query
         print sample.metadata['prepid']
@@ -47,6 +47,25 @@ def insert_pseudo_prepid(sample,debug):
             curs.execute(multiple_query)
 
     return pseudo_prepid[0]
+
+def getPrepID(sample,debug):
+    sample_name=sample.metadata['sample_name']
+    sample_type=sample.metadata['sample_type']
+    capture_kit=sample.metadata['capture_kit']
+
+    query = ("SELECT p.prepID FROM prepT p "
+            "JOIN SeqType st ON p.prepid=st.prepid "
+            "WHERE CHGVID='{}' "
+            "AND seqtype = '{}' "
+            "AND exomekit = '{}'"
+            ).format(sample_name,sample_type,capture_kit)
+
+    if debug:
+        print query
+    curs.execute(query)
+    prepid = curs.fetchone()[0]
+    print prepid
+    return prepid
 
 def insert_dragen_queue(sample,debug,priority,pseudo_prepid):
     dragen_queue_query = ("INSERT INTO dragen_queue "
