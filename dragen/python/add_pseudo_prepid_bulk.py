@@ -111,13 +111,15 @@ if __name__ == "__main__":
         print "Parameters used: {0}".format(parameters)
 
     if args.test:
-        args.database="testDB"
+        args.database="testdb"
     else:
         args.database="sequenceDB"
+
+    print args.database
     db = MySQLdb.connect(db=args.database,
             read_default_group="client{database}".format(database=args.database),
-            read_default_file=parameters["DB_CONFIG_FILE"],
-            )
+            read_default_file=parameters["DB_CONFIG_FILE"])
+
     curs = db.cursor()
     curs.execute('BEGIN;')
     try:
