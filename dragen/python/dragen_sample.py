@@ -16,7 +16,7 @@ def get_prepid(curs, sample):
     """Retrieve qualifying prepids"""
     query = ("SELECT prepid FROM pseudo_prepid WHERE pseudo_prepid={0}"
             ).format(sample["pseudo_prepid"])
-
+    print query
     curs.execute(query)
     prepids = curs.fetchall()
     prepids = [x[0] for x in prepids]
@@ -35,7 +35,7 @@ def get_priority(curs,sample):
             ).format(sample_name=sample['sample_name'],
                     sample_type=sample['sample_type'],
                     capture_kit=sample['capture_kit'])
-    print query
+    #print query
     curs.execute(query)
     priority = curs.fetchone()
     return priority[0]
@@ -140,7 +140,11 @@ def get_fastq_loc(curs, sample):
                     raise Exception, 'fastq files not found!'
             else: #For regular samples
                 for flowcell in seqsatalocs:
-                    if 'fastq' in flowcell[0]:
+                    if 'igmdata' in flowcell[0]:
+                        fastq_loc = ('/nfs/{0}/{1}/{2}/{3}'
+                                ).format(flowcell[0],corrected_sample_type,
+                                        sample['sample_name'],flowcell[1])
+                    elif 'fastq' in flowcell[0]:
                         fastq_loc = ('/nfs/{0}/{1}/{2}/{3}'
                                 ).format(flowcell[0],corrected_sample_type,
                                         sample['sample_name'],flowcell[1])
