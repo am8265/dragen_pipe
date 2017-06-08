@@ -160,7 +160,12 @@ def main():
             chromosome = contents[0]
             start = int(contents[1])
             stop = int(contents[2])
-            coverage = int(contents[3])
+            try:
+                coverage = int(contents[3])
+            except ValueError:
+                """ for cases where sci. notation needs to be converted. Ex:
+                ValueError: invalid literal for int() with base 10: '1.26906e+06'i """
+                coverage = int(float(contents[3]))
             ######## INITIALIZATION SECTION #######
 
             # Convert 0-based to 1-based
