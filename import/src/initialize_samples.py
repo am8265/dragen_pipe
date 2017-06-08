@@ -49,6 +49,13 @@ def initialize_samples(database, level=logging.DEBUG):
                     prep_id=prep_id))
             else:
                 sample_name, sample_type, capture_kit, priority = rows[0]
+                if sample_name.startswith("pgm"):
+                    logger.info("Ignoring {sample_name}-{sample_type}-"
+                                "{capture_kit}-{prep_id}".format(
+                                    sample_name=sample_name,
+                                    sample_type=sample_type,
+                                    capture_kit=capture_kit, prep_id=prep_id))
+                    continue
                 try:
                     cur.execute(INITIALIZE_SAMPLE.format(
                         sample_name=sample_name, sample_type=sample_type,
@@ -57,6 +64,7 @@ def initialize_samples(database, level=logging.DEBUG):
                 except MySQLdb.IntegrityError:
                     logger.warning("{prep_id} is already initialized".format(
                         prep_id=prep_id))
+                    continue
                 seq_cur.execute(INITIALIZE_SAMPLE_SEQDB.format(
                     prep_id=prep_id,
                     sample_initialized_step_id=sample_initialized_step_id))

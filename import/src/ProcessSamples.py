@@ -34,6 +34,7 @@ class ProcessSamples(object):
         self.stderr = stderr
         self.stderr_mode = stderr_mode
         self.kwargs = kwargs
+        self.__dict__.update(kwargs)
         # keep a set of samples processed so we don't try to run it again and
         # again
         self.samples_already_queued = set()

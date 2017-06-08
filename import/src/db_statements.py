@@ -191,7 +191,7 @@ WHERE prepid = {prepid}
 GET_SAMPLES_TO_IMPORT = """
 SELECT sample_name, priority, sample_id, sample_type
 FROM sample
-WHERE sample_finished = 0{failed_samples_clause}
+WHERE sample_finished = 0{failed_samples_clause}{sample_name_clause}
 ORDER BY initialization_time
 """
 GET_SAMPLE_INITIALIZED_STEP_ID = """
@@ -226,7 +226,7 @@ WHERE p1.pipeline_step_id = {sample_archived_step_id} AND p1.finished = 1
     AND p2.pseudo_prepid IS NULL
 """
 GET_SAMPLE_METADATA = """
-SELECT CHGVID, SeqType, capture_kit, priority
+SELECT sample_name, sample_type, capture_kit, priority
 FROM dragen_sample_metadata
 WHERE pseudo_prepid = {prep_id}
 """

@@ -571,7 +571,7 @@ class ImportSample(luigi.Task):
                 LoadBinData,
                 fn=os.path.join(
                     self.data_directory, "cvg_binned",
-                    "{sample_name}.{prep_id}_coverage_binned_10000_chr{chromosome}.txt".format(
+                    "{sample_name}.{prep_id}_coverage_binned_1000_chr{chromosome}.txt".format(
                         sample_name=self.sample_name, prep_id=self.prep_id,
                         chromosome=CHROM)), chromosome=CHROM, data_type="DP")
                 for CHROM in CHROMs.iterkeys()])
