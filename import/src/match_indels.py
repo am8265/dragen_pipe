@@ -27,6 +27,8 @@ def get_allele_in_reference_genome(CHROM, POS, REF):
     either ensuring an added indel is not wrong, or that we don't try to match
     an incorrectly located indel
     """
+    if CHROM not in sequence_by_chromosome:
+        get_reference_sequence(CHROM)
     return sequence_by_chromosome[CHROM][POS - 1:POS + len(REF) - 1]
 
 def add_new_indel(variant_id, CHROM, POS, REF, ALT, indel_length,
@@ -93,6 +95,12 @@ def match_indel(cur, CHROM, POS, REF, ALT, indel_length):
                         return variant_id, db_POS / block_size
     return None, None
 
+def get_reference_sequence(CHROM):
+    genome = Fasta(cfg.get("ref", "genome"))
+    sequence_by_chromosome[CHROM] = genome[str(CHROM)][:].seq
+    chromosome_lengths[CHROM] = len(sequence_by_chromosome[CHROM])
+    genome.close()
+
 def get_all_indels(cur, CHROM):
     """populate ALL_INDELS with lists of blocks of indels of
     flanking_size length for the specified chromosome
@@ -100,10 +108,7 @@ def get_all_indels(cur, CHROM):
     if CHROM in chromosome_indels_queried:
         logger.warning("{CHROM} was already queried".format(CHROM=CHROM))
         return
-    genome = Fasta(cfg.get("ref", "genome"))
-    sequence_by_chromosome[CHROM] = genome[str(CHROM)][:].seq
-    chromosome_lengths[CHROM] = len(sequence_by_chromosome[CHROM])
-    genome.close()
+    get_reference_sequence(CHROM)
     cur.execute(GET_ALL_INDELS.format(CHROM=CHROM))
     for variant_id, POS, REF, ALT, indel_length in cur.fetchall():
         # add the indels, but only warn if an indel is new, i.e. not in the DB
