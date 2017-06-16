@@ -62,7 +62,7 @@ def initialize_samples(database, level=logging.DEBUG):
                         capture_kit=capture_kit, prep_id=prep_id,
                         priority=priority))
                 except MySQLdb.IntegrityError:
-                    logger.warning("{prep_id} is already initialized".format(
+                    logger.warning("Prep ID {prep_id} is already initialized".format(
                         prep_id=prep_id))
                     continue
                 seq_cur.execute(INITIALIZE_SAMPLE_SEQDB.format(

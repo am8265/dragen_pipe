@@ -187,7 +187,8 @@ def get_variant_id(novel_fh, novel_indels_fh, novel_transcripts_fh,
                    low_impact_effect_ids, modifier_impact_effect_ids,
                    polyphen_matrixes_by_stable_id,
                    polyphen_stable_ids_to_ignore, high_quality_call,
-                   custom_transcript_ids, logger):
+                   custom_transcript_ids, logger,
+                   update_indel_annotations=False, indels_already_seen=set()):
     """return the variant_id of the given variant and output it to novel_fh
     if it's novel
     """
@@ -224,18 +225,26 @@ def get_variant_id(novel_fh, novel_indels_fh, novel_transcripts_fh,
             if matched_indel_id is not None and matched_indel_id != -1:
                 variant_id = matched_indel_id
                 block_id = matched_block_id
-                novel = False
-                cur.execute(GET_VARIANT_EFFECTS.format(
-                    CHROM=CHROM, variant_id=variant_id))
-                effect_ids = [row[0] for row in cur.fetchall()]
-                # check if this matched indel is already in the matched_indels
-                # table
-                cur.execute(MATCHED_INDEL_EXISTS.format(
-                    CHROM=CHROM, POS=POS, REF=REF, ALT=ALT))
-                if not cur.fetchone():
-                    matched_indels_fh.write(MATCHED_INDEL_OUTPUT_FORMAT.format(
-                        CHROM=CHROM, variant_id=variant_id,
-                        POS=POS, REF=REF, ALT=ALT, sample_id=sample_id) + "\n")
+                if update_indel_annotations and variant_id not in indels_already_seen:
+                    # here we want to update the variant metadata, i.e. POS,
+                    # REF, ALT, and annotations, and treat the current record(s)
+                    # as the matched one
+                    update_novel_variant_id = False
+                else:
+                    # either we're not updating the annotations, or we already
+                    # encountered the same indel in this VCF
+                    novel = False
+                    cur.execute(GET_VARIANT_EFFECTS.format(
+                        CHROM=CHROM, variant_id=variant_id))
+                    effect_ids = [row[0] for row in cur.fetchall()]
+                    # check if this matched indel is already in the matched_indels
+                    # table
+                    cur.execute(MATCHED_INDEL_EXISTS.format(
+                        CHROM=CHROM, POS=POS, REF=REF, ALT=ALT))
+                    if not cur.fetchone():
+                        matched_indels_fh.write(MATCHED_INDEL_OUTPUT_FORMAT.format(
+                            CHROM=CHROM, variant_id=variant_id,
+                            POS=POS, REF=REF, ALT=ALT, sample_id=sample_id) + "\n")
     if novel:
         if update_novel_variant_id:
             variant_id = novel_variant_id
