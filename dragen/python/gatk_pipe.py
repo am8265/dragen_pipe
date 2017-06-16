@@ -2965,7 +2965,7 @@ def get_productionvcf(pseudo_prepid,sample_name,sample_type):
             alignseqfileloc = db_val[-1][0] ## Get the last result
             vcf_loc = os.path.join(alignseqfileloc,'combined')
             temp_vcf = glob.glob(os.path.join(vcf_loc,
-                                              '{0}.analysisReady.annotated.vcf.*'.format(sample_name)))
+                                              '{0}.analysisReady.annotated.vcf.gz'.format(sample_name)))
             if len(temp_vcf) == 0:
                 return None 
             vcf = temp_vcf[0]
