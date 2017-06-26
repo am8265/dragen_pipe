@@ -61,14 +61,16 @@ def initialize_samples(database, level=logging.DEBUG):
                         sample_name=sample_name, sample_type=sample_type,
                         capture_kit=capture_kit, prep_id=prep_id,
                         priority=priority))
+                    add_to_count = True
                 except MySQLdb.IntegrityError:
+                    add_to_count = False
                     logger.warning("Prep ID {prep_id} is already initialized".format(
                         prep_id=prep_id))
-                    continue
                 seq_cur.execute(INITIALIZE_SAMPLE_SEQDB.format(
                     prep_id=prep_id,
                     sample_initialized_step_id=sample_initialized_step_id))
-                initialized_count += 1
+                if add_to_count:
+                    initialized_count += 1
         db.commit()
         seqdb.commit()
     except:
