@@ -255,20 +255,36 @@ def check_Fastq_Total_Size(sample,debug):
 
     if sample_type == 'genome':
         if fastq_filesize_sum < 53687091200: # < 50GB
-            print fastq_filesize_sum
-            raise Exception, "Sum of fastq files is too small for a {} sample!".format(sample_type)
+            print fastq_filesize_sum,float(fastq_filesize_sum)/1024/1024/1024
+            userInput = raw_input('Sum of fastq files sizes are too small.  Is this ok? (y)es or (n)o ').lower()
+            if userInput == 'n':
+                raise Exception, "Sum of fastq files sizes is too small for a {} sample!".format(sample_type)
     elif sample_type == 'exome':
         if fastq_filesize_sum > 32212254720: # > 30GB
-            print fastq_filesize_sum
-            raise Exception, "Sum of fastq files is too big for a {} sample!".format(sample_type)
+            print fastq_filesize_sum,float(fastq_filesize_sum)/1024/1024/1024
+            userInput = raw_input('Sum of fastq files sizes are too big.  Is this ok? (y)es or (n)o ').lower()
+            if userInput == 'n':
+                 raise Exception, "Sum of fastq files is too big for a {} sample!".format(sample_type)
+        elif fastq_filesize_sum < 10737418240: # < 1GB
+            userInput = raw_input('Sum of fastq files sizes are too small.  Is this ok? (y)es or (n)o ').lower()
+            if userInput == 'n':
+                 raise Exception, "Sum of fastq files is too small for a {} sample!".format(sample_type)
     elif sample_type == 'rnaseq':
         if fastq_filesize_sum > 32212254720: # > 30GB
-            print fastq_filesize_sum
-            raise Exception, "Sum of fastq files is too big for a {} sample!".format(sample_type)
+            print fastq_filesize_sum,float(fastq_filesize_sum)/1024/1024/1024
+            userInput = raw_input('Sum of fastq files sizes are too big.  Is this ok? (y)es or (n)o ').lower()
+            if userInput == 'n':
+                 raise Exception, "Sum of fastq files sizes is too big for a {} sample!".format(sample_type)
+        elif fastq_filesize_sum < 10737418240: # < 1GB
+            userInput = raw_input('Sum of fastq files sizes are too small.  Is this ok? (y)es or (n)o ').lower()
+            if userInput == 'n':
+                 raise Exception, "Sum of fastq files is too small for a {} sample!".format(sample_type)
     elif sample_type == 'custom_capture':
         if fastq_filesize_sum > 10737418240: # > 10GB
-            print fastq_filesize_sum
-            raise Exception, "Sum of fastq files is too big for a {} sample!".format(sample_type)
+            print fastq_filesize_sum,float(fastq_filesize_sum)/1024/1024/1024
+            userInput = raw_input('Sum of fastq files sizes are too big.  Is this ok? (y)es or (n)o ').lower()
+            if userInput == 'n':
+                 raise Exception, "Sum of fastq files sizes is too big for a {} sample!".format(sample_type)
     else:
         raise Exception, 'Unhandled sample_type found: {}!'.format(sample_type)
     if debug:
