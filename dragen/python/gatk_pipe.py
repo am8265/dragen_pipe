@@ -542,8 +542,7 @@ class IndelRealigner(SGEJobTask):
             pipeline_step_id=self.pipeline_step_id)
 
 class BaseRecalibrator(SGEJobTask):
-    """ Class to create a recalibration table with realigned BAMs
-    """
+    """ Class to create a recalibration table with realigned BAMs """
     
     sample_name = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
@@ -644,8 +643,7 @@ class BaseRecalibrator(SGEJobTask):
             pipeline_step_id=self.pipeline_step_id)
 
 class PrintReads(SGEJobTask):
-    """ Class to create BAM with realigned and recalculated BAMs
-    """
+    """ Class to create BAM with realigned and recalculated BAMs """
     
     sample_name = luigi.Parameter()
     pseudo_prepid = luigi.Parameter()
@@ -757,7 +755,7 @@ class HaplotypeCaller(SGEJobTask):
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
 
-    n_cpu = 4
+    n_cpu = 8
     parallel_env = "threaded"
     shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
