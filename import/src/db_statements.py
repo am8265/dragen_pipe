@@ -235,7 +235,7 @@ INSERT INTO sample (sample_name, sample_type, capture_kit, prep_id, priority)
 VALUE ("{sample_name}", "{sample_type}", "{capture_kit}", {prep_id}, {priority})
 """
 INITIALIZE_SAMPLE_SEQDB = """
-INSERT INTO dragen_pipeline_step (pseudo_prepid, pipeline_step_id, finish_time,
+REPLACE dragen_pipeline_step (pseudo_prepid, pipeline_step_id, finish_time,
     times_ran, finished)
 VALUE ({prep_id}, {sample_initialized_step_id}, NOW(), 1, 1)
 """
