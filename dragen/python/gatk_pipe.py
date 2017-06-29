@@ -3472,7 +3472,7 @@ class RunCvgMetrics(SGEJobTask):
 
         if self.sample_type.upper() == "GENOME":
             ## Define shell commands to be run
-            self.cvg_cmd = """{0} -Xmx{1}g -XX:ParallelGCThreads=4 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={3} I={4} INTERVALS={5} O={6} MQ=20 Q=10 >>{6}"""
+            self.cvg_cmd = """{0} -Xmx{1}g -XX:ParallelGCThreads=4 -jar {2} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT R={3} I={4} INTERVALS={5} O={6} MQ=20 Q=10 >>{7}"""
             ## Run on the ccds regions only
             self.cvg_cmd1 = self.cvg_cmd.format(config().java,config().max_mem,config().picard,config().ref,self.recal_bam,config().target_file,self.raw_output_file_ccds,self.log_file)
             ## Run across the genome
@@ -4450,7 +4450,9 @@ class UpdateSeqdbMetrics(SGEJobTask):
                     seq_gender = 'Ambiguous'
                 else:
                     Y_cvg = float(result[0][0])
-                    if X_cvg/Y_cvg < 2:
+                    if Y_cvg == 0:
+                        seq_gender = 'F'
+                    elif X_cvg/Y_cvg < 2:
                         seq_gender = 'M'
                     elif X_cvg/Y_cvg > 5:
                         seq_gender = 'F'
