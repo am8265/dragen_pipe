@@ -2,22 +2,23 @@
 
 import argparse
 import glob
+import logging
+import multiprocessing as mp
 import MySQLdb
 import os
+import random
 import shlex
 import string
 import sys
 import subprocess
 import signal
-import multiprocessing as mp 
+
 from time import sleep,time
 from threading import Thread
-import random
 from dragen_globals import get_connection
 from db_statements import *
 from datetime import datetime
 from email.mime.text import MIMEText
-import logging
 
 ##############################################################################
 ###                   Automates submission of the gatk                     ###
@@ -194,6 +195,7 @@ def test_luigi(sample_info,baselogdir):
         key = sample_name+'.'+pseudo_prepid+'.'+sample_type
         cmd = (
             """ echo luigi --module gatk_pipe ArchiveSample --sample-name {0} --pseudo-prepid {1} --capture-kit-bed  {2} --sample-type {3} --scratch {4} --poll-time 120 --workers 2 --worker-wait-interval 180 --scheduler-remove-delay 86400 >> {5} 2>>{6} & sleep 100""".format(sample_name,pseudo_prepid,capture_bed,sample_type,scratch,out_file,error_file))
+        print cmd 
         proc = subprocess.Popen(cmd, shell = True)
         proc.wait()
         exit(proc.returncode)
@@ -213,11 +215,13 @@ def run_luigi(sample_info,baselogdir,RUNNING):
     final_log_dir = create_logdir(baselogdir,sample_name,pseudo_prepid)
     out_file = os.path.join(final_log_dir,sample_name+'_'+pseudo_prepid+'.stdout')
     error_file = os.path.join(final_log_dir,sample_name+'_'+pseudo_prepid+'.stderr')
-
+    os.chdir('/nfs/goldstein/software/dragen_pipe/dragen/python/')
     try:
         flag = 0
         key = sample_name+'.'+pseudo_prepid+'.'+sample_type
         cmd = (""" luigi --module gatk_pipe ArchiveSample --sample-name {0} --pseudo-prepid {1} --capture-kit-bed  {2} --sample-type {3} --scratch {4} --poll-time 120 --workers 2 --worker-wait-interval 180 --scheduler-remove-delay 86400""".format(sample_name,pseudo_prepid,capture_bed,sample_type,scratch))
+        print cmd
+        print os.getcwd()
         with open(out_file,'w') as OUT, open(error_file,'w') as ERR:
             proc = subprocess.Popen(shlex.split(cmd),stdout=OUT,stderr=ERR)
             proc.wait()
