@@ -236,10 +236,6 @@ class CopyBam(SGEJobTask):
     pseudo_prepid = luigi.Parameter()
     scratch = luigi.Parameter()
 
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
-
     def __init__(self, *args, **kwargs):
         super(CopyBam, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
@@ -343,8 +339,6 @@ class RealignerTargetCreator(SGEJobTask):
     scratch = luigi.Parameter()
 
     n_cpu = 4
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(RealignerTargetCreator, self).__init__(*args, **kwargs)
@@ -444,10 +438,6 @@ class IndelRealigner(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(IndelRealigner, self).__init__(*args, **kwargs)
@@ -551,8 +541,6 @@ class BaseRecalibrator(SGEJobTask):
     scratch = luigi.Parameter()
 
     n_cpu = 4
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(BaseRecalibrator, self).__init__(*args, **kwargs)
@@ -652,8 +640,6 @@ class PrintReads(SGEJobTask):
     scratch = luigi.Parameter()
     
     n_cpu = 4
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(PrintReads, self).__init__(*args, **kwargs)
@@ -754,10 +740,7 @@ class HaplotypeCaller(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-
     n_cpu = 8
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(HaplotypeCaller, self).__init__(*args, **kwargs)
@@ -877,10 +860,6 @@ class GenotypeGVCFs(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-    
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(GenotypeGVCFs, self).__init__(*args, **kwargs)
@@ -979,10 +958,6 @@ class SelectVariantsSNP(SGEJobTask):
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
 
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
-
     def __init__(self, *args, **kwargs):
         super(SelectVariantsSNP, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
@@ -1074,10 +1049,6 @@ class SelectVariantsINDEL(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(SelectVariantsINDEL, self).__init__(*args, **kwargs)
@@ -1179,10 +1150,6 @@ class VariantRecalibratorSNP(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(VariantRecalibratorSNP, self).__init__(*args, **kwargs)
@@ -1307,10 +1274,6 @@ class VariantRecalibratorINDEL(SGEJobTask):
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
 
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
-
     def __init__(self, *args, **kwargs):
         super(VariantRecalibratorINDEL, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
@@ -1414,10 +1377,6 @@ class ApplyRecalibrationSNP(SGEJobTask):
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
 
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
-
     def __init__(self, *args, **kwargs):
         super(ApplyRecalibrationSNP, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
@@ -1516,10 +1475,6 @@ class ApplyRecalibrationINDEL(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-    
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(ApplyRecalibrationINDEL, self).__init__(*args, **kwargs)
@@ -1623,10 +1578,6 @@ class VariantFiltrationSNP(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-    
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(VariantFiltrationSNP, self).__init__(*args, **kwargs)
@@ -1722,10 +1673,6 @@ class VariantFiltrationINDEL(SGEJobTask):
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
 
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
-
     def __init__(self, *args, **kwargs):
         super(VariantFiltrationINDEL, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
@@ -1819,10 +1766,6 @@ class CombineVariants(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(CombineVariants, self).__init__(*args, **kwargs)
@@ -1977,10 +1920,6 @@ class RBP(SGEJobTask):
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
 
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
-
     def __init__(self, *args, **kwargs):
         super(RBP,self).__init__(*args,**kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
@@ -2060,10 +1999,6 @@ class FixMergedMNPInfo(SGEJobTask):
     pseudo_prepid = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self,*args,**kwargs):
         super(FixMergedMNPInfo,self).__init__(*args,**kwargs)
@@ -2337,10 +2272,6 @@ class AnnotateVCF(SGEJobTask):
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
 
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
-
     def __init__(self, *args, **kwargs):
         super(AnnotateVCF, self).__init__(*args, **kwargs)
         self.scratch_dir = "{0}/{1}/{2}.{3}".format(
@@ -2446,11 +2377,6 @@ class CleanDirectory(SGEJobTask):
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
 
-    ## System Parameters
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
-
     def __init__(self,*args,**kwargs):
         super(CleanDirectory,self).__init__(*args,**kwargs)
         ## The scratch and base will be the same directories if this task
@@ -2515,10 +2441,6 @@ class SubsetVCF(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-    ## System Parameters
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self,*args,**kwargs):
         super(SubsetVCF,self).__init__(*args,**kwargs)
@@ -2584,10 +2506,6 @@ class ArchiveSample(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self, *args, **kwargs):
         super(ArchiveSample, self).__init__(*args, **kwargs)
@@ -3005,10 +2923,6 @@ class CreateGenomeBed(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-    ## System Parameters
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self,*args,**kwargs):
         super(CreateGenomeBed,self).__init__(*args,**kwargs)
@@ -3061,11 +2975,6 @@ class CalculateTargetCoverage(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-    ## System Parameters
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
-
 
     def __init__(self,*args,**kwargs):
         super(CalculateTargetCoverage,self).__init__(*args,**kwargs)
@@ -3138,10 +3047,6 @@ class NormalizeSomaticReadCounts(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-    ## System Parameters
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self,*args,**kwargs):
         super(NormalizeSomaticReadCounts,self).__init__(*args,**kwargs)
@@ -3195,10 +3100,6 @@ class PerformSegmentation(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-    ## System Parameters
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self,*args,**kwargs):
         super(PerformSegmentation,self).__init__(*args,**kwargs)
@@ -3246,10 +3147,6 @@ class CvgBinning(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-    ## System Parameters 
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self,*args,**kwargs):
 
@@ -3320,10 +3217,6 @@ class GQBinning(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-    ## System Parameters 
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"  
     
     def __init__(self,*args,**kwargs):
         super(GQBinning,self).__init__(*args,**kwargs)
@@ -3387,10 +3280,6 @@ class AlignmentMetrics(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-    ## System Parameters 
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self,*args,**kwargs):
         super(AlignmentMetrics,self).__init__(*args,**kwargs)
@@ -3438,10 +3327,6 @@ class RunCvgMetrics(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-    ## System Parameters 
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self,*args,**kwargs):
         super(RunCvgMetrics,self).__init__(*args,**kwargs)
@@ -3569,10 +3454,6 @@ class DuplicateMetrics(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-    ## System Parameters 
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self,*args,**kwargs):
         super(DuplicateMetrics,self).__init__(*args,**kwargs)
@@ -3724,10 +3605,6 @@ class VariantCallingMetrics(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-    ## System Parameters 
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self,*args,**kwargs):
         super(VariantCallingMetrics,self).__init__(*args,**kwargs)
@@ -3782,10 +3659,6 @@ class GenotypeConcordance(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-    ## System Parameters 
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self,*args,**kwargs):
         super(GenotypeConcordance,self).__init__(*args,**kwargs)
@@ -3900,10 +3773,6 @@ class ContaminationCheck(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-    ## System Parameters 
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self,*args,**kwargs):
         super(ContaminationCheck,self).__init__(*args,**kwargs)
@@ -3986,10 +3855,6 @@ class UpdateSeqdbMetrics(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-    ## System Parameters 
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch11/tmp/luigi_test"
 
     def __init__(self,*args,**kwargs):
         super(UpdateSeqdbMetrics,self).__init__(*args,**kwargs)
