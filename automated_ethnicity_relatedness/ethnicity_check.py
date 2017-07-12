@@ -8,57 +8,55 @@ from automated_ethnicity import update_ped_status,get_samples_to_predict, update
 from automated_relatedness import MyExtTask,get_connection,get_familyid,run_shellcmd
 import logging
 
+base_directory = os.path.dirname(os.path.abspath(__file__))
 
 class WrapperEthnicity(luigi.WrapperTask):
     """ Update the database with ethnicity probabilities
     """
 
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
-
-    workdir = luigi.Parameter()
+    base_output_directory = luigi.OutputDirectoryParameter()
 
     def __init__(self,*args,**kwargs):
         super(WrapperEthnicity,self).__init__(*args,**kwargs)
-        if not os.path.exists(self.workdir):
-            os.makedirs(self.workdir)
-        self.log_file = os.path.join(self.workdir,"update_db_ethnicity.log")
-        logging.basicConfig(filename=self.log_file,level=logging.DEBUG)
         
     def requires(self):
-        for chgvid,prepid,seqtype,alignloc in get_samples_to_predict():
-            yield PredictAndUpdate(sample_name=chgvid,prepid=prepid,
-                                   sample_type=seqtype,alignseqfileloc=alignloc,
-                                   workdir = self.workdir,run_locally=True)
+        for sample_name, prepid, sample_type, align_loc, priority in get_samples_to_predict():
+            yield PredictAndUpdate(
+                sample_name=sample_name, prepid=prepid, sample_type=sample_type,
+                align_loc=align_loc, output_directory=os.path.join(
+                    self.base_output_directory, "{sample_name}.{prepid}.{sample_type}".
+                    format(sample_name=sample_name, prepid=prepid, sample_type=sample_type)),
+                bioinfo_priority=int(priority))
 
 class PredictAndUpdate(SGEJobTask):
     """
     Run the classifier and get the probablities
     """
 
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
-
     sample_name = luigi.Parameter()
-    prepid = luigi.Parameter()
+    prepid = luigi.IntParameter()
     sample_type = luigi.Parameter()
-    alignseqfileloc = luigi.Parameter()
-    workdir = luigi.Parameter()
-    training_model = luigi.Parameter(default="{0}/data/37MB_markers_model.obj".format(os.getcwd()))
-    training_snps = luigi.Parameter(default="{0}/data/filtered.37MB.master.training.map".format(os.getcwd()))
-    ethnicity_wrapper = luigi.Parameter(default="{0}/model_ancestry.py".format(os.getcwd()))    
+    align_loc = luigi.InputDirectoryParameter()
+    output_directory = luigi.OutputDirectoryParameter()
+    bioinfo_priority = luigi.IntParameter()
+    training_model = luigi.InputFileParameter(
+        default="/nfs/seqscratch_ssd/bc2675/annodb_ethnicities/"
+        "37MB_markers_model.obj")
+    markers = luigi.InputFileParameter(
+        default="/nfs/seqscratch_ssd/bc2675/annodb_ethnicities/"
+        "filtered.37MB.master.training.map")
     
     def __init__(self,*args,**kwargs):
-        """
-        """
         super(PredictAndUpdate,self).__init__(*args,**kwargs)
-        self.outdir = '/nfs/goldsteindata/ethnicity_predictions/{0}.{1}.{2}'.format(
-            self.sample_name,self.prepid,self.sample_type)
-        self.output_probs = os.path.join(self.outdir,"ethnicity.probs.txt")
-        self.input_ped = os.path.join(self.outdir,self.sample_name+'.'+str(self.prepid)+'.ped')
-        self.testing_geno_file = os.path.join(self.workdir,self.sample_name+'.'+str(self.prepid)+'.'+self.sample_type+'.geno')
+        self.output_probs = os.path.join(
+            self.output_directory,"ethnicity.probs.txt")
+        self.input_ped = os.path.join(
+            self.output_directory, "{sample_name}.{prepid}.ped".format(
+                sample_name=self.sample_name, prepid=self.prepid))
+
+    @property
+    def priority(self):
+        return 10 - self.bioinfo_priority
         
     def work(self):
         """ Run the python script to predict ethnicities
@@ -67,7 +65,7 @@ class PredictAndUpdate(SGEJobTask):
                 """ --testing-ped {2} --mapfile {3}"""
                 """ --input-model {4} """.format(
                     self.ethnicity_wrapper, self.output_probs,self.input_ped,
-                    self.training_snps, self.training_model)
+                    self.markers, self.training_model)
                 )        
         run_shellcmd(cmd)
         update_probs(self.output_probs,self.prepid,
@@ -78,10 +76,7 @@ class PredictAndUpdate(SGEJobTask):
     def requires(self):
         """
         """        
-        return CreatePed(prepid = self.prepid,sample_name=self.sample_name,
-                         alignseqfile=self.alignseqfileloc,
-                         sample_type=self.sample_type,
-                         markers=self.training_snps,run_locally=True)
+        return self.clone(CreatePed)
     
     def output(self):
         """
@@ -94,31 +89,42 @@ class CreatePed(SGEJobTask):
     """ Create Ped 
     """
 
-    n_cpu = 1
-    parallel_env =  "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
-
-    prepid = luigi.Parameter()
+    output_directory = luigi.OutputDirectoryParameter()
+    prepid = luigi.IntParameter()
     sample_name = luigi.Parameter()
-    alignseqfile = luigi.Parameter()
+    align_loc = luigi.InputDirectoryParameter()
     sample_type = luigi.Parameter()
-    markers = luigi.Parameter()
+    markers = luigi.InputFileParameter()
+    bioinfo_priority = luigi.IntParameter()
     
     def __init__(self,*args,**kwargs):
         """ Initialize the class
         """
         super(CreatePed,self).__init__(*args,**kwargs)
-        self.outdir = '/nfs/goldsteindata/ethnicity_predictions/{0}.{1}.{2}'.format(self.sample_name,self.prepid,self.sample_type)
-        if not os.path.exists(self.outdir):
-            os.makedirs(self.outdir)
-        self.archive_loc = os.path.join(self.alignseqfile,'combined')
-        self.bam = os.path.join(self.archive_loc,self.sample_name+'_final.bam')
-        self.vcf_gz = os.path.join(self.archive_loc,self.sample_name+'.analysisReady.annotated.vcf.gz')
-        self.log_file = os.path.join(self.outdir,"{0}.{1}.createped.log".format(self.sample_name,self.prepid))
+        archive_loc = os.path.join(self.align_loc,'combined')
+        self.bam = os.path.join(
+            archive_loc, "combined_rmdup_realn_recal.bam")
+        vcf = os.path.join(
+            archive_loc, self.sample_name + ".analysisReady.vcf")
+        if not os.path.isfile(vcf):
+            vcf = vcf + ".gz"
+        if not os.path.isfile(vcf):
+            vcf = os.path.join(
+                archive_loc, self.sample_name + ".analysisReady.annotated.vcf")
+        if not os.path.isfile(vcf):
+            vcf = vcf + ".gz"
+        if not os.path.isfile(vcf):
+            raise OSError("Couldn't find VCF at {loc}".format(loc=archive_loc))
+        self.vcf = vcf
+        self.log_file = os.path.join(self.output_directory,"{0}.{1}.createped.log".format(self.sample_name,self.prepid))
         self.famid = get_familyid(self.sample_name)
-        self.pedmap_script = os.path.join(os.getcwd(),"create_ped_map.py")
-        self.cmd="/nfs/goldstein/software/python2.7.7/bin/python {0} --vcf {1} --sample_id {2} --markers {3} --seqtype {4} --pseudo_prepid {5} --bam {6} --stem {2}.{5} -out {7} --logfile {8} --family_id {9}".format(self.pedmap_script,self.vcf_gz,self.sample_name,self.markers,self.sample_type,self.prepid,self.bam,self.outdir,self.log_file,self.famid)
+        self.pedmap_script = "/nfs/seqscratch_ssd/bc2675/annodb_ethnicities/create_ped_map.py"
+        self.cmd="/nfs/goldstein/software/python2.7.7/bin/python {0} --vcf {1} --sample_id {2} --markers {3} --seqtype {4} --pseudo_prepid {5} --bam {6} --stem {2}.{5} -out {7} --logfile {8} --family_id {9}".format(self.pedmap_script,self.vcf,self.sample_name,self.markers,self.sample_type,self.prepid,self.bam,self.output_directory,self.log_file,self.famid)
         
+    @property
+    def priority(self):
+        return 10 - self.bioinfo_priority
+
     def work(self):
         """
         """        
@@ -134,7 +140,7 @@ class CreatePed(SGEJobTask):
     def requires(self):
         """
         """        
-        return [MyExtTask(self.bam),MyExtTask(self.vcf_gz)]
+        return [MyExtTask(self.bam),MyExtTask(self.vcf)]
 
 class SQLTarget(luigi.Target):
     """ A luigi target class describing verification of the entries in the database

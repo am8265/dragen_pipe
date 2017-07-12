@@ -30,17 +30,17 @@ def get_samples_to_predict():
     Get samples to predict
     """
 
-    query = (
-        """ SELECT S.CHGVID, S.pseudo_prepid, S.SeqType, S.AlignSeqFileLoc"""
-        """ FROM (SELECT O.pseudo_prepid, O.CHGVID, O.SeqType, O.capture_kit"""
-        """ , Q.alignseqfileloc, O.priority FROM (select D.pseudo_prepid, D.CHGVID,"""
-        """ D.SeqType, D.capture_kit, D.priority FROM dragen_sample_metadata"""
-        """ as D INNER JOIN dragen_pipeline_step as d1 ON d1.pseudo_prepid ="""
-        """ D.pseudo_prepid WHERE d1.pipeline_step_id = 31 AND d1.finished = 1 )"""
-        """ as O INNER JOIN dragen_qc_metrics as Q ON O.pseudo_prepid = Q.pseudo_prepid)"""
-        """ as S LEFT JOIN dragen_ped_status as P ON S.pseudo_prepid = P.pseudo_prepid"""
-        """ WHERE S.CHGVID LIKE 'SRR%' ORDER BY S.priority DESC;"""
-        )
+    query = """
+SELECT S.sample_name, S.pseudo_prepid, S.sample_type, S.AlignSeqFileLoc
+FROM (SELECT O.pseudo_prepid, O.sample_name, O.sample_type, O.capture_kit, Q.AlignSeqFileLoc, O.priority
+      FROM (SELECT D.pseudo_prepid, D.sample_name, D.sample_type, D.capture_kit, D.priority
+            FROM dragen_sample_metadata as D
+            INNER JOIN dragen_pipeline_step as d1 ON d1.pseudo_prepid = D.pseudo_prepid
+            WHERE d1.pipeline_step_id = 31 AND d1.finished = 1 ) as O
+      INNER JOIN dragen_qc_metrics as Q ON O.pseudo_prepid = Q.pseudo_prepid) as S
+LEFT JOIN dragen_ped_status as P ON S.pseudo_prepid = P.pseudo_prepid
+ORDER BY S.priority
+"""
     db = get_connection(db="seqdb")
     cur = db.cursor()
     cur.execute(query)

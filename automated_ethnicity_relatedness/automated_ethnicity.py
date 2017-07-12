@@ -31,12 +31,14 @@ def get_samples_to_predict():
     Get samples to predict
     """
 
-    query = (
-        """ SELECT S.CHGVID, S.prepid, S.SeqType, S.AlignSeqFileLoc FROM"""
-        """ seqdbClone as S LEFT JOIN ethnicity_status as E ON S.CHGVID = E.CHGVID"""
-        """ AND S.prepid = E.prepid AND S.SeqType = E.SeqType"""
-        """ WHERE S.SeqType IN ('Exome','Genome') AND"""
-        """ S.Status = 'In Annotation DB' AND (E.predict = 0 OR E.predict IS NULL) ORDER BY S.BioinfoPriority DESC"""
+    query = ("""
+             SELECT S.CHGVID, S.prepid, S.SeqType, S.AlignSeqFileLoc, S.BioinfoPriority
+             FROM seqdbClone as S
+             LEFT JOIN ethnicity_status as E ON S.CHGVID = E.CHGVID
+                 AND S.prepid = E.prepid AND S.SeqType = E.SeqType
+             WHERE S.SeqType IN ('Exome','Genome') AND S.Status LIKE '%Annotation DB%'
+                AND (E.predict = 0 OR E.predict IS NULL) AND S.AlignSeqFileLoc IS NOT NULL
+             ORDER BY S.BioinfoPriority"""
         )
     db = get_connection(db="seqdb")
     cur = db.cursor()

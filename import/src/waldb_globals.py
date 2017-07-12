@@ -15,6 +15,8 @@ from itertools import chain
 from collections import OrderedDict, Counter, defaultdict
 from functools import wraps
 import time
+import subprocess
+import shlex
 
 cfg = RawConfigParser()
 cfg.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "waldb.cfg"))
@@ -312,3 +314,18 @@ def timer(fh=sys.stdout):
             return result
         return wrapper
     return timer_wrapper
+
+def run_command(command, directory, task_name, print_command=True):
+    """Run the specified command in a subprocess and log the output
+    """
+    if print_command:
+        print(command)
+    base_name = os.path.join(directory, task_name)
+    with open(base_name + ".out", "w") as out_fh, \
+            open(base_name + ".err", "w") as err_fh:
+        out_fh.write(command + "\n")
+        out_fh.flush()
+        p = subprocess.Popen(shlex.split(command), stdout=out_fh, stderr=err_fh)
+        p.wait()
+    if p.returncode:
+        raise subprocess.CalledProcessError(p.returncode, command)

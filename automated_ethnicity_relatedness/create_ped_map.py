@@ -21,6 +21,7 @@ from pyfaidx import Fasta
 def get_coverage_from_bam(BAM,chrom,pos):
     """ Get the coverage at a site, i.e. chromosome, position
     from a bam file
+    N.B. this uses all reads, regardless of read quality/flags, etc.
 
     BAM : pysam object ; the bam file opened by pysam
     chrom : str ; the chromosome 
@@ -28,11 +29,13 @@ def get_coverage_from_bam(BAM,chrom,pos):
 
     returns : int ; the coverage at the site
     """    
-    for pileupcolumn in BAM.pileup(chrom,pos-1,pos+1):
-        if pileupcolumn.pos == pos-1: ## Match the exact site,
-                ## since bam files are 0-based and vcfs are 1-based,the site for which
-                ## we want the coverage will be at (pos-1) in the bam file 
-            return pileupcolumn.n
+    return sum([base[0] for base in BAM.count_coverage(
+        chrom, pos - 1, pos, quality_threshold=0, read_callback="nofilter")])
+    #for pileupcolumn in BAM.pileup(chrom,pos-1,pos+1):
+    #    if pileupcolumn.pos == pos-1: ## Match the exact site,
+    #            ## since bam files are 0-based and vcfs are 1-based,the site for which
+    #            ## we want the coverage will be at (pos-1) in the bam file 
+    #        return pileupcolumn.n
             
 
 def is_valid_snv(ref,alt):
