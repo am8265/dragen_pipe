@@ -96,6 +96,7 @@ def create_logdir(baselogdir,sample_name,pseudo_prepid):
     final_log_dir = os.path.join(baselogdir,sample_log_dir)
     if not os.path.exists(final_log_dir):
         os.makedirs(final_log_dir)
+        os.chmod(final_log_dir, 0775)
     return final_log_dir
 
 def get_capturekit_info(sample_type,capture_kit):
