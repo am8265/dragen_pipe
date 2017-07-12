@@ -22,6 +22,7 @@ import sys
 import logging
 import Command
 from time import sleep
+from random import random
 
 cfg = get_cfg()
 # the maximum number of tables to load concurrently
@@ -77,7 +78,11 @@ def block_until_loading_slot_available(
         if get_num_tables_loading(cur) < max_tables_to_load:
             return
         else:
-            sleep(table_load_wait_time)
+            # sleep a random amount of time, from
+            # [(0.5 * table_load_wait_time), (1.5 * table_load_wait_time)]
+            base_load_time = table_load_wait_time / 2.0
+            wait_time = base_load_time + table_load_wait_time * random()
+            sleep(wait_time)
 
 def get_num_lines_from_vcf(vcf, region=None, header=True):
     """return the number of variant lines in the specified VCF, gzipped optional
@@ -208,6 +213,7 @@ class ParseVCF(SGEJobTask):
         description="ignore variant calls below this read depth")
     dont_load_data = luigi.BoolParameter(
         description="don't actually load any data, used for testing purposes")
+    priority = 1 # tell the scheduler to run these first
 
     def __init__(self, *args, **kwargs):
         super(ParseVCF, self).__init__(*args, **kwargs)

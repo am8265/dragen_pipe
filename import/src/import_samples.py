@@ -19,10 +19,10 @@ class ImportSamples(ProcessSamples.ProcessSamples):
     def __init__(self, database="waldb4", seqscratch="_ssd",
                  force_failed_samples=False,
                  sample_names=None,
-                 run_locally=False, workers=75, qdel_jobs=True,
+                 run_locally=False, workers=40, qdel_jobs=True,
                  local_scheduler=False, **kwargs):
         super(ImportSamples, self).__init__(
-            max_samples_concurrently=1, 
+            max_samples_concurrently=1,
             force_failed_samples=force_failed_samples,
             sample_names=sample_names,
             run_locally=run_locally, qdel_jobs=qdel_jobs,
