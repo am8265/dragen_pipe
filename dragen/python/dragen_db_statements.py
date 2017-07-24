@@ -32,11 +32,6 @@ UPDATE dragen_pipeline_step
 SET finish_time = NOW(), finished = 1
 WHERE pseudo_prepid = {pseudo_prepid} AND pipeline_step_id = {pipeline_step_id}
 """
-INSERT_DRAGEN_STATUS = """
-INSERT INTO dragenStatus
-(CHGVID,status_time,status,DBID,prepID,pseudoPrepID,userID) VALUE
-("{sample_name}",unix_timestamp(),"{status}",{DBID},{prepID},{pseudoPrepID},{userID})
-"""
 GET_DBID_MAX_PREPID = """
 SELECT DBID,MAX(p.prepID)
 FROM prepT p JOIN pseudo_prepid pp ON p.prepID=pp.prepID WHERE
