@@ -8,15 +8,18 @@ import argparse
 import sys
 import luigi
 from operator import lt, le
-from ConfigParser import RawConfigParser
+from ConfigParser import ConfigParser, RawConfigParser
 import logging
-from db_statements import GET_SAMPLE_DIRECTORY
+from db_statements import (GET_SAMPLE_DIRECTORY, GET_TIMES_STEP_RUN, BEGIN_STEP,
+                           FINISH_STEP, FAIL_STEP, GET_PIPELINE_STEP_ID)
 from itertools import chain
 from collections import OrderedDict, Counter, defaultdict
 from functools import wraps
 import time
 import subprocess
 import shlex
+from luigi.contrib.sge import SGEJobTask
+from shlex import split as sxsplit
 
 cfg = RawConfigParser()
 cfg.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "waldb.cfg"))
@@ -329,3 +332,187 @@ def run_command(command, directory, task_name, print_command=True):
         p.wait()
     if p.returncode:
         raise subprocess.CalledProcessError(p.returncode, command)
+
+def file_handle(f, mode="w"):
+    """Return a file handle to f; if it's a file handle already, return it,
+    otherwise open it
+    """
+    if type(f) is str:
+        return open(f, mode)
+    if type(f) is file:
+        return f
+    if type(f) is int:
+        return f
+    raise TypeError("Wrong argument passed in for opening")
+
+def close_file_handles(file_handles):
+    """Close the file handles as appropriate
+    """
+    for file_handle in file_handles:
+        if (type(file_handle) is file and not file_handle.closed
+            and file_handle not in (sys.stdout, sys.stderr)):
+            file_handle.close()
+
+class PipelineTask(SGEJobTask):
+    """Abstract Task class for automatically updating pipeline step statuses
+    """
+    pseudo_prepid = luigi.IntParameter(
+        description="The pseudo_prepid for this sample; used for "
+        "obtaining/updating statuses")
+
+    def __init__(self, *args, **kwargs):
+        super(PipelineTask, self).__init__(*args, **kwargs)
+        self.pipeline_step_id = self._get_pipeline_step_id()
+        # these will be passed onto subprocess, overwrite in pre_shell_commands
+        # method if needed
+        self.shell_options = {"record_commands_fn":None, "stdout":os.devnull,
+                              "stderr":sys.stdout, shell:True}
+        self.commands = []
+        self.files = []
+        self.directories = []
+
+    def _get_pipeline_step_id(self):
+        """Set the pipeline_step_id for any class inheriting from this
+        """
+        seqdb = get_connection("seqdb")
+        try:
+            seq_cur = seqdb.cursor()
+            seq_cur.execute(GET_PIPELINE_STEP_ID.format(
+                step_name=self.__class__.__name__))
+            row = seq_cur.fetchone()
+            if row:
+                return row[0]
+            else:
+                raise ValueError("Could not find pipeline step of name {}!".
+                                 format(self.__class__.__name__))
+        finally:
+            if seqdb.open:
+                seqdb.close()
+
+    def run(self):
+        """First create/update as needed the record in the pipeline step table,
+        set its start time, and increment its times_ran counter
+        """
+        self._update_step_start_time()
+        try:
+            super(PipelineTask, self).run()
+            self._update_step_success()
+        except:
+            self._update_step_failure()
+            raise
+
+    def _update_step_start_time(self):
+        seqdb = get_connection("seqdb")
+        try:
+            seq_cur = seqdb.cursor()
+            seq_cur.execute(GET_TIMES_STEP_RUN.format(
+                pseudo_prepid=self.pseudo_prepid,
+                pipeline_step_id=self.pipeline_step_id))
+            row = seq_cur.fetchone()
+            times_ran = row[0] if row else 0
+            seq_cur.execute(BEGIN_STEP.format(
+                pseudo_prepid=self.pseudo_prepid,
+                pipeline_step_id=self.pipeline_step_id,
+                times_ran=times_ran + 1))
+            seqdb.commit()
+        finally:
+            if seqdb.open:
+                seqdb.close()
+
+    def _update_step_success(self):
+        seqdb = get_connection("seqdb")
+        try:
+            seq_cur = seqdb.cursor()
+            seq_cur.execute(FINISH_STEP.format(
+                pseudo_prepid=self.pseudo_prepid,
+                pipeline_step_id=self.pipeline_step_id))
+            seqdb.commit()
+        finally:
+            if seqdb.open:
+                seqdb.close()
+
+    def _update_step_failure(self):
+        seqdb = get_connection("seqdb")
+        try:
+            seq_cur = seqdb.cursor()
+            seq_cur.execute(FAIL_STEP.format(
+                pseudo_prepid=self.pseudo_prepid,
+                pipeline_step_id=self.pipeline_step_id))
+            seqdb.commit()
+        finally:
+            if seqdb.open:
+                seqdb.close()
+                 
+    def work(self):
+        """Always execute the following three steps in order:
+            1. pre-shell commands
+            2. shell commands
+            3. post-shell commands
+            4. updating relevant files/directories to group bioinfo and
+            permissions to 664 and 775 for files and directories, respectively
+        Don't overwrite this method, instead overwrite pre- and post-shell
+        command functions as needed
+        """
+        self.pre_shell_commands()
+        self.run_commands()
+        self.post_shell_commands()
+        self.update_permissions()
+
+    def pre_shell_commands(self):
+        """Overwrite to execute anything code that should run prior to running
+        shell comamnds
+        """
+        pass
+
+    def post_shell_commands(self):
+        """Overwrite to execute any code that should run after running shell
+        commands
+        """
+        pass
+
+    def run_shell_commands(self):
+        """Run an arbitrary list of commands and raise a CalledProcessError in
+        the event that any returns a non-zero error code
+        """
+        if self.commands:
+            if self.shell_options["record_commands_fn"]:
+                with open(self.shell_options["record_commands_fn"], "w") as out:
+                    out.write("\n".join(self.commands))
+
+            for command in self.commands:
+                try:
+                    if not self.shell_options["shell"]:
+                        command = sxsplit(command)
+                    fhs = {"stdout":None, "stderr":None}
+                    for fh in ("stdout", "stderr"):
+                        if self.shell_options[fh]:
+                            fhs[fh] = file_handle(self.shell_options[fh])
+                    p = subprocess.Popen(
+                        command, stdout=fh["stdout"], stderr=fh["stderr"],
+                        **self.shell_options)
+                    p.wait()
+                    if p.returncode:
+                        raise subprocess.CalledProcessError(
+                            p.returncode, command)
+                finally:
+                    close_file_handles([fhs["stdout"], fhs["stderr"]])
+
+    def update_permissions(self):
+        for fn in self.files:
+            os.chmod(fn, 0664)
+        for d in self.directories:
+            os.chmod(fn, 0775)
+
+class DragenPipelineTask(PipelineTask):
+    """Add the parameters that are de facto in every gatk_pipe task to reduce
+    repetitiveness
+    """
+    sample_name = luigi.Parameter(description="The sample identifier")
+    capture_kit_bed = luigi.InputFileParameter(
+        description="The location of the BED file describing "
+        "the capture kit regions")
+    sample_type = luigi.ChoiceParameter(
+        choices=["EXOME", "GENOME"],
+        description="The type of sequencing performed for this sample")
+    scratch = luigi.Parameter(
+        description="The scratch space to use for the pipeline")
