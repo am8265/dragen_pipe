@@ -237,5 +237,19 @@ VALUE ("{sample_name}", "{sample_type}", "{capture_kit}", {prep_id}, {priority})
 INITIALIZE_SAMPLE_SEQDB = """
 REPLACE dragen_pipeline_step (pseudo_prepid, pipeline_step_id, finish_time,
     times_ran, finished)
-VALUE ({prep_id}, {sample_initialized_step_id}, NOW(), 1, 1)
+VALUE ({pseudo_prepid}, {sample_initialized_step_id}, NOW(), 1, 1)
+"""
+BEGIN_STEP = """
+REPLACE dragen_pipeline_step
+VALUE ({pseudo_prepid}, {pipeline_step_id}, NOW(), NULL, {times_ran}, 0, 0)
+"""
+FINISH_STEP = """
+UPDATE dragen_pipeline_step
+SET finished = 1, failure = 0, finish_time = NOW()
+WHERE pseudo_prepid = {pseudo_prepid} AND pipeline_step_id = {pipeline_step_id}
+"""
+FAIL_STEP = """
+UPDATE dragen_pipeline_step
+SET finished = 0, failure = 1, finish_time = NOW()
+WHERE pseudo_prepid = {pseudo_prepid} AND pipeline_step_id = {pipeline_step_id}
 """
