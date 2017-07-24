@@ -277,13 +277,12 @@ class RealignerTargetCreator(PipelineTask):
         self.shell_options["record_commands_fn"] = self.script
         self.commands = [
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref} -T RealignerTargetCreator "
-            "-L {interval} -I {scratch_bam} -o {interval_list} -known {Mills1000g} "
+            "-I {scratch_bam} -o {interval_list} -known {Mills1000g} "
             "-known {dbSNP} --log_to_file {log_file} -nt 4".format(
                 java=config().java, gatk=config().gatk, max_mem=config().max_mem,
-                ref=config().ref, interval=config().interval,
-                scratch_bam=self.scratch_bam, interval_list=self.interval_list,
-                Mills1000g=config().Mills1000g, dbSNP=config().dbSNP,
-                log_file=self.log_file)]
+                ref=config().ref, scratch_bam=self.scratch_bam,
+                interval_list=self.interval_list, Mills1000g=config().Mills1000g,
+                dbSNP=config().dbSNP, log_file=self.log_file)]
 
     def requires(self):
         return self.clone(CopyBam)
@@ -321,15 +320,15 @@ class IndelRealigner(PipelineTask):
         self.shell_options["record_commands_fn"] = self.script
         self.commands = [
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref} -T IndelRealigner "
-            "-L {interval} -I {scratch_bam} -o {realn_bam} "
+            "-I {scratch_bam} -o {realn_bam} "
             "--log_to_file {log_file} -targetIntervals {interval_list} "
             "-maxReads 10000000 -maxInMemory 450000 -known {Mills1000g} "
             "-known {dbSNP}").format(
                 java=config().java, gatk=config().gatk, max_mem=config().max_mem,
-                ref=config().ref, interval=config().interval,
-                scratch_bam=self.scratch_bam, realn_bam=self.realn_bam,
-                interval_list=self.interval_list, Mills1000g=config().Mills1000g,
-                log_file=self.log_file, dbSNP=config().dbSNP)]
+                ref=config().ref, scratch_bam=self.scratch_bam,
+                realn_bam=self.realn_bam, interval_list=self.interval_list,
+                Mills1000g=config().Mills1000g, log_file=self.log_file,
+                dbSNP=config().dbSNP)]
 
     def requires(self):
         return self.clone(RealignerTargetCreator)
@@ -359,13 +358,13 @@ class BaseRecalibrator(PipelineTask):
         self.shell_options["record_commands_fn"] = self.script
         self.commands = [
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref} "
-            "-T BaseRecalibrator -L {interval} -I {realn_bam} "
+            "-T BaseRecalibrator -I {realn_bam} "
             "-o {recal_table} --log_to_file {log_file} "
             "-knownSites {Mills1000g} -knownSites {dbSNP} "
             "-nct 4".format(
                 java=config().java, gatk=config().gatk,
                 max_mem=config().max_mem, ref=config().ref,
-                interval=config().interval, realn_bam=self.realn_bam,
+                realn_bam=self.realn_bam,
                 recal_table=self.recal_table, Mills1000g=config().Mills1000g,
                 log_file=self.log_file, dbSNP=config().dbSNP)]
 
@@ -400,12 +399,11 @@ class PrintReads(PipelineTask):
         # --disable_indel_quals are necessary to remove BI and BD tags in the bam file
         self.commands = [
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref} -T PrintReads "
-            "-L {interval} -I {realn_bam} --log_to_file {log_file} "
+            "-I {realn_bam} --log_to_file {log_file} "
             "--disable_indel_quals -BQSR {recal_table} -o {recal_bam} "
             "-nct 4".format(
                 java=config().java, gatk=config().gatk, max_mem=config().max_mem,
-                ref=config().ref, interval=config().interval,
-                log_file=self.log_file, realn_bam=self.realn_bam,
+                ref=config().ref, log_file=self.log_file, realn_bam=self.realn_bam,
                 recal_table=self.recal_table, recal_bam=self.recal_bam)]
 
     def requires(self):
