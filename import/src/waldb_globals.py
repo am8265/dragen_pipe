@@ -516,3 +516,86 @@ class DragenPipelineTask(PipelineTask):
         description="The type of sequencing performed for this sample")
     scratch = luigi.Parameter(
         description="The scratch space to use for the pipeline")
+
+class GATKPipelineTask(DragenPipelineTask):
+    """Add implicit parameters that will always be found in specific paths for
+    data at various stages of the pipeline
+    """
+    def __init__(self, *args, **kwargs):
+        super(GATKPipelineTask, self).__init__(*args, **kwargs)
+        name_prep = "{}.{}".format(self.sample_name, self.psuedo_prepid)
+        self.name_prep = name_prep
+        self.scratch_dir = os.path.join(
+            self.scratch, self.sample_type, name_prep)
+        self.log_file = os.path.join(
+            self.scratch_dir, "logs", "{}.{}.log".format(
+                name_prep, self.__class__.__name__))
+        self.log_dir = os.path.join(self.scratch_dir, "logs")
+        self.script = os.path.join(
+            self.scratch_dir, "scripts", "{}.{}.sh".format(
+                name_prep, self.__class__.__name__))
+        self.interval_list = os.path.join(
+            self.scratch_dir, name_prep + ".interval_list")
+        self.scratch_bam = os.path.join(
+            self.scratch_dir, name_prep + ".bam")
+        self.realn_bam = os.path.join(
+            self.scratch_dir, name_prep + ".realn.bam")
+        self.recal_table = os.path.join(
+            self.scratch_dir, name_prep + ".recal_table")
+        self.recal_bam = os.path.join(
+            self.scratch_dir, name_prep + ".realn.recal.bam")
+        self.recal_bam_index = os.path.join(
+            self.scratch_dir, name_prep + ".realn.recal.bai")
+        self.gvcf = os.path.join(
+            self.scratch_dir, name_prep + ".g.vcf.gz")
+        self.gvcf_index = os.path.join(
+            self.scratch_dir, name_prep + ".g.vcf.gz.tbi")
+        self.vcf = os.path.join(
+            self.scratch_dir, name_prep + ".raw.vcf")
+        self.snp_vcf = os.path.join(
+            self.scratch_dir, name_prep + ".snp.vcf")
+        self.indel_vcf = os.path.join(
+            self.scratch_dir, name_prep + ".indel.vcf")
+        self.snp_recal = os.path.join(
+            self.scratch_dir, name_prep + ".snp.recal")
+        self.snp_rscript = os.path.join(
+            self.scratch_dir, name_prep + ".snp.rscript")
+        self.snp_tranches = os.path.join(
+            self.scratch_dir, name_prep + ".snp.tranches")
+        self.snp_filtered = os.path.join(
+            self.scratch_dir, name_prep + ".snp.filtered.vcf")
+        self.indel_recal = os.path.join(
+            self.scratch_dir, name_prep + ".indel.recal")
+        self.indel_rscript = os.path.join(
+            self.scratch_dir, name_prep + ".indel.rscript")
+        self.indel_tranches = os.path.join(
+            self.scratch_dir, name_prep + ".indel.tranches")
+        self.indel_filtered = os.path.join(
+            self.scratch_dir, name_prep + ".indel.filtered.vcf")
+        self.tmp_vcf = os.path.join(
+            self.scratch_dir, name_prep + ".tmp.vcf")
+        self.final_vcf = os.path.join(
+            self.scratch_dir, name_prep + ".analysisReady.vcf")
+        self.final_vcf_gz = self.final_vcf + ".gz"
+        self.deannotated_vcf = os.path.join(
+            self.scratch_dir, name_prep + ".analysisReady.deannotated.vcf")
+        self.deannotated_vcf_gz = self.deannotated_vcf + ".gz"
+        self.annotated_vcf = os.path.join(
+            self.scratch_dir, name_prep + ".analysisReady.annotated.vcf")
+        self.annotated_vcf_gz = self.annotated_vcf + ".gz"
+        self.annotated_vcf_gz_index = self.annotated_vcf_gz + ".tbi"
+        self.phased_vcf = os.path.join(
+            self.scratch_dir, name_prep + ".analysisReady.phased.vcf")
+        self.phased_vcf_gz = self.phased_vcf + ".gz"
+        self.fixed_vcf = os.path.join(
+            self.scratch_dir, name_prep + ".analysisReady.fixed.vcf")
+        self.original_vcf_gz = os.path.join(
+            self.scratch_dir, name_prep +
+            ".analysisReady.annotated.original.vcf.gz")
+        self.original_vcf_gz_index = self.original_vcf_gz + ".tbi"
+        self.alignment_metrics = os.path.join(
+            self.scratch_dir, name_prep + ".alignment.metrics.txt")
+        self.genome_cov_bed = os.path.join(
+            self.scratch_dir, self.sample_name + ".genomecvg.bed")
+        self.cov_dir = os.path.join(self.scratch_dir, "cvg_binned")
+        self.gq_dir = os.path.join(self.scratch_dir, "gq_binned")
