@@ -16,7 +16,7 @@ def get_prepid(curs, sample):
     """Retrieve qualifying prepids"""
     query = ("SELECT prepid FROM pseudo_prepid WHERE pseudo_prepid={0}"
             ).format(sample["pseudo_prepid"])
-    print query
+    #print query
     curs.execute(query)
     prepids = curs.fetchall()
     prepids = [x[0] for x in prepids]
@@ -95,8 +95,14 @@ def get_fastq_loc(curs, sample):
             #print sample
             #for externally submitted samples
             if seqsatalocs[0][1][0] == 'X':
-                if 'SRR' in sample['sample_name']: #specifically for SRR samples
-                    fastq_loc = glob(('/nfs/fastq1*/SRR/{}/1'
+                print "Looking for external sample..."
+                if 'GHAR' in sample['sample_name']:
+                    fastq_loc = glob(('/nfs/seqscratch09/tx_temp/tx_2469/fastqs_forJosh/{}/1'
+                                ).format(sample['sample_name']))
+                    for flowcell in fastq_loc:
+                        locs.append(os.path.realpath(flowcell))
+                elif 'CGNDHDA' in sample['sample_name'] or 'FA000000' in sample['sample_name'] or 'NEU' in sample['sample_name']:
+                    fastq_loc = glob(('/nfs/seqscratch09/tx_temp/tx_2390/CGND_11418-fastq/Project_CGND_11418_B01_GRM_WGS.2016-03-30/{}/1'
                                 ).format(sample['sample_name']))
                     for flowcell in fastq_loc:
                         locs.append(os.path.realpath(flowcell))
@@ -140,6 +146,7 @@ def get_fastq_loc(curs, sample):
                     raise Exception, 'fastq files not found!'
             else: #For regular samples
                 for flowcell in seqsatalocs:
+                    print flowcell
                     if 'igmdata' in flowcell[0]:
                         fastq_loc = ('/nfs/{0}/{1}/{2}/{3}'
                                 ).format(flowcell[0],corrected_sample_type,
@@ -277,7 +284,6 @@ class dragen_sample:
         self.metadata['conf_file'] = "{script_dir}/{sample_name}.{pseudo_prepid}.dragen.conf".format(**self.metadata)
         self.metadata['dragen_stdout'] = "{log_dir}/{sample_name}.{pseudo_prepid}.dragen.out".format(**self.metadata)
         self.metadata['dragen_stderr'] = "{log_dir}/{sample_name}.{pseudo_prepid}.dragen.err".format(**self.metadata)
-
 
     def get_attribute(self, attribute):
         """return the value requested if present, otherwise raise a TypeError"""

@@ -270,7 +270,7 @@ def main(args):
     baselogdir = args.baselogdir
     max_processes = args.max_processes
     wait_time = args.wait_time
-    scratch = "/nfs/%s/ALIGNMENT/BUILD37/DRAGEN"%args.scratch
+    scratch = "/nfs/%s/ALIGNMENT/BUILD37/DRAGEN" % args.scratch
     test = args.test
     running = True
     logging.basicConfig(filename=os.path.join(baselogdir,"pipeline.log"),level=logging.INFO,

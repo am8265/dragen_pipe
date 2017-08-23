@@ -13,7 +13,7 @@ def main(samples, sample_type, capture_kit, debug, priority, curs):
     for sample_name in samples:
         sample = dragen_sample(sample_name,sample_type,0,capture_kit, curs)
         pseudo_prepid = insert_pseudo_prepid(sample,debug)
-        insert_dragen_queue(sample,debug,priority,pseudo_prepid)
+        #insert_dragen_queue(sample,debug,priority,pseudo_prepid)
         insert_seqdbClone(sample,debug,priority,pseudo_prepid)
 
 def insert_pseudo_prepid(sample,debug):
@@ -57,14 +57,15 @@ def getPrepID(sample,debug):
             "JOIN SeqType st ON p.prepid=st.prepid "
             "WHERE CHGVID='{}' "
             "AND seqtype = '{}' "
-            "AND exomekit = '{}'"
+            "AND exomekit = '{}' "
+            "AND failedprep = 0"
             ).format(sample_name,sample_type,capture_kit)
 
     if debug:
         print query
     curs.execute(query)
     prepid = curs.fetchone()[0]
-    print prepid
+    #print prepid
     return prepid
 
 def insert_dragen_queue(sample,debug,priority,pseudo_prepid):
@@ -141,7 +142,7 @@ if __name__ == "__main__":
         capture_kit = args.capture_kit
     else:
         #Genome samples do have an empty string as their capture_kit
-        capture_kit = ''
+        capture_kit = 'N/A'
 
     """For unknown reasons custom capture samples are expressed as 
     "custom capture" in the SeqType table but in seqdbClone and other tables
