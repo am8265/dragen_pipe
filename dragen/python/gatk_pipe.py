@@ -740,7 +740,7 @@ class HaplotypeCaller(SGEJobTask):
     capture_kit_bed = luigi.Parameter()
     sample_type = luigi.Parameter()
     scratch = luigi.Parameter()
-    n_cpu = 8
+    n_cpu = 6
 
     def __init__(self, *args, **kwargs):
         super(HaplotypeCaller, self).__init__(*args, **kwargs)
@@ -2859,14 +2859,17 @@ def get_productionvcf(pseudo_prepid,sample_name,sample_type):
               before
     """
 
-    DBID,prepID = getDBIDMaxPrepID(pseudo_prepid)    
+    DBID,prepID = getDBIDMaxPrepID(pseudo_prepid)
     query_statement = (
-                       """ SELECT AlignSeqFileLoc FROM seqdbClone WHERE"""
+                       """ SELECT AlignSeqFileLoc FROM seqdbClone s """
+                       """ JOIN pseudo_prepid pp """
+                       """ ON s.prepid=pp.prepid WHERE"""
                        """ CHGVID = '{0}' AND seqType = '{1}' AND """
-                       """ pseudo_prepid = '{2}'""".format(
+                       """ pp.pseudo_prepid = '{2}'""".format(
                            sample_name,sample_type,pseudo_prepid)
                       )
     tries = 5
+    print 'Getting Production VCF...'
     for i in range(tries):
         try:
             db = get_connection("seqdb")
@@ -2875,35 +2878,36 @@ def get_productionvcf(pseudo_prepid,sample_name,sample_type):
             db_val = cur.fetchall()
             if len(db_val) == 0: ## If the query returned no results
                 return None ## Pass control back, note the finally clause is still executed 
-            if len(db_val) > 1:
-                warnings.warn("More than 1 entry , warning :" 
+            elif len(db_val) > 1:
+                warnings.warn("More than 1 entry , warning :"
                               "duplicate pseudo_prepids !")
             alignseqfileloc = db_val[-1][0] ## Get the last result
-            vcf_loc = os.path.join(alignseqfileloc,'combined')
-            temp_vcf = glob.glob(os.path.join(vcf_loc,
-                                              '{0}.analysisReady.annotated.vcf.gz'.format(sample_name)))
-            if len(temp_vcf) == 0:
-                return None 
-            vcf = temp_vcf[0]
-            if not os.path.isfile(vcf):
-                vcf = os.path.join(vcf_loc,"{0}.analysisReady.annotated.vcf".format(sample_name))
-                if not os.path.isfile(vcf):
+            if alignseqfileloc is None:
+                print 'alignseqfileloc not found!'
+                return None
+            vcf_loc = alignseqfileloc + '/combined'
+            if glob.glob('{0}/combined/{1}.analysisReady.annotated.vcf.gz'.format(alignseqfileloc,sample_name)) == []:
+                if  glob.glob('{0}/combined/{1}.analysisReady.annotated.vcf'.format(alignseqfileloc,sample_name)) == []:
+                    print 'Production VCF or gzipped VCF not found!'
                     return None
                 else:
+                    vcf = glob.glob('{0}/combined/{1}.analysisReady.annotated.vcf'.format(alignseqfileloc,sample_name))[0]
                     return vcf
             else:
-                return vcf 
+                vcf = glob.glob('{0}/combined/{1}.analysisReady.annotated.vcf.gz'.format(alignseqfileloc,sample_name))[0]
+                return vcf
+
         except MySQLdb.Error, e:
             if i == tries - 1:
                 raise Exception("ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1]))
             else:
                 time.sleep(60) ## Wait a minute before trying again
-                continue 
+                continue
         finally:
             if db.open:
                 db.close()
-            
-   
+
+
 class MyExtTask(luigi.ExternalTask):
     """
     Checks whether the file specified exists on disk
