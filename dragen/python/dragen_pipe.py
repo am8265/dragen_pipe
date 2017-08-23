@@ -15,7 +15,7 @@ from datetime import datetime
 from dragen_sample import dragen_sample
 from glob import glob
 
-def main(samples, debug, dontexecute, database):
+def main(samples, debug, dontexecute, database, seqscratch_drive):
     CNF = "/nfs/goldstein/software/dragen/dragen.cnf" # defaults file for pipeline
     config_parser = SafeConfigParser()
     config_parser.read(CNF)
@@ -30,16 +30,21 @@ def main(samples, debug, dontexecute, database):
     if samples == True:
         db = get_cursor(parameters,database)
         curs = db.cursor()
-        info = get_next_sample(curs,debug)
-        if info is None:
+        try:
+            sample_name, sample_type, pseudo_prepid, capture_kit, dragen_id = get_next_sample(curs,debug)
+        except:
             print "No samples were found"
             sys.exit()
 
-        while info is not None:
-            dragen_id = info[4]
+        while sample_name is not None:
             db = get_cursor(parameters,database)
             curs = db.cursor()
-            sample = dragen_sample(info[0],info[1],info[2],info[3],curs)
+            sample = dragen_sample(sample_name,sample_type,pseudo_prepid,capture_kit,curs)
+            sample.metadata['output_dir'] = ('/nfs/{}/ALIGNMENT/BUILD37/DRAGEN/{}/{}.{}/'
+                                            ).format(seqscratch_drive,sample_type.upper(),
+                                                     sample_name,pseudo_prepid)
+            print sample.metadata['output_dir']
+            print "=================="
             single_sample_setup(curs,sample,parameters,debug)
             db.close()
 
@@ -47,12 +52,16 @@ def main(samples, debug, dontexecute, database):
 
             db = get_cursor(parameters,database)
             curs = db.cursor()
-            info = get_next_sample(curs,debug)
+            try:
+                sample_name, sample_type, pseudo_prepid, capture_kit, dragen_id = get_next_sample(curs,debug)
+            except:
+                print "No more samples in the queue"
+                sys.exit()
             db.close()
 
 def get_cursor(parameters,database):
     db = MySQLdb.connect(db=database, read_default_group="clientsequencedb",
-            read_default_file=parameters["DB_CONFIG_FILE"])
+        read_default_file=parameters["DB_CONFIG_FILE"])
     return db
 
 def run_sample(sample,dragen_id,dontexecute,parameters,database,debug):
@@ -128,6 +137,7 @@ def update_dragen_metadata(curs,sample):
     capture_kit = sample.metadata['capture_kit']
     prepid = sample.metadata['prepid'][0]
     priority = sample.metadata['priority']
+    seqscratch_drive = sample.metadata['output_dir'].split('/')[2]
 
     query = ("SELECT * from dragen_sample_metadata "
             "WHERE pseudo_prepid = {} "
@@ -138,9 +148,9 @@ def update_dragen_metadata(curs,sample):
         pass
     else:
         insertQuery = ("INSERT INTO dragen_sample_metadata "
-                "(sample_name,pseudo_prepid,sample_type,capture_kit,prepid,priority) "
-                "VALUES ('{}',{},'{}','{}',{},{} ) "
-                ).format(sample_name,pseudo_prepid,sample_type,capture_kit,prepid,priority)
+                "(sample_name,pseudo_prepid,sample_type,capture_kit,prepid,priority,seqscratch_drive) "
+                "VALUES ('{}',{},'{}','{}',{},{},'{}') "
+                ).format(sample_name,pseudo_prepid,sample_type,capture_kit,prepid,priority,seqscratch_drive)
         print insertQuery
         curs.execute(insertQuery)
 
@@ -330,6 +340,8 @@ if __name__ == "__main__":
                         help="Run pipeline in automated mode")
     parser.add_argument("-d", "--debug", default=False, action="store_true",
                         help="Verbose output for debugging")
+    parser.add_argument("--seqscratch_drive", default='seqscratch_ssd', action="store_true",
+                        help="Verbose output for debugging")
     # --> Add code to accept regexp in auto mode <--#
     # --> Add code to for custom config files <--#
     parser.add_argument("--dontexecute", default=False, action="store_true",
@@ -354,5 +366,5 @@ if __name__ == "__main__":
         args.database="sequenceDB"
 
 
-    main(samples, args.debug, args.dontexecute, args.database)
+    main(samples, args.debug, args.dontexecute, args.database, args.seqscratch_drive)
 

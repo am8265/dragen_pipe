@@ -96,24 +96,13 @@ def get_fastq_loc(curs, sample):
             #for externally submitted samples
             if seqsatalocs[0][1][0] == 'X':
                 print "Looking for external sample..."
-                if 'GHAR' in sample['sample_name']:
-                    fastq_loc = glob(('/nfs/seqscratch09/tx_temp/tx_2469/fastqs_forJosh/{}/1'
-                                ).format(sample['sample_name']))
-                    for flowcell in fastq_loc:
-                        locs.append(os.path.realpath(flowcell))
-                elif 'CGNDHDA' in sample['sample_name'] or 'FA000000' in sample['sample_name'] or 'NEU' in sample['sample_name']:
+                if 'CGNDHDA' in sample['sample_name'] or 'FA000000' in sample['sample_name'] or 'NEU' in sample['sample_name']:
                     fastq_loc = glob(('/nfs/seqscratch09/tx_temp/tx_2390/CGND_11418-fastq/Project_CGND_11418_B01_GRM_WGS.2016-03-30/{}/1'
                                 ).format(sample['sample_name']))
                     for flowcell in fastq_loc:
                         locs.append(os.path.realpath(flowcell))
                 elif 'pgm' in sample['sample_name'][0:3] or 'PGM' in sample['sample_name'][0:3]:
                     fastq_loc = glob(('/nfs/fastq1*/PGM/{}/[0-9]'
-                                ).format(sample['sample_name']))
-                    for flowcell in fastq_loc:
-                        locs.append(os.path.realpath(flowcell))
-                elif glob(('/nfs/seqscratch_ssd/tx_temp/tx_2118/{}/[0-9]'
-                    ).format(sample['sample_name'])) != []:
-                    fastq_loc = glob(('/nfs/seqscratch_ssd/tx_temp/tx_2118/{}/[0-9]'
                                 ).format(sample['sample_name']))
                     for flowcell in fastq_loc:
                         locs.append(os.path.realpath(flowcell))
@@ -146,7 +135,6 @@ def get_fastq_loc(curs, sample):
                     raise Exception, 'fastq files not found!'
             else: #For regular samples
                 for flowcell in seqsatalocs:
-                    print flowcell
                     if 'igmdata' in flowcell[0]:
                         fastq_loc = ('/nfs/{0}/{1}/{2}/{3}'
                                 ).format(flowcell[0],corrected_sample_type,
@@ -213,14 +201,26 @@ def check_fastq_locs(locs):
             print 'Did not find fastq mate pair for: {}!'.format(loc)
     return valid_locs
 
-def get_output_dir(sample):
+def get_output_dir(curs,sample):
     """Generate ouput directory for Dragen results.  Dependent on seqtype"""
 
     # Custom capture samples need to be partitioned by capture_kit or 
     # pseudo_prepid since they are often sequenced with multiple capture kits.
-    # Example: EpiMIR and SchizoEpi
-    output_dir = ('/nfs/seqscratch_ssd/ALIGNMENT/BUILD37/DRAGEN/{0}/{1}.{2}/'
-        ).format(sample['sample_type'].upper(),sample['sample_name'],sample['pseudo_prepid'])
+    # Example: EpiMIR and SchizoEpi samples
+    query = ("SELECT seqscratch_drive "
+             "FROM dragen_sample_metadata "
+             "WHERE pseudo_prepid = {} "
+            ).format(sample['pseudo_prepid'])
+    curs.execute(query)
+    seqscratch_drive = curs.fetchone()
+    if seqscratch_drive is None:
+        seqscratch_drive = 'seqscratch_ssd'
+
+    output_dir = ('/nfs/{3}/ALIGNMENT/BUILD37/DRAGEN/{0}/{1}.{2}/'
+        ).format(sample['sample_type'].upper(),
+                 sample['sample_name'],
+                 sample['pseudo_prepid'],
+                 seqscratch_drive)
 
     return output_dir
 
@@ -275,9 +275,9 @@ class dragen_sample:
             self.metadata['bed_file_loc'] = '/nfs/goldsteindata/refDB/captured_regions/Build37/65MB_build37/SeqCap_EZ_Exome_v3_capture.bed'
         self.metadata['prepid'] = get_prepid(curs,self.metadata)
         self.metadata['priority'] = get_priority(curs,self.metadata)
-        self.metadata['fastq_loc'] = get_fastq_loc(curs, self.metadata)
+        self.metadata['fastq_loc'] = get_fastq_loc(curs,self.metadata)
         self.metadata['lane'] = get_lanes(curs,self.metadata)
-        self.metadata['output_dir'] = get_output_dir(self.metadata)
+        self.metadata['output_dir'] = get_output_dir(curs,self.metadata)
         self.metadata['script_dir'] = self.metadata['output_dir']+'scripts'
         self.metadata['fastq_dir'] = self.metadata['output_dir']+'fastq'
         self.metadata['log_dir'] = self.metadata['output_dir']+'logs'
