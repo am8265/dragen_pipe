@@ -473,6 +473,9 @@ class ImportSample(luigi.Task):
         description="ignore variant calls below this read depth")
     dont_load_data = luigi.BoolParameter(
         description="don't actually load any data, used for testing purposes")
+    override_directory_check = luigi.BoolParameter(
+        description="don't check for existence of sample directory "
+        "(will assume it exists and copy files; can be helpful if ls hangs)")
 
     def __init__(self, *args, **kwargs):
         super(ImportSample, self).__init__(*args, **kwargs)
@@ -500,17 +503,20 @@ class ImportSample(luigi.Task):
             prep_id=self.prep_id,
             sequencing_type=self.sequencing_type.upper())
         self.data_directory = get_data_directory(sample_name, self.prep_id)
-        try:
-            cmd = "ls {} &> /dev/null".format(self.data_directory)
-            c = Command.Command(cmd)
-            c.run(5)
-        except Command.TimeoutException:
-            raise ValueError("the data directory {} is inaccessible".format(
-                self.data_directory))
-        if not os.path.isdir(self.data_directory):
-            raise ValueError(
-                "the data directory {} for the sample does not exist".format(
-                self.data_directory))
+        if not self.override_directory_check:
+            # this can optionally be disabled if ls hangs but copying files is
+            # still working
+            try:
+                cmd = "ls -d {} &> /dev/null".format(self.data_directory)
+                c = Command.Command(cmd)
+                c.run(5)
+            except Command.TimeoutException:
+                raise ValueError("the data directory {} is inaccessible".format(
+                    self.data_directory))
+            if not os.path.isdir(self.data_directory):
+                raise ValueError(
+                    "the data directory {} for the sample does not exist".format(
+                    self.data_directory))
         db = get_connection(self.database)
         seqdb = get_connection("seqdb")
         try:
