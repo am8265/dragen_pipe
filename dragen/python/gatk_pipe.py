@@ -929,7 +929,7 @@ class ArchiveSample(GATKFPipelineTask):
 
     def post_shell_commands(self):
         ## Change folder permissions of base directory
-        os.chown(self.base_dir, os.getuid(), grp.getgrname("bioinfo").gr_gid)
+        os.chown(self.base_dir, os.getuid(), grp.getgrnam("bioinfo").gr_gid)
         for root, dirs, files in os.walk(self.base_dir):
             for d in dirs:
                 os.chmod(os.path.join(root, d), 0775)
