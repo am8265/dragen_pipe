@@ -18,7 +18,8 @@ cfg = get_cfg()
 class ImportSamples(ProcessSamples.ProcessSamples):
     def __init__(self, database="waldb4", seqscratch="_ssd",
                  force_failed_samples=False,
-                 sample_names=None,
+                 timeout_exome=1800, timeout_genome=7200,
+                 timeout_custom_capture=1800, sample_names=None,
                  run_locally=False, workers=40, qdel_jobs=True,
                  local_scheduler=False, **kwargs):
         super(ImportSamples, self).__init__(
@@ -34,6 +35,8 @@ class ImportSamples(ProcessSamples.ProcessSamples):
         self.database = database
         self.seqscratch = seqscratch
         self.workers = workers
+        self.timeout = {"exome":timeout_exome, "genome":timeout_genome,
+                        "custom_capture":timeout_custom_capture}
 
     def _get_samples(self):
         db = get_connection(self.database)
@@ -68,16 +71,11 @@ class ImportSamples(ProcessSamples.ProcessSamples):
                    run_locally=" --run-locally" if self.run_locally else "",
                    local_scheduler=" --local-scheduler" if self.local_scheduler
                    else ""))
-        if sample_type in ("exome", "custom_capture"):
-            # allow 10 minutes for exomes
-            timeout = 1800
-        elif sample_type in ("genome", "merged"):
-            # 2 hours for genomes
-            timeout = 7200
-        return cmd, timeout
+        return cmd, self.timeout[sample_type]
 
 def main(database, seqscratch, force_failed_samples, sample_names,
-         run_locally, workers, local_scheduler, debug_level):
+         run_locally, workers, local_scheduler, debug_level,
+         timeout_exome, timeout_genome, timeout_custom_capture):
     # set up logging
     formatter = logging.Formatter(cfg.get("logging", "format"))
     root_logger = logging.getLogger()
@@ -98,6 +96,8 @@ def main(database, seqscratch, force_failed_samples, sample_names,
     import_samples = ImportSamples(
         database=database, seqscratch=seqscratch,
         force_failed_samples=force_failed_samples,
+        timeout_exome=timeout_exome, timeout_genome=timeout_genome,
+        timeout_custom_capture=timeout_custom_capture,
         sample_names=sample_names,
         qdel_jobs=not run_locally, run_locally=run_locally,
         workers=workers, local_scheduler=local_scheduler)
@@ -120,16 +120,23 @@ if __name__ == "__main__":
                         "with a sample_name matching the format string")
     parser.add_argument("--run_locally", default=False, action="store_true",
                         help="run locally instead of on the cluster")
-    parser.add_argument("-w", "--workers", type=int, default=75,
+    parser.add_argument("-w", "--workers", type=int, default=40,
                         help="the number of luigi workers to use (limit to "
                         "restrict DB connections)")
     parser.add_argument("--local_scheduler", default=False, action="store_true",
                         help="use the local luigi scheduler instead of "
                         "luigi daemon")
+    parser.add_argument("--timeout_exome", default=1800, type=int,
+                        help="the timeout value for exomes")
+    parser.add_argument("--timeout_genome", default=7200, type=int,
+                        help="the timeout value for genomes")
+    parser.add_argument("--timeout_custom_capture", default=1800, type=int,
+                        help="the timeout value for custom capture samples")
     parser.add_argument("--level", default="INFO", choices=LOGGING_LEVELS,
                         action=DereferenceKeyAction,
                         help="specify the logging level to use")
     args = parser.parse_args()
     main(args.database, args.seqscratch, args.force_failed_samples,
          args.sample_names, args.run_locally, args.workers,
-         args.local_scheduler, args.level)
+         args.local_scheduler, args.level, args.timeout_exome,
+         args.timeout_genome, args.timeout_custom_capture)
