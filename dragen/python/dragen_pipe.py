@@ -275,7 +275,7 @@ def check_Fastq_Total_Size(sample,debug):
             userInput = raw_input('Sum of fastq files sizes are too big.  Is this ok? (y)es or (n)o ').lower()
             if userInput == 'n':
                  raise Exception, "Sum of fastq files is too big for a {} sample!".format(sample_type)
-        elif fastq_filesize_sum < 10737418240: # < 1GB
+        elif fastq_filesize_sum < 1073741824: # < 1GB
             userInput = raw_input('Sum of fastq files sizes are too small.  Is this ok? (y)es or (n)o ').lower()
             if userInput == 'n':
                  raise Exception, "Sum of fastq files is too small for a {} sample!".format(sample_type)
@@ -285,7 +285,7 @@ def check_Fastq_Total_Size(sample,debug):
             userInput = raw_input('Sum of fastq files sizes are too big.  Is this ok? (y)es or (n)o ').lower()
             if userInput == 'n':
                  raise Exception, "Sum of fastq files sizes is too big for a {} sample!".format(sample_type)
-        elif fastq_filesize_sum < 10737418240: # < 1GB
+        elif fastq_filesize_sum < 1073741824: # < 1GB
             userInput = raw_input('Sum of fastq files sizes are too small.  Is this ok? (y)es or (n)o ').lower()
             if userInput == 'n':
                  raise Exception, "Sum of fastq files is too small for a {} sample!".format(sample_type)
