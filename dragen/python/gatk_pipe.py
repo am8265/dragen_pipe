@@ -215,10 +215,6 @@ class RealignerTargetCreator(GATKFPipelineTask):
     def requires(self):
         return self.clone(CopyBam)
 
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-            pipeline_step_id=self.pipeline_step_id)
-
 class IndelRealigner(GATKFPipelineTask):
     """ class to create BAM with realigned BAMs
     """
@@ -233,10 +229,6 @@ class IndelRealigner(GATKFPipelineTask):
 
     def requires(self):
         return self.clone(RealignerTargetCreator)
-
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-            pipeline_step_id=self.pipeline_step_id)
 
 class BaseRecalibrator(GATKFPipelineTask):
     """ Class to create a recalibration table with realigned BAMs """
@@ -254,10 +246,6 @@ class BaseRecalibrator(GATKFPipelineTask):
     def requires(self):
         return self.clone(IndelRealigner)
 
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-            pipeline_step_id=self.pipeline_step_id)
-
 class PrintReads(GATKFPipelineTask):
     """ Class to create BAM with realigned and recalculated BAMs """
     n_cpu = 4
@@ -273,10 +261,6 @@ class PrintReads(GATKFPipelineTask):
 
     def requires(self):
         return self.clone(BaseRecalibrator)
-
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-            pipeline_step_id=self.pipeline_step_id)
 
 class HaplotypeCaller(GATKFPipelineTask):
     """ Class to create gVCFs
@@ -302,10 +286,6 @@ class HaplotypeCaller(GATKFPipelineTask):
     def requires(self):
         return self.clone(PrintReads)
 
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-            pipeline_step_id=self.pipeline_step_id)
-
 class GenotypeGVCFs(GATKFPipelineTask):
     """class to perfrom variant calling from gVCFs"""
     def pre_shell_commands(self):
@@ -318,10 +298,6 @@ class GenotypeGVCFs(GATKFPipelineTask):
     def requires(self):
         return self.clone(HaplotypeCaller)
 
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-            pipeline_step_id=self.pipeline_step_id)
-
 class SelectVariantsSNP(GATKFPipelineTask):
     def pre_shell_commands(self):
         self.shell_options["record_commands_fn"] = self.script
@@ -332,10 +308,6 @@ class SelectVariantsSNP(GATKFPipelineTask):
 
     def requires(self):
         return self.clone(GenotypeGVCFs)
-
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-            pipeline_step_id=self.pipeline_step_id)
 
 class SelectVariantsINGATKFPipelineTask):
     def pre_shell_commands(self):
@@ -354,10 +326,6 @@ class SelectVariantsINGATKFPipelineTask):
             return self.clone(VariantFiltrationSNP)
         else:
             raise Exception, "Sample type: %s not supported in this module" % self.sample_type
-
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-            pipeline_step_id=self.pipeline_step_id)
 
 class VariantRecalibratorSNP(GATKFPipelineTask):
     def pre_shell_commands(self):
@@ -385,9 +353,18 @@ class VariantRecalibratorSNP(GATKFPipelineTask):
     def requires(self):
         return self.clone(SelectVariantsSNP)
 
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-            pipeline_step_id=self.pipeline_step_id)
+class VariantFiltrationSNP(GATKFPipelineTask):
+    def pre_shell_commands(self):
+        self.shell_options["record_commands_fn"] = self.script
+        self.commands = [self.format_string(
+            '{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T VariantFiltration '
+            '-L {interval} -V {snp_vcf} --filterExpression '
+            '"QD < 2.0 || FS > 60.0 || MQ < 40.0 || MQRankSum < -12.5 || '
+            'ReadPosRankSum < -8.0" --filterName "SNP_filter" '
+            '--log_to_file {log_file} -o {snp_filtered}')]
+
+    def requires(self):
+        return self.clone(SelectVariantsSNP)
 
 class VariantRecalibratorINDEL(GATKFPipelineTask):
     def pre_shell_commands(self):
@@ -404,10 +381,6 @@ class VariantRecalibratorINDEL(GATKFPipelineTask):
     def requires(self):
         return self.clone(SelectVariantsINDEL)
 
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-            pipeline_step_id=self.pipeline_step_id)
-
 class ApplyRecalibrationSNP(GATKFPipelineTask):
     def pre_shell_commands(self):
         self.shell_options["record_commands_fn"] = self.script
@@ -422,10 +395,6 @@ class ApplyRecalibrationSNP(GATKFPipelineTask):
     def requires(self):
         return self.clone(VariantRecalibratorSNP)
 
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-            pipeline_step_id=self.pipeline_step_id)
-
 class ApplyRecalibrationINDEL(GATKFPipelineTask):
     def pre_shell_commands(self):
         self.shell_options["record_commands_fn"] = self.script
@@ -438,27 +407,6 @@ class ApplyRecalibrationINDEL(GATKFPipelineTask):
     def requires(self):
       return self.clone(VariantRecalibratorINDEL)
 
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-            pipeline_step_id=self.pipeline_step_id)
-
-class VariantFiltrationSNP(GATKFPipelineTask):
-    def pre_shell_commands(self):
-        self.shell_options["record_commands_fn"] = self.script
-        self.commands = [self.format_string(
-            '{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T VariantFiltration '
-            '-L {interval} -V {snp_vcf} --filterExpression '
-            '"QD < 2.0 || FS > 60.0 || MQ < 40.0 || MQRankSum < -12.5 || '
-            'ReadPosRankSum < -8.0" --filterName "SNP_filter" '
-            '--log_to_file {log_file} -o {snp_filtered}')]
-
-    def requires(self):
-        return self.clone(SelectVariantsSNP)
-
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-            pipeline_step_id=self.pipeline_step_id)
-
 class VariantFiltrationINDEL(GATKFPipelineTask):
     def pre_shell_commands(self):
         self.shell_options["record_commands_fn"] = self.script
@@ -470,10 +418,6 @@ class VariantFiltrationINDEL(GATKFPipelineTask):
 
     def requires(self):
       return self.clone(SelectVariantsINDEL)
-
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-            pipeline_step_id=self.pipeline_step_id)
 
 class CombineVariants(GATKFPipelineTask):
     def pre_shell_commands(self):
@@ -545,10 +489,6 @@ class CombineVariants(GATKFPipelineTask):
         else:
             raise Exception, "Sample type: %s not supported in this module" % self.sample_type
 
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-            pipeline_step_id=self.pipeline_step_id)
-
 class RBP(GATKFPipelineTask):
     """ Run GATK's Read Backed Phasing"""
     def pre_shell_commands(self):
@@ -568,22 +508,11 @@ class RBP(GATKFPipelineTask):
     def requires(self):
         return self.clone(CombineVariants)
 
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-            pipeline_step_id=self.pipeline_step_id)
-
 class FixMergedMNPInfo(GATKFPipelineTask):
     """ The MNPs phased by RBP are missing the DP,AD and other annotation info
     this task which check variants which are missing these information, fetch
     the value for corresponding to that variant site from the vcf prior to RBP
     and add these information to the fixed vcf """
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-                         pipeline_step_id=self.pipeline_step_id)
-
-    def requires(self):
-        return self.clone(RBP)
-
     def pre_shell_commands(self):
         self.LOG_FILE = open(self.log_file, "w")
         self.final_vcf_gz = self.final_vcf + ".gz"
@@ -782,6 +711,9 @@ class FixMergedMNPInfo(GATKFPipelineTask):
 
         return [ad,dp]
 
+    def requires(self):
+        return self.clone(RBP)
+
 class AnnotateVCF(GATKFPipelineTask):
     """ Annotate the final vcf with SNPEff
     """
@@ -798,10 +730,6 @@ class AnnotateVCF(GATKFPipelineTask):
 
     def requires(self):
         return self.clone(FixMergedMNPInfo)
-
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-            pipeline_step_id=self.pipeline_step_id)
 
 class SubsetVCF(GATKFPipelineTask):
     """ For SRR/Any future deemed to be low quality sequenced samples, subset the vcf to only the capturekit regions """
@@ -838,10 +766,6 @@ class SubsetVCF(GATKFPipelineTask):
 
     def requires(self):
         return self.clone(AnnotateVCF)
-
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-                         pipeline_step_id=self.pipeline_step_id)
 
 class ArchiveSample(GATKFPipelineTask):
     """ Archive samples on Amplidata """
@@ -954,41 +878,6 @@ class ArchiveSample(GATKFPipelineTask):
         yield self.clone(CvgBinning)
         yield self.clone(UpdateSeqdbMetrics)
 
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-            pipeline_step_id=self.pipeline_step_id)
-
-class SQLTarget(luigi.Target):
-    """ A luigi target class describing verification of the entries in the database
-    """
-
-    def __init__(self, pseudo_prepid, pipeline_step_id):
-        self.pseudo_prepid = pseudo_prepid
-        self.pipeline_step_id = pipeline_step_id
-
-    def exists(self):
-        db = get_connection("seqdb")
-        try:
-            cur = db.cursor()
-            cur.execute(GET_STEP_STATUS.format(
-                pseudo_prepid=self.pseudo_prepid,
-                pipeline_step_id=self.pipeline_step_id))
-            row = cur.fetchone()
-            if row:
-                if row[0] == 1:
-                    return True
-                else:
-                    return False
-            else:
-                cur.execute(INSERT_PIPELINE_STEP.format(
-                    pseudo_prepid=self.pseudo_prepid,
-                    pipeline_step_id=self.pipeline_step_id))
-                db.commit()
-                return False
-        finally:
-            if db.open:
-                db.close()
-
 def get_productionvcf(pseudo_prepid,sample_name,sample_type):
     """
     Query seqdbClone to get AlignSeqFileLoc
@@ -1011,7 +900,11 @@ def get_productionvcf(pseudo_prepid,sample_name,sample_type):
         """ SELECT AlignSeqFileLoc FROM seqdbClone WHERE"""
         """ CHGVID = '{0}' AND seqType = '{1}' AND """
         """ pseudo_prepid = '{2}'""".format(
+<<<<<<< HEAD
             sample_name,sample_type,pseudo_prepid))
+=======
+                           sample_name,sample_type,pseudo_prepid))
+>>>>>>> 3593497e3b270260d82754e5aeb1cc920b0f3126
     db = get_connection("seqdb")
     try:
         cur = db.cursor()
@@ -1019,16 +912,27 @@ def get_productionvcf(pseudo_prepid,sample_name,sample_type):
         db_val = cur.fetchall()
         if len(db_val) == 0: ## If the query returned no results
             return None ## Pass control back, note the finally clause is still executed 
+<<<<<<< HEAD
         elif len(db_val) > 1:
+=======
+        if len(db_val) > 1:
+>>>>>>> 3593497e3b270260d82754e5aeb1cc920b0f3126
             warnings.warn("More than 1 entry , warning :" 
                           "duplicate pseudo_prepids !")
         alignseqfileloc = db_val[-1][0] ## Get the last result
         vcf_loc = os.path.join(alignseqfileloc,'combined')
         vcf = os.path.join(vcf_loc, "{}.analysisReady.annotated.vcf".format(sample_name))
+<<<<<<< HEAD
         if os.path.isfile(vcf):
             return vcf
         vcf += ".gz"
         if os.path.isfile(vcf):
+=======
+        if vcf:
+            return vcf
+        vcf += ".gz"
+        if vcf:
+>>>>>>> 3593497e3b270260d82754e5aeb1cc920b0f3126
             return vcf
         else:
             return None
@@ -1040,21 +944,17 @@ class CreateGenomeBed(GATKFPipelineTask):
     """
     Use bedtools to create the input bed file for the coverage binning script
     """
+    def pre_shell_commands(self):
+        self.shell_options.update(
+            {"stdout":self.genome_cov_bed, "stderr":self.log_file})
+        self.commands = [self.format_string(
+
     def requires(self):
         """
         Note : Can use PrintReads here to speed things up, but may
         face IO bottle necks --> Future test
         """
         return self.clone(HaplotypeCaller)
-
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-            pipeline_step_id=self.pipeline_step_id)
-
-    def pre_shell_commands(self):
-        self.shell_options.update(
-            {"stdout":self.genome_cov_bed, "stderr":self.log_file})
-        self.commands = [self.format_string(
             "{bedtools} genomecov -bga -ibam {recal_bam}")]
 
 class CalculateTargetCoverage(GATKFPipelineTask):
@@ -1073,20 +973,16 @@ class CalculateTargetCoverage(GATKFPipelineTask):
             "--interval_set_rule UNION --targetInformationColumns FULL "
             "--readValidationStringency SILENT")
 
+    def pre_shell_commands(self):
+        self.shell_options.update(
+            {"record_commands_fn":self.script, "stdout":None, "stderr":None}
+        self.commands = [self.calc_target_cov_cmd]
+
     def requires(self):
         if self.sample_type == 'EXOME':
             return self.clone(HaplotypeCaller)
         else:
             raise Exception, "Sample type: %s not supported in this module" % self.sample_type
-
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-                         pipeline_step_id=self.pipeline_step_id)
-
-    def pre_shell_commands(self):
-        self.shell_options.update(
-            {"record_commands_fn":self.script, "stdout":None, "stderr":None}
-        self.commands = [self.calc_target_cov_cmd]
 
 class NormalizeSomaticReadCounts(GATKFPipelineTask):
     """ Normalization step in the CNV pipeline
@@ -1107,17 +1003,13 @@ class NormalizeSomaticReadCounts(GATKFPipelineTask):
             "-PON {panelOfNormals} -PTN {preTangentNormalized} "
             "-TN {tangentNormalized}")
 
-    def requires(self):
-        return self.clone(CalculateTargetCoverage)
-
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-                         pipeline_step_id=self.pipeline_step_id)
-
     def pre_shell_commands(self):
         print(self.normalize_cmd)
         self.shell_options.update({"stdout":None, "stderr":None})
         self.commands = [self.normalize_cmd]
+
+    def requires(self):
+        return self.clone(CalculateTargetCoverage)
 
 class PerformSegmentation(GATKFPipelineTask):
     """ Perform segmentation of normalized copy number ratios
@@ -1139,17 +1031,13 @@ class PerformSegmentation(GATKFPipelineTask):
             "{java} -jar {gatk4} PerformSegmentation "
             "-TN {tangentNormalized} -O {segments}")
 
-    def requires(self):
-        return self.clone(NormalizeSomaticReadCounts)
-
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-                         pipeline_step_id=self.pipeline_step_id)
-
     def pre_shell_commands(self):
         print(self.seg_cmd)
         self.shell_options.update({"stdout":None, "stderr":None})
         self.commands = [self.seg_cmd]
+
+    def requires(self):
+        return self.clone(NormalizeSomaticReadCounts)
 
 class CvgBinning(GATKFPipelineTask):
     def __init__(self,*args,**kwargs):
@@ -1167,22 +1055,14 @@ class CvgBinning(GATKFPipelineTask):
             "{cov_dir} >& {log_file}")
         self.rm_cmd = "rm {}".format(self.genomecov_bed)
 
-    def requires(self):
-        return self.clone(CreateGenomeBed)
-
-    def output(self):
-        """
-        Output from this task are 23 files for each chromosome
-        Also check for deletion of the genomecov file
-        """
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-                         pipeline_step_id=self.pipeline_step_id)
-
     def pre_shell_commands(self):
         self.shell_options.update(
             {"record_commands_fn":self.script, "stdout":None, "stderr":None,
              "shell=True"})
         self.commands = [self.binning_cmd, self.rm_cmd]
+
+    def requires(self):
+        return self.clone(CreateGenomeBed)
 
 class GQBinning(GATKFPipelineTask):
     def __init__(self, *args, **kwargs):
@@ -1197,20 +1077,15 @@ class GQBinning(GATKFPipelineTask):
         self.human_chromosomes = [str(x) for x in xrange(1, 23)] + ["X", "Y", "MT"]
         self.binning_cmd = self.format_string(
             "{pypy} {gq_binner} 10000 {gvcf} {name_prep} {gq_dir}")
-        
-    def requires(self):
-        return self.clone(HaplotypeCaller)
-        
-    def output(self):
-        "Output from this task are 23 files, one for each chromosome"
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-                         pipeline_step_id=self.pipeline_step_id)
 
     def pre_shell_commands(self):
         self.shell_options.update(
             {"record_commands_fn":self.script, "stdout":self.log_file,
              "stderr":subprocess.STDOUT})
         self.commands = [self.binning_cmd]
+        
+    def requires(self):
+        return self.clone(HaplotypeCaller)
 
 class AlignmentMetrics(GATKFPipelineTask):
     """ Run Picard AlignmentSummaryMetrics """
@@ -1229,19 +1104,15 @@ class AlignmentMetrics(GATKFPipelineTask):
             "grep -v '^#' {alignment_metrics_raw} | awk -f {transpose_awk} "
             "> {alignment_metrics}")
 
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-                         pipeline_step_id=self.pipeline_step_id)
-
-    def requires(self):
-        return self.clone(HaplotypeCaller)
-
     def pre_shell_commands(self):
         self.shell_options.update(
             {"record_commands_fn":self.script, "stdout":None, "stderr":None,
              "shell":True})
         remove_cmd = "rm {}".format(self.alignment_metrics_raw)
         self.commands = [self.cmd, self.parser_cmd, remove_cmd]
+
+    def requires(self):
+        return self.clone(HaplotypeCaller)
 
 class RunCvgMetrics(GATKFPipelineTask):
     """ Task to get the coverage metrics"""
@@ -1359,13 +1230,6 @@ class RunCvgMetrics(GATKFPipelineTask):
                 parser_cmd, raw_output_file=self.raw_output_file_cs,
                 output_file=self.output_file_cs)
 
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-                         pipeline_step_id=self.pipeline_step_id)
-
-    def requires(self):
-        yield self.clone(HaplotypeCaller)
-
     def pre_shell_commands(self):
         """Run Picard CalculateHsMetrics,DepthOfCoverage or CollectWgsMetrics
         An optimization for the future is to split this up into multiple tasks since they are all independent
@@ -1380,6 +1244,9 @@ class RunCvgMetrics(GATKFPipelineTask):
             self.commands.extend(
                 [self.convert_cmd, self.cvg_cmd5, self.parser_cmd5])
 
+    def requires(self):
+        yield self.clone(HaplotypeCaller)
+
 class DuplicateMetrics(GATKFPipelineTask):
     """ Parse Duplicate Metrics from dragen logs """
     def __init__(self,*args,**kwargs):
@@ -1392,13 +1259,6 @@ class DuplicateMetrics(GATKFPipelineTask):
             self.log_dir, self.name_prep + ".dups.log")
         if not os.path.isfile(self.dragen_log):
             raise Exception("The dragen log file could not be found !")
-
-    def requires(self):
-        return self.clone(CopyBam)
-
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-                         pipeline_step_id=self.pipeline_step_id)
 
     def pre_shell_commands(self):
         perc_duplicates = None
@@ -1417,6 +1277,9 @@ class DuplicateMetrics(GATKFPipelineTask):
                 out.write(msg + "\n")
             raise Exception(msg)
 
+    def requires(self):
+        return self.clone(CopyBam)
+
 class VariantCallingMetrics(GATKFPipelineTask):
     def __init__(self,*args,**kwargs):
         super(VariantCallingMetrics,self).__init__(*args,**kwargs)
@@ -1433,20 +1296,15 @@ class VariantCallingMetrics(GATKFPipelineTask):
             "grep -v '^#' {metrics_raw_summary} | awk -f {tranpose_awk} "
             "> {metrics_file}")
 
-    def requires(self):
-        return self.clone(AnnotateVCF)
-
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-                         pipeline_step_id=self.pipeline_step_id)
-
     def pre_shell_commands(self):
         self.shell_options.update(
             {"stdout":None, "stderr":None, "shell":True})
         remove_cmd1 = "rm " + self.metrics_raw_summary
         remove_cmd2 = "rm " + self.metrics_raw_detail
         self.commands = [self.cmd, self.parser_cmd, remove_cmd1, remove_cmd2]
-        self.run_commands()
+
+    def requires(self):
+        return self.clone(AnnotateVCF)
 
 class GenotypeConcordance(GATKFPipelineTask):
     """ Run the gatk tool for evaluation of the variant calls
@@ -1459,13 +1317,6 @@ class GenotypeConcordance(GATKFPipelineTask):
             "{java} -XX:ParallelGCThreads=4 -jar {gatk} -T GenotypeConcordance "
             "-R {ref_genome} -eval {eval_vcf} -comp {truth_vcf} "
             "-o {concordance_metrics} -U ALLOW_SEQ_DICT_INCOMPATIBILITY")
-
-    def requires(self):
-        return self.clone(AnnotateVCF)
-
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-                         pipeline_step_id=self.pipeline_step_id)
 
     def pre_shell_commands(self):
         self.shell_options.update(
@@ -1496,6 +1347,9 @@ class GenotypeConcordance(GATKFPipelineTask):
                 if line.split("\t")[FILTER_idx] == "PASS":
                     vcf_out.write(line)
 
+    def requires(self):
+        return self.clone(AnnotateVCF)
+
 class ContaminationCheck(GATKFPipelineTask):
     """ Run VerifyBamID to check for sample contamination """
     def __init__(self, *args, **kwargs):
@@ -1514,18 +1368,14 @@ class ContaminationCheck(GATKFPipelineTask):
             "awk -f {transpose_awk} {contamination_raw}.selfSM > {contamination_final}")
         self.remove_cmd = "rm " + self.snp_vcf
 
-    def requires(self):
-        return self.clone(AnnotateVCF)
-
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-                         pipeline_step_id=self.pipeline_step_id)
-
     def pre_shell_commands(self):
         self.shell_options.update(
             {"record_commands_fn":self.script, "stdout":None, "stderr":None,
              "shell":True})
         self.commands = [self.cmd, self.parser_cmd]
+
+    def requires(self):
+        return self.clone(AnnotateVCF)
 
 def update_alignseqfile(location, sample_name, pseudo_prepid):
     update_statement = """
@@ -1614,23 +1464,6 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             "ccds":{"MEAN_COVERAGE":qcmetrics().mean_cvg, "PCT_5X":qcmetrics().pct_bases5X,
                     "PCT_10X":qcmetrics().pct_bases10X, "PCT_15X":qcmetrics().pct_bases15X,
                     "PCT_20X":qcmetrics().pct_bases20X}}}
-
-    def requires(self):
-        yield self.clone(AnnotateVCF)
-        yield self.clone(GQBinning)
-        yield self.clone(CvgBinning)
-        yield self.clone(AlignmentMetrics)
-        yield self.clone(RunCvgMetrics)
-        yield self.clone(DuplicateMetrics)
-        yield self.clone(VariantCallingMetrics)
-        yield self.clone(ContaminationCheck)
-        if get_productionvcf(
-            self.pseudo_prepid,self.sample_name,self.sample_type) is not None:
-            yield self.clone(GenotypeConcordance)
-
-    def output(self):
-        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
-                         pipeline_step_id=self.pipeline_step_id)
 
     def pre_shell_commands(self):
         self.LOG_FILE = open(self.log_file,'w')
@@ -2064,3 +1897,16 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             self.all_snv_hom = variants["all"]["snv"]["hom"]
             self.all_indel_het = variants["all"]["indel"]["het"]
             self.all_indel_hom = variants["all"]["indel"]["hom"]
+
+    def requires(self):
+        yield self.clone(AnnotateVCF)
+        yield self.clone(GQBinning)
+        yield self.clone(CvgBinning)
+        yield self.clone(AlignmentMetrics)
+        yield self.clone(RunCvgMetrics)
+        yield self.clone(DuplicateMetrics)
+        yield self.clone(VariantCallingMetrics)
+        yield self.clone(ContaminationCheck)
+        if get_productionvcf(
+            self.pseudo_prepid,self.sample_name,self.sample_type) is not None:
+            yield self.clone(GenotypeConcordance)
