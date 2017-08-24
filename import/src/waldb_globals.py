@@ -30,6 +30,37 @@ CHROMs = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
           "14", "15", "16", "17", "18", "19", "20", "21", "22", "X", "Y", "MT"]
 # exclude variant calls below this read depth
 
+class SQLTarget(luigi.Target):
+    """ A luigi target class describing verification of the entries in the database
+    """
+
+    def __init__(self, pseudo_prepid, pipeline_step_id):
+        self.pseudo_prepid = pseudo_prepid
+        self.pipeline_step_id = pipeline_step_id
+
+    def exists(self):
+        db = get_connection("seqdb")
+        try:
+            cur = db.cursor()
+            cur.execute(GET_STEP_STATUS.format(
+                pseudo_prepid=self.pseudo_prepid,
+                pipeline_step_id=self.pipeline_step_id))
+            row = cur.fetchone()
+            if row:
+                if row[0] == 1:
+                    return True
+                else:
+                    return False
+            else:
+                cur.execute(INSERT_PIPELINE_STEP.format(
+                    pseudo_prepid=self.pseudo_prepid,
+                    pipeline_step_id=self.pipeline_step_id))
+                db.commit()
+                return False
+        finally:
+            if db.open:
+                db.close()
+
 class DereferenceKeyAction(argparse.Action):
     """Define a class for automatically converting the key specified from
     choices to its corresponding value
@@ -389,10 +420,23 @@ class PipelineTask(SGEJobTask):
             if seqdb.open:
                 seqdb.close()
 
+    def _set_pipeline_version():
+        """Set the version of the pipeline being executed by checking the git
+        respository's version tag
+        """
+        version = subprocess.check_output(
+            ["git", "describe", "--tags"]).strip()
+        if version:
+            self.version = version
+        else:
+            raise ValuError("Could not get the version # of the pipeline; "
+                            "maybe run it from a directory in the repo?")
+
     def run(self):
         """First create/update as needed the record in the pipeline step table,
         set its start time, and increment its times_ran counter
         """
+        self._get_pipeline_version()
         self._update_step_start_time()
         try:
             super(PipelineTask, self).run()
@@ -413,7 +457,7 @@ class PipelineTask(SGEJobTask):
             seq_cur.execute(BEGIN_STEP.format(
                 pseudo_prepid=self.pseudo_prepid,
                 pipeline_step_id=self.pipeline_step_id,
-                times_ran=times_ran + 1))
+                version=self.version, times_ran=times_ran + 1))
             seqdb.commit()
         finally:
             if seqdb.open:
@@ -502,6 +546,10 @@ class PipelineTask(SGEJobTask):
             os.chmod(fn, 0664)
         for d in self.directories:
             os.chmod(fn, 0775)
+
+    def output(self):
+        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
+                         pipeline_step_id=self.pipeline_step_id)
 
 class DragenPipelineTask(PipelineTask):
     """Add the parameters that are de facto in every gatk_pipe task to reduce
