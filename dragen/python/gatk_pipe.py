@@ -900,11 +900,7 @@ def get_productionvcf(pseudo_prepid,sample_name,sample_type):
         """ SELECT AlignSeqFileLoc FROM seqdbClone WHERE"""
         """ CHGVID = '{0}' AND seqType = '{1}' AND """
         """ pseudo_prepid = '{2}'""".format(
-<<<<<<< HEAD
-            sample_name,sample_type,pseudo_prepid))
-=======
-                           sample_name,sample_type,pseudo_prepid))
->>>>>>> 3593497e3b270260d82754e5aeb1cc920b0f3126
+            sample_name, sample_type, pseudo_prepid))
     db = get_connection("seqdb")
     try:
         cur = db.cursor()
@@ -912,27 +908,16 @@ def get_productionvcf(pseudo_prepid,sample_name,sample_type):
         db_val = cur.fetchall()
         if len(db_val) == 0: ## If the query returned no results
             return None ## Pass control back, note the finally clause is still executed 
-<<<<<<< HEAD
         elif len(db_val) > 1:
-=======
-        if len(db_val) > 1:
->>>>>>> 3593497e3b270260d82754e5aeb1cc920b0f3126
             warnings.warn("More than 1 entry , warning :" 
                           "duplicate pseudo_prepids !")
         alignseqfileloc = db_val[-1][0] ## Get the last result
-        vcf_loc = os.path.join(alignseqfileloc,'combined')
+        vcf_loc = os.path.join(alignseqfileloc, 'combined')
         vcf = os.path.join(vcf_loc, "{}.analysisReady.annotated.vcf".format(sample_name))
-<<<<<<< HEAD
         if os.path.isfile(vcf):
             return vcf
         vcf += ".gz"
         if os.path.isfile(vcf):
-=======
-        if vcf:
-            return vcf
-        vcf += ".gz"
-        if vcf:
->>>>>>> 3593497e3b270260d82754e5aeb1cc920b0f3126
             return vcf
         else:
             return None
