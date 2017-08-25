@@ -10,8 +10,9 @@ import luigi
 from operator import lt, le
 from ConfigParser import ConfigParser, RawConfigParser
 import logging
-from db_statements import (GET_SAMPLE_DIRECTORY, GET_TIMES_STEP_RUN, BEGIN_STEP,
-                           FINISH_STEP, FAIL_STEP, GET_PIPELINE_STEP_ID)
+from db_statements import (
+    GET_SAMPLE_DIRECTORY, GET_TIMES_STEP_RUN, BEGIN_STEP,
+    FINISH_STEP, FAIL_STEP, GET_PIPELINE_STEP_ID, GET_STEP_STATUS)
 from itertools import chain
 from collections import OrderedDict, Counter, defaultdict
 from functools import wraps
@@ -43,7 +44,7 @@ class SQLTarget(luigi.Target):
         try:
             cur = db.cursor()
             cur.execute(GET_STEP_STATUS.format(
-                pseudo_prepid=self.pseudo_prepid,
+                prep_id=self.pseudo_prepid,
                 pipeline_step_id=self.pipeline_step_id))
             row = cur.fetchone()
             if row:
@@ -53,7 +54,7 @@ class SQLTarget(luigi.Target):
                     return False
             else:
                 cur.execute(INSERT_PIPELINE_STEP.format(
-                    pseudo_prepid=self.pseudo_prepid,
+                    prep_id=self.pseudo_prepid,
                     pipeline_step_id=self.pipeline_step_id))
                 db.commit()
                 return False
@@ -397,7 +398,7 @@ class PipelineTask(SGEJobTask):
         # these will be passed onto subprocess, overwrite in pre_shell_commands
         # method if needed
         self.shell_options = {"record_commands_fn":None, "stdout":os.devnull,
-                              "stderr":sys.stdout, shell:True}
+                              "stderr":None, "shell":True}
         self.commands = []
         self.files = []
         self.directories = []
@@ -420,7 +421,7 @@ class PipelineTask(SGEJobTask):
             if seqdb.open:
                 seqdb.close()
 
-    def _set_pipeline_version():
+    def _set_pipeline_version(self):
         """Set the version of the pipeline being executed by checking the git
         respository's version tag
         """
@@ -436,7 +437,7 @@ class PipelineTask(SGEJobTask):
         """First create/update as needed the record in the pipeline step table,
         set its start time, and increment its times_ran counter
         """
-        self._get_pipeline_version()
+        self._set_pipeline_version()
         self._update_step_start_time()
         try:
             super(PipelineTask, self).run()
@@ -450,7 +451,7 @@ class PipelineTask(SGEJobTask):
         try:
             seq_cur = seqdb.cursor()
             seq_cur.execute(GET_TIMES_STEP_RUN.format(
-                pseudo_prepid=self.pseudo_prepid,
+                prep_id=self.pseudo_prepid,
                 pipeline_step_id=self.pipeline_step_id))
             row = seq_cur.fetchone()
             times_ran = row[0] if row else 0
@@ -498,7 +499,7 @@ class PipelineTask(SGEJobTask):
         command functions as needed
         """
         self.pre_shell_commands()
-        self.run_commands()
+        self.run_shell_commands()
         self.post_shell_commands()
         self.update_permissions()
 
@@ -519,25 +520,35 @@ class PipelineTask(SGEJobTask):
         the event that any returns a non-zero error code
         """
         if self.commands:
-            if self.shell_options["record_commands_fn"]:
-                with open(self.shell_options["record_commands_fn"], "w") as out:
+            fn = self.shell_options.pop("record_commands_fn")
+            if fn:
+                with open(fn, "w") as out:
                     out.write("\n".join(self.commands))
 
             for command in self.commands:
+                fhs = {"stdout":None, "stderr":None}
                 try:
                     if not self.shell_options["shell"]:
                         command = sxsplit(command)
-                    fhs = {"stdout":None, "stderr":None}
+                    if not self.shell_options["stderr"]:
+                        fhs["stderr"] = file_handle(sys.stdout)
+                    fh_dict = {}
                     for fh in ("stdout", "stderr"):
-                        if self.shell_options[fh]:
-                            fhs[fh] = file_handle(self.shell_options[fh])
+                        f = self.shell_options.pop(fh)
+                        # store these in a temporary dict and add back later, as
+                        # subprocess will raise an exception if these are passed
+                        # in
+                        fh_dict[fh] = f
+                        if f:
+                            fhs[fh] = file_handle(f)
                     p = subprocess.Popen(
-                        command, stdout=fh["stdout"], stderr=fh["stderr"],
+                        command, stdout=fhs["stdout"], stderr=fhs["stderr"],
                         **self.shell_options)
                     p.wait()
                     if p.returncode:
                         raise subprocess.CalledProcessError(
                             p.returncode, command)
+                    self.shell_options.update(fh_dict)
                 finally:
                     close_file_handles([fhs["stdout"], fhs["stderr"]])
 
@@ -571,7 +582,7 @@ class GATKPipelineTask(DragenPipelineTask):
     """
     def __init__(self, *args, **kwargs):
         super(GATKPipelineTask, self).__init__(*args, **kwargs)
-        name_prep = "{}.{}".format(self.sample_name, self.psuedo_prepid)
+        name_prep = "{}.{}".format(self.sample_name, self.pseudo_prepid)
         self.name_prep = name_prep
         self.scratch_dir = os.path.join(
             self.scratch, self.sample_type, name_prep)
