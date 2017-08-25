@@ -12,11 +12,12 @@ import string
 import sys
 import subprocess
 import signal
+import stat
 
 from time import sleep,time
 from threading import Thread
 from dragen_globals import get_connection
-from db_statements import *
+from dragen_db_statements import *
 from datetime import datetime
 from email.mime.text import MIMEText
 
@@ -97,7 +98,7 @@ def create_logdir(baselogdir,sample_name,pseudo_prepid):
     final_log_dir = os.path.join(baselogdir,sample_log_dir)
     if not os.path.exists(final_log_dir):
         os.makedirs(final_log_dir)
-        os.chmod(final_log_dir,stat.S_IRWXG)
+        os.chmod(final_log_dir, 0775)
     return final_log_dir
 
 def get_capturekit_info(sample_type,capture_kit):
@@ -216,13 +217,16 @@ def run_luigi(sample_info,baselogdir,RUNNING):
     final_log_dir = create_logdir(baselogdir,sample_name,pseudo_prepid)
     out_file = os.path.join(final_log_dir,sample_name+'_'+pseudo_prepid+'.stdout')
     error_file = os.path.join(final_log_dir,sample_name+'_'+pseudo_prepid+'.stderr')
-    os.chdir('/nfs/goldstein/software/dragen_pipe/dragen/python/')
+    #os.chdir('/nfs/goldstein/software/dragen_pipe/dragen/python/')
     try:
         flag = 0
         key = sample_name+'.'+pseudo_prepid+'.'+sample_type
-        cmd = (""" luigi --module gatk_pipe ArchiveSample --sample-name {0} --pseudo-prepid {1} --capture-kit-bed  {2} --sample-type {3} --scratch {4} --poll-time 120 --workers 2 --worker-wait-interval 180 --scheduler-remove-delay 86400""".format(sample_name,pseudo_prepid,capture_bed,sample_type,scratch))
+        cmd = ("luigi --module gatk_pipe ArchiveSample --sample-name {0} "
+               "--pseudo-prepid {1} --capture-kit-bed  {2} --sample-type {3} "
+               "--scratch {4} --poll-time 120 --workers 2 --worker-wait-interval 180""".
+               format(sample_name, pseudo_prepid, capture_bed,
+                      sample_type.upper(), scratch))
         print cmd
-        print os.getcwd()
         with open(out_file,'w') as OUT, open(error_file,'w') as ERR:
             proc = subprocess.Popen(shlex.split(cmd),stdout=OUT,stderr=ERR)
             proc.wait()
@@ -317,7 +321,7 @@ def main(args):
 if __name__ == "__main__":
     ## Add in logging levels for future 
     parser = argparse.ArgumentParser('Luigi wrapper script',description="This script is a wrapper for running the new dragen variant calling and qc pipeline.")
-    parser.add_argument("--baselogdir",default="/nfs/seqscratch09/pipeline_logs/",help="Directory to log the luigi stdout and stderr, will create a timestamp and sample specific directory in here, timestamp is at the level of a day",required = False)
+    parser.add_argument("--baselogdir",default="/nfs/seqscratch10/pipeline_logs/",help="Directory to log the luigi stdout and stderr, will create a timestamp and sample specific directory in here, timestamp is at the level of a day",required = False)
     parser.add_argument("--max-processes",dest='max_processes',default=300,help="The maximum number of processes to run",required=False,type=int)
     parser.add_argument("--wait-time",dest='wait_time',default=3600,help="The number of seconds to wait before querying the database for samples again",required=False,type=int)
     parser.add_argument("--scratch",default="seqscratch_ssd",help="The scratch directory to operate on",required=False)
