@@ -241,7 +241,7 @@ VALUE ({pseudo_prepid}, {sample_initialized_step_id}, NOW(), 1, 1)
 """
 BEGIN_STEP = """
 REPLACE dragen_pipeline_step
-VALUE ({pseudo_prepid}, {pipeline_step_id}, {version}, NOW(), NULL, {times_ran}, 0, 0)
+VALUE ({pseudo_prepid}, {pipeline_step_id}, "{version}", NOW(), NULL, {times_ran}, 0, 0)
 """
 FINISH_STEP = """
 UPDATE dragen_pipeline_step
