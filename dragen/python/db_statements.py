@@ -72,6 +72,6 @@ GET_SAMPLES_TO_RUN = (
     """FROM dragen_sample_metadata as D INNER JOIN (select d1.pseudo_prepid FROM """
     """dragen_pipeline_step as d1 WHERE d1.pseudo_prepid NOT IN (SELECT pseudo_prepid """
     """FROM dragen_pipeline_step as d2 WHERE d2.pipeline_step_id = 31 AND d2.finished = 1) """
-    """AND d1.pipeline_step_id = 11 AND d1.finished = 1) as P ON """
+    """AND d1.pipeline_step_id = 1 AND d1.finished = 1) as P ON """
     """D.pseudo_prepid = P.pseudo_prepid ORDER BY D.priority; """
 )
