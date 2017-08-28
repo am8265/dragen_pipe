@@ -918,7 +918,7 @@ class CreateGenomeBed(GATKFPipelineTask):
         Note : Can use PrintReads here to speed things up, but may
         face IO bottle necks --> Future test
         """
-        return self.clone(HaplotypeCaller)
+        return self.clone(PrintReads)
 
 class CvgBinning(GATKFPipelineTask):
     def __init__(self,*args,**kwargs):
@@ -1246,15 +1246,12 @@ class ContaminationCheck(GATKFPipelineTask):
             self.scratch_dir, self.sample_name + ".contamination.raw")
         self.contamination_final = os.path.join(
             self.scratch_dir, self.name_prep + ".contamination.selfSM")
-        self.snp_vcf = os.path.join(
-            self.scratch_dir, self.name_prep + ".snpcontam.vcf.gz")
         self.contamination_cmd = self.format_string(
             "{verifybamid} --vcf {contam1000g_vcf} --bam {recal_bam} --out "
             "{contamination_raw} --verbose --ignoreRG --maxDepth 1000 --precise "
             ">> {log_file}")
         self.parser_cmd = self.format_string(
             "awk -f {transpose_awk} {contamination_raw}.selfSM > {contamination_final}")
-        self.remove_cmd = "rm " + self.snp_vcf
 
     def pre_shell_commands(self):
         self.shell_options.update(
