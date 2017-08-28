@@ -43,8 +43,6 @@ def main(samples, debug, dontexecute, database, seqscratch_drive):
             sample.metadata['output_dir'] = ('/nfs/{}/ALIGNMENT/BUILD37/DRAGEN/{}/{}.{}/'
                                             ).format(seqscratch_drive,sample_type.upper(),
                                                      sample_name,pseudo_prepid)
-            print sample.metadata['output_dir']
-            print "=================="
             single_sample_setup(curs,sample,parameters,debug)
             db.close()
 
@@ -157,7 +155,7 @@ def update_dragen_metadata(curs,sample):
 def update_pipeline_step_id(curs,sample,submitTime,finishTime,debug):
     pseudo_prepid = sample.metadata['pseudo_prepid']
     timesRunQuery = ("SELECT times_ran FROM dragen_pipeline_step "
-                    "WHERE pseudo_prepid = {} and pipeline_step_id = 11"
+                    "WHERE pseudo_prepid = {} and pipeline_step_id = 1"
                     ).format(pseudo_prepid)
     curs.execute(timesRunQuery)
     timesRun = curs.fetchone()
@@ -167,7 +165,7 @@ def update_pipeline_step_id(curs,sample,submitTime,finishTime,debug):
                 "submit_time = '{}', "
                 "finish_time = '{}', "
                 "times_ran = times_ran + 1 "
-                "WHERE pseudo_prepid = {} and pipeline_step_id = 11"
+                "WHERE pseudo_prepid = {} and pipeline_step_id = 1"
                 ).format(submitTime,finishTime,pseudo_prepid)
         if debug:
            print pipelineID_update
@@ -175,7 +173,7 @@ def update_pipeline_step_id(curs,sample,submitTime,finishTime,debug):
     else:
         pipelineID_insert = ("INSERT INTO dragen_pipeline_step "
                 "(pseudo_prepid,pipeline_step_id,submit_time,finish_time,times_ran,finished) "
-                "VALUES ({},11,'{}','{}',1,1)").format(pseudo_prepid,submitTime,finishTime)
+                "VALUES ({},1,'{}','{}',1,1)").format(pseudo_prepid,submitTime,finishTime)
         if debug:
             print pipelineID_insert
         curs.execute(pipelineID_insert)
@@ -230,10 +228,15 @@ def setup_dir(curs,sample,debug):
     first_read1 = get_first_read(sample,1,debug)
     first_read2 = get_first_read(sample,2,debug)
     fastq_counter=0
+    fastq_log_file_loc = ('{}/{}.{}.fastq_list.log'
+                         ).format(sample.metadata['log_dir'],
+                                  sample.metadata['sample_name'],
+                                  sample.metadata['pseudo_prepid'])
+    fastq_log = open(fastq_log_file_loc,'w')
     for fastq_loc in sample.metadata['fastq_loc']:
         fastqs = glob(fastq_loc + '/*_R1_*fastq.gz')
         for fastq in fastqs:
-            if 'fastq16-rsync' in fastq:
+            if 'fastq16-rsync' in fastq:  # remove when we remove fastq16-rsync
                 pass
             else:
                 fastq_counter+=1
@@ -252,6 +255,9 @@ def setup_dir(curs,sample,debug):
 
                 subprocess.call(ln_cmd1)
                 subprocess.call(ln_cmd2)
+                fastq_log.write(' '.join(ln_cmd1) +'\n')
+                fastq_log.write(' '.join(ln_cmd2) +'\n')
+    fastq_log.close()
     check_Fastq_Total_Size(sample,debug)
     set_seqtime(curs,sample)
 
@@ -262,16 +268,14 @@ def check_Fastq_Total_Size(sample,debug):
     for fastq in glob(fastq_dir + '/*gz'):
         fastq_filesize = os.stat(os.path.realpath(fastq)).st_size
         fastq_filesize_sum += fastq_filesize
-
+    print 'Total fastq file size: {}'.format(fastq_filesize_sum)
     if sample_type == 'genome':
         if fastq_filesize_sum < 53687091200: # < 50GB
-            print fastq_filesize_sum,float(fastq_filesize_sum)/1024/1024/1024
             userInput = raw_input('Sum of fastq files sizes are too small.  Is this ok? (y)es or (n)o ').lower()
             if userInput == 'n':
                 raise Exception, "Sum of fastq files sizes is too small for a {} sample!".format(sample_type)
     elif sample_type == 'exome':
         if fastq_filesize_sum > 32212254720: # > 30GB
-            print fastq_filesize_sum,float(fastq_filesize_sum)/1024/1024/1024
             userInput = raw_input('Sum of fastq files sizes are too big.  Is this ok? (y)es or (n)o ').lower()
             if userInput == 'n':
                  raise Exception, "Sum of fastq files is too big for a {} sample!".format(sample_type)
@@ -281,7 +285,6 @@ def check_Fastq_Total_Size(sample,debug):
                  raise Exception, "Sum of fastq files is too small for a {} sample!".format(sample_type)
     elif sample_type == 'rnaseq':
         if fastq_filesize_sum > 32212254720: # > 30GB
-            print fastq_filesize_sum,float(fastq_filesize_sum)/1024/1024/1024
             userInput = raw_input('Sum of fastq files sizes are too big.  Is this ok? (y)es or (n)o ').lower()
             if userInput == 'n':
                  raise Exception, "Sum of fastq files sizes is too big for a {} sample!".format(sample_type)
@@ -291,7 +294,6 @@ def check_Fastq_Total_Size(sample,debug):
                  raise Exception, "Sum of fastq files is too small for a {} sample!".format(sample_type)
     elif sample_type == 'custom_capture':
         if fastq_filesize_sum > 10737418240: # > 10GB
-            print fastq_filesize_sum,float(fastq_filesize_sum)/1024/1024/1024
             userInput = raw_input('Sum of fastq files sizes are too big.  Is this ok? (y)es or (n)o ').lower()
             if userInput == 'n':
                  raise Exception, "Sum of fastq files sizes is too big for a {} sample!".format(sample_type)
