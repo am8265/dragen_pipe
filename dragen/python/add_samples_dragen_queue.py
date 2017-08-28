@@ -13,7 +13,7 @@ def main(samples, sample_type, capture_kit, debug, priority, curs):
     for sample_name in samples:
         sample = dragen_sample(sample_name,sample_type,0,capture_kit, curs)
         pseudo_prepid = insert_pseudo_prepid(sample,debug)
-        #insert_dragen_queue(sample,debug,priority,pseudo_prepid)
+        insert_dragen_queue(sample,debug,priority,pseudo_prepid)
         insert_seqdbClone(sample,debug,priority,pseudo_prepid)
 
 def insert_pseudo_prepid(sample,debug):
