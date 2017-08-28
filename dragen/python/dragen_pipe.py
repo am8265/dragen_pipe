@@ -157,25 +157,27 @@ def update_dragen_metadata(curs,sample):
 def update_pipeline_step_id(curs,sample,submitTime,finishTime,debug):
     pseudo_prepid = sample.metadata['pseudo_prepid']
     timesRunQuery = ("SELECT times_ran FROM dragen_pipeline_step "
-                    "WHERE pseudo_prepid = {} and pipeline_step_id = 11"
+                    "WHERE pseudo_prepid = {} and pipeline_step_id = 1"
                     ).format(pseudo_prepid)
     curs.execute(timesRunQuery)
     timesRun = curs.fetchone()
+    version = subprocess.check_output(
+        ["git", "describe", "--tags"]).strip()
 
     if timesRun:
         pipelineID_update = ("UPDATE dragen_pipeline_step SET "
                 "submit_time = '{}', "
                 "finish_time = '{}', "
                 "times_ran = times_ran + 1 "
-                "WHERE pseudo_prepid = {} and pipeline_step_id = 11"
+                "WHERE pseudo_prepid = {} and pipeline_step_id = 1"
                 ).format(submitTime,finishTime,pseudo_prepid)
         if debug:
            print pipelineID_update
         curs.execute(pipelineID_update)
     else:
         pipelineID_insert = ("INSERT INTO dragen_pipeline_step "
-                "(pseudo_prepid,pipeline_step_id,submit_time,finish_time,times_ran,finished) "
-                "VALUES ({},11,'{}','{}',1,1)").format(pseudo_prepid,submitTime,finishTime)
+                "(pseudo_prepid,pipeline_step_id,version,submit_time,finish_time,times_ran,finished) "
+                "VALUES ({},1,'{}','{}','{}',1,1)").format(pseudo_prepid,version,submitTime,finishTime)
         if debug:
             print pipelineID_insert
         curs.execute(pipelineID_insert)
