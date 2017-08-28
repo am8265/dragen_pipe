@@ -1,6 +1,5 @@
 #!/nfs/goldstein/software/python2.7.7/bin/python2.7
 
-import getpass
 import os
 import shlex
 import sys
@@ -19,6 +18,8 @@ from numpy import isclose
 from shutil import rmtree
 from copy import deepcopy
 from collections import Counter
+from getpass import getuser
+from pwd import getpwuid
 from gzip import open as gopen
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.realpath(__file__)))), "import", "src"))
@@ -28,6 +29,14 @@ from waldb_globals import *
 Run samples through a luigized GATK pipeline after finishing the
 Dragen based alignment
 """
+
+def owner(fn):
+    """Return the user name of the owner of the specified file
+    """
+    if os.path.exists(fn):
+        return getpwuid(os.stat(fn).st_uid).pw_name
+    else:
+        raise OSError("{fn} does not exist!".format(fn=fn))
 
 def getDBIDMaxPrepID(pseudo_prepid):
     """ Function to get max prepid for a given pseudo_prepid
@@ -466,7 +475,11 @@ class CombineVariants(GATKFPipelineTask):
                         vcf_out.write(indel)
 
         self.shell_options["record_commands_fn"] = self.script
-        self.commands = [self.format_string("{java} -jar {picard} SortVcf I={tmp_vcf} O={final_vcf}")]
+        self.commands.append(self.format_string(
+            "{java} -jar {picard} SortVcf I={tmp_vcf} O={final_vcf}"))
+        self.commands.append(self.format_string("{bgzip} -f {final_vcf}"))
+        self.commands.append(self.format_string(
+            "{tabix} -f {final_vcf_gz}"))
 
     def requires(self):
         if self.sample_type in ("EXOME", "GENOME"):
@@ -485,14 +498,12 @@ class RBP(GATKFPipelineTask):
     """ Run GATK's Read Backed Phasing"""
     def pre_shell_commands(self):
         """ Run the actual command """
-        if os.path.isfile(self.final_vcf_gz):
-            self.final_vcf = self.final_vcf_gz
         self.shell_options.update(
             {"record_commands_fn":self.script, "stdout":self.log_file,
              "stderr":subprocess.STDOUT})
         self.commands = [self.format_string(
             "{java} -jar {gatk} -T ReadBackedPhasing -R {ref_genome} "
-            " -I {recal_bam} --variant {vcf} -o {phased_vcf} "
+            " -I {recal_bam} --variant {final_vcf_gz} -o {phased_vcf} "
             " --phaseQualityThresh 20.0 --maxGenomicDistanceForMNP 2 "
             " --enableMergePhasedSegregatingPolymorphismsToMNP "
             "-U ALLOW_SEQ_DICT_INCOMPATIBILITY")]
@@ -507,14 +518,6 @@ class FixMergedMNPInfo(GATKFPipelineTask):
     and add these information to the fixed vcf """
     def pre_shell_commands(self):
         self.LOG_FILE = open(self.log_file, "w")
-        self.final_vcf_gz = self.final_vcf + ".gz"
-        if os.path.isfile(self.final_vcf):
-            self.commands.append(self.format_string("{bgzip} -f {final_vcf}"))
-            self.commands.append(self.format_string(
-                "{tabix} -f {final_vcf_gz}"))
-        elif not os.path.isfile(self.final_vcf_gz + ".tbi"):
-            self.commands.append(self.format_string(
-                "{tabix} -f {final_vcf_gz}"))
 
     def post_shell_commands(self):
         self.fix_phased_vcf()
@@ -527,31 +530,33 @@ class FixMergedMNPInfo(GATKFPipelineTask):
         """ Fix the missing DP and AD fields for the phased variants
 
         phased_vcf : str ; path to the phased vcf file
-        deannotated_vcf : str ; path to the deannotated vcf file(should
         be gzipped and tabix indexed
         """
 
-        with open(self.phased_vcf,'r') as PHASED_VCF, open(self.fixed_vcf,'w') as OUT:
+        self.vcf_tabix = tabix.open(self.final_vcf_gz)
+        with open(self.phased_vcf, "r") as PHASED_VCF, open(self.fixed_vcf, "w") as OUT:
             for line in PHASED_VCF:
-                line = line.strip('\n')
-                if line[0] == '#':
-                    print >> OUT,line
-                elif self.check_dp_info(line): ## Check if DP is present in the info field
-                    print >> OUT,line
+                line = line.strip("\n")
+                fields = line.split("\t")
+                if line.startswith("#"):
+                    print >> OUT, line
+                elif "DP" in fields[VCF_COLUMNS_DICT["FORMAT"]].split(":"):
+                    print >> OUT, line
                 else:
-                    ## Check for a MNP
-                    if self.check_mnp(line):
-                        ## get DP,AD_ref,AD_alt
-                        chrom = line.split('\t')[0]
-                        pos = int(line.split('\t')[1])
+                    lREF = len(fields[VCF_COLUMNS_DICT["REF"]])
+                    lALT = len(fields[VCF_COLUMNS_DICT["ALT"]])
+                    if (lREF > 1 and lREF == lALT and "," not in 
+                        fields[VCF_COLUMNS_DICT["ALT"]]):
+                        # valid MNP
+                        # get DP,AD_ref,AD_alt
+                        chrom = fields[VCF_COLUMNS_DICT["CHROM"]]
+                        pos = int(fields[VCF_COLUMNS_DICT["POS"]])
                         ad, dp = self.get_ad_dp_from_vcf(self.final_vcf_gz, chrom, pos)
-                        annotations = self.get_gatk_annotations_from_vcf(
-                            self.deannotated_vcf_gz, chrom, pos)
-                        ## Construct a new vcf line
+                        annotations = self.get_gatk_annotations_from_vcf(chrom, pos)
+                        # Construct a new vcf line
                         new_line = self.construct_fixed_vcf_line(line,[ad,dp,annotations])
-                        print new_line
                         print >> OUT,new_line
-                    else: ## A non MNP with no DP, raise an exception
+                    else: # A non MNP with no DP, raise an exception
                         raise Exception("A non MNP encountered with no DP in info field")
 
     def construct_fixed_vcf_line(self, line, missing_vals):
@@ -589,62 +594,16 @@ class FixMergedMNPInfo(GATKFPipelineTask):
         ## Return the fixed line
         return '\t'.join(contents)
 
-    def check_dp_info(self,line):
-        """ Checks whether dp is present in the info field
-        returns True if DP is present, otherwise returns False
-
-        line : str ; a non header line from the vcf file
-
-        returns : Bool 
-        """
-
-        return ("DP" in line.split('\t')[-2].split(':'))
-
-    def check_mnp(self,line):
-        """ Checks whether the variant is a MNP
-        returns True if it is, otherwise returns False
-
-        line : str ; a non header line from the vcf file
-
-        returns : Bool 
-        """
-
-        def check_equality(r,a):
-            return (len(r) == len(a))
-
-        ref = line.split('\t')[3]
-        alt = line.split('\t')[4]
-        if len(ref) == 1:
-            return False
-        else:
-            if len(alt.split(',')) > 1: ## A multiallelic site
-                a1,a2 = alt.split(',')
-                if check_equality(ref,a1) or check_equality(ref,a2):
-                    raise Exception("A MNP at a multi allelic site !")
-            else:
-                return check_equality(ref,alt)                    
-
-    def get_gatk_annotations_from_vcf(self,vcf,chrom,pos):
+    def get_gatk_annotations_from_vcf(self, chrom, pos):
         """ Get GATK specific annotations like FS,VQSLOD,ExcessHet
         which are absent in MNPs after RBP has been run
 
-        vcf : str ; path to the vcf file
         chrom : str ; the chromosome number
         pos : int ; the position for the variant
 
         returns : The annotations with the AC,AF,AN removed
         """
-
-        try:
-            tb = tabix.open(vcf)
-        except IOError as (errno,etrerror):
-            print >> self.LOG_FILE,"Error with tabix, could not open the vcf file"
-            " check to see if it is indexed properly"
-        except:
-            print >> self.LOG_FILE,"Something wrong with opening the indexed vcf file"
-            sys.exit(1)
-
-        return (';'.join(list(tb.query(chrom,pos,pos))[0][7].split(';')[3:]))
+        return (";".join(list(self.vcf_tabix.query(chrom,pos,pos))[0][7].split(";")[3:]))
 
     def get_correct_record(self,records,pos):
         """ Return the record having its position equal to pos
@@ -663,28 +622,16 @@ class FixMergedMNPInfo(GATKFPipelineTask):
         print >> self.LOG_FILE,message
         raise Exception(message)
 
-    def get_ad_dp_from_vcf(self,vcf,chrom,pos):
+    def get_ad_dp_from_vcf(self, chrom, pos):
         """ Get DP, AD_REF, AD_ALT
         from a VCF file
 
-        vcf : str ; path to the vcf file
         chrom : str ; the chromosome number
         pos : int ; the position for the variant
 
         returns : [dp,ad_ref,ad_alt]
         """
-
-        try:
-            tb = tabix.open(vcf)
-        except IOError as (errno,strerror):
-            print >> self.LOG_FILE,"Error with tabix, could not open the vcf file"
-            " check to see if it is indexed properly"
-            sys.exit(1)
-        except:
-            print >> self.LOG_FILE,"Something wrong with opening the indexed vcf file"
-            sys.exit(1)
-
-        records = list(tb.query(chrom,pos,pos))
+        records = list(self.vcf_tabix.query(chrom, pos, pos))
         ## The above query returns all variant sites
         ## spanning the pos which we have queried for
         ## We only want the exact pos site, so check
@@ -716,7 +663,7 @@ class AnnotateVCF(GATKFPipelineTask):
     def pre_shell_commands(self):
         self.shell_options.update(
             {"record_commands_fn":self.script, "stdout":None, "stderr":None,
-             shell:True})
+             "shell":True})
         self.commands = [self.format_string(
             "/nfs/goldstein/software/jdk1.8.0_05/bin/java -Xmx6g -jar {clineff} "
             "-c {clineff_cfg} -v -db {annotatedbSNP} GRCh37.87 {fixed_vcf} "
@@ -807,35 +754,42 @@ class ArchiveSample(GATKFPipelineTask):
         ## create the base directory if it does not exist
         if not os.path.isdir(self.base_dir):
             os.makedirs(self.base_dir)
-
         if not os.path.isdir(self.script_dir):
             os.makedirs(self.script_dir)
-        cmd = ("rsync -grlt --inplace --partial "
-               "{script_dir} {log_dir} {recal_bam} {recal_bam_index} {annotated_vcf_gz} "
-               "{annotated_vcf_gz_index} {gvcf} {gvcf_index} "
-               "{cvg_binned} {gq_binned} {alignment_out} {cvg_out} "
-               "{cvg_ccds_out} {cvg_X_out} {cvg_Y_out} {dup_out} "
-               "{variant_call_out} {contamination_out} {base_dir}")
+        cmd = ["rsync", "-grlt", "--inplace", "--partial", "{script_dir}",
+               "{recal_bam}", "{recal_bam_index}", "{annotated_vcf_gz}",
+               "{annotated_vcf_gz_index}", "{gvcf}", "{gvcf_index}",
+               "{cvg_binned}", "{gq_binned}", "{alignment_out}", "{cvg_out}",
+               "{cvg_ccds_out}", "{dup_out}", "{variant_call_out}",
+               "{contamination_out}"]
         if self.sample_type == "GENOME":
             if os.path.isfile(self.original_vcf_gz):
-                cmd += " {original_vcf_gz}"
+                cmd.append("{original_vcf_gz}")
         else:
-            cmd += " {cvg_cs_out}"
+            cmd.append("{cvg_cs_out}")
         if os.path.isfile(self.geno_concordance_out):
-            cmd += " {geno_concordance_out}"
-        self.commands = [self.format_string(cmd)]
+            cmd.append("{geno_concordance_out}")
+        if (os.path.isfile(self.cvg_X_out) or
+            self.sample_type != "CUSTOM_CAPTURE"):
+            cmd.append("{cvg_X_out}")
+        if (os.path.isfile(self.cvg_Y_out) or
+            self.sample_type != "CUSTOM_CAPTURE"):
+            cmd.append("{cvg_Y_out}")
+        cmd.append("{base_dir}")
+        self.commands = [self.format_string(" ".join(cmd))]
 
     def post_shell_commands(self):
         ## Change folder permissions of base directory
         os.chown(self.base_dir, os.getuid(), grp.getgrnam("bioinfo").gr_gid)
+        user = getuser()
         for root, dirs, files in os.walk(self.base_dir):
             for d in dirs:
                 d = os.path.join(root, d)
-                if not os.path.islink(d):
+                if not os.path.islink(d) and owner(d) == user:
                     os.chmod(d, 0775)
             for f in files:
                 f = os.path.join(root, f)
-                if not os.path.islink(f):
+                if not os.path.islink(f) and owner(d) == user:
                     os.chmod(f, 0664)
         if os.path.isdir(self.scratch_dir):
             rmtree(self.scratch_dir)
@@ -993,7 +947,7 @@ class AlignmentMetrics(GATKFPipelineTask):
         self.commands = [self.cmd, self.parser_cmd, remove_cmd]
 
     def requires(self):
-        return self.clone(HaplotypeCaller)
+        return self.clone(PrintReads)
 
 class RunCvgMetrics(GATKFPipelineTask):
     """ Task to get the coverage metrics"""
@@ -1020,8 +974,12 @@ class RunCvgMetrics(GATKFPipelineTask):
             self.scratch_dir, self.sample_name + ".cvg.metrics.cs.raw.txt")
         self.output_file_cs = os.path.join(
             self.scratch_dir, self.name_prep + ".cvg.metrics.cs.txt")
-        self.DBID,self.prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+        self.DBID, self.prepID = getDBIDMaxPrepID(self.pseudo_prepid)
 
+    def pre_shell_commands(self):
+        """Run Picard CalculateHsMetrics,DepthOfCoverage or CollectWgsMetrics
+        An optimization for the future is to split this up into multiple tasks since they are all independent
+        of each other will speed things up significantly, IO can be an issue"""
         if self.sample_type == "GENOME":
             ## Define shell commands to be run
             cvg_cmd = ("{java} -Xmx{max_mem}g -XX:ParallelGCThreads=4 -jar "
@@ -1030,7 +988,7 @@ class RunCvgMetrics(GATKFPipelineTask):
                             "O={raw_output_file} MQ=20 Q=10 >> {log_file}")
             ## Run on the ccds regions only
             self.cvg_cmd1 = self.format_string(
-                cvg_cmd, raw_output_file=raw_output_file_ccds,
+                cvg_cmd, raw_output_file=self.raw_output_file_ccds,
                 file_target=self.config_parameters["target_file"])
             ## Run across the genome
             self.cvg_cmd2 = self.format_string(
@@ -1048,11 +1006,30 @@ class RunCvgMetrics(GATKFPipelineTask):
             db = get_connection("seqdb")
             try:
                 cur = db.cursor()
-                query = "SELECT region_file_lsrc FROM captureKit INNER JOIN prepT ON prepT_name=prepT.exomeKit WHERE prepID = {0} AND (chr = 'X' OR chr = 'Y')".format(self.prepID)
+                query = ("SELECT region_file_lsrc FROM captureKit "
+                         "INNER JOIN prepT ON prepT_name=prepT.exomeKit "
+                         "WHERE prepID = {0} AND chr = 'X')".format(self.prepID))
                 cur.execute(query)
-                db_val = cur.fetchall()
-                self.capture_file_X = db_val[0][0]
-                self.capture_file_Y = db_val[1][0]
+                row = cur.fetchone()
+                if row:
+                    self.capture_file_X = row[0]
+                elif self.sample_type == "CUSTOM_CAPTURE":
+                    # we don't require X coverage for these
+                    self.capture_file_X = None
+                else:
+                    raise ValueError("Couldn't find BED file for coverage on "
+                                    "X chromosome")
+                query = ("SELECT region_file_lsrc FROM captureKit "
+                         "INNER JOIN prepT ON prepT_name=prepT.exomeKit "
+                         "WHERE prepID = {0} AND chr = 'Y')".format(self.prepID))
+                row = cur.fetchone()
+                if row:
+                    self.capture_file_Y = row[0]
+                elif self.sample_type == "CUSTOM_CAPTURE":
+                    self.capture_file_Y = None
+                else:
+                    raise ValueError("Couldn't find BED file for coverage on "
+                                     "Y chromosome")
             finally:
                 if db.open:
                     db.close()
@@ -1073,12 +1050,14 @@ class RunCvgMetrics(GATKFPipelineTask):
                 file_target=self.capture_kit_bed,
                 raw_output_file=self.raw_output_file)
             ## Run on X and Y Chromosomes only (across all regions there not just ccds)
-            self.cvg_cmd3 = self.format_string(cvg_cmd,
-                file_target=self.capture_file_X,
-                raw_output_file=self.raw_output_file_X)
-            self.cvg_cmd4 = self.format_string(cvg_cmd,
-                file_target=self.capture_file_Y,
-                raw_output_file=self.raw_output_file_Y)
+            if self.capture_file_X:
+                self.cvg_cmd3 = self.format_string(cvg_cmd,
+                    file_target=self.capture_file_X,
+                    raw_output_file=self.raw_output_file_X)
+            if self.capture_file_Y:
+                self.cvg_cmd4 = self.format_string(cvg_cmd,
+                    file_target=self.capture_file_Y,
+                    raw_output_file=self.raw_output_file_Y)
             ## Run PicardHsMetrics for Capture Specificity
             self.output_bait_file = os.path.join(self.scratch_dir, 'targets.interval')
             self.convert_cmd = self.format_string(
@@ -1103,31 +1082,31 @@ class RunCvgMetrics(GATKFPipelineTask):
             parser_cmd, raw_output_file=self.raw_output_file_ccds, output_file=self.output_file_ccds)
         self.parser_cmd2 = self.format_string(
             parser_cmd, raw_output_file=self.raw_output_file, output_file=self.output_file)
-        self.parser_cmd3 = self.format_string(
-            parser_cmd, raw_output_file=self.raw_output_file_X, output_file=self.output_file_X)
-        self.parser_cmd4 = self.format_string(
-            parser_cmd, raw_output_file=self.raw_output_file_Y, output_file=self.output_file_Y)
+        if self.capture_file_X:
+            self.parser_cmd3 = self.format_string(
+                parser_cmd, raw_output_file=self.raw_output_file_X, output_file=self.output_file_X)
+        if self.capture_file_Y:
+            self.parser_cmd4 = self.format_string(
+                parser_cmd, raw_output_file=self.raw_output_file_Y, output_file=self.output_file_Y)
         if self.sample_type != "GENOME": ## i.e. Exome or CustomCapture
             self.parser_cmd5 = self.format_string(
                 parser_cmd, raw_output_file=self.raw_output_file_cs,
                 output_file=self.output_file_cs)
-
-    def pre_shell_commands(self):
-        """Run Picard CalculateHsMetrics,DepthOfCoverage or CollectWgsMetrics
-        An optimization for the future is to split this up into multiple tasks since they are all independent
-        of each other will speed things up significantly, IO can be an issue"""
         self.shell_options.update(
             {"record_commands_fn":self.script, "stdout":None, "stderr":None,
              "shell":True})
         self.commands = [
-            self.cvg_cmd1, self.parser_cmd1, self.cvg_cmd2, self.parser_cmd2,
-            self.cvg_cmd3, self.parser_cmd3, self.cvg_cmd4, self.parser_cmd4]
+            self.cvg_cmd1, self.parser_cmd1, self.cvg_cmd2, self.parser_cmd2]
+        if self.capture_file_X:
+            self.commands.extend([self.cvg_cmd3, self.parser_cmd3])
+        if self.capture_file_Y:
+            self.commands.extend([self.cvg_cmd4, self.parser_cmd4])
         if self.sample_type != "GENOME":
             self.commands.extend(
                 [self.convert_cmd, self.cvg_cmd5, self.parser_cmd5])
 
     def requires(self):
-        yield self.clone(HaplotypeCaller)
+        yield self.clone(PrintReads)
 
 class DuplicateMetrics(GATKFPipelineTask):
     """ Parse Duplicate Metrics from dragen logs """
@@ -1139,10 +1118,10 @@ class DuplicateMetrics(GATKFPipelineTask):
             self.scratch_dir, self.name_prep + ".duplicates.txt")
         self.duplicates_err = os.path.join(
             self.log_dir, self.name_prep + ".dups.log")
-        if not os.path.isfile(self.dragen_log):
-            raise Exception("The dragen log file could not be found !")
 
     def pre_shell_commands(self):
+        if not os.path.isfile(self.dragen_log):
+            raise Exception("The dragen log file could not be found!")
         perc_duplicates = None
         with open(self.dragen_log) as d:
             for line in d:
@@ -1185,9 +1164,7 @@ class VariantCallingMetrics(GATKFPipelineTask):
     def pre_shell_commands(self):
         self.shell_options.update(
             {"stdout":None, "stderr":None, "shell":True})
-        remove_cmd1 = "rm " + self.metrics_raw_summary
-        remove_cmd2 = "rm " + self.metrics_raw_detail
-        self.commands = [self.metrics_cmd, self.parser_cmd, remove_cmd1, remove_cmd2]
+        self.commands = [self.metrics_cmd, self.parser_cmd]
 
     def requires(self):
         return self.clone(AnnotateVCF)
@@ -1465,9 +1442,17 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         if file_type == 'ccds':
             metrics_file = self.cvg_ccds_out
         elif file_type == 'X':
-            metrics_file = self.cvg_X_out
+            if (self.sample_type == "CUSTOM_CAPTURE"
+                and not os.path.isfile(self.cvg_X_out)):
+                return
+            else:
+                metrics_file = self.cvg_X_out
         elif file_type == 'Y':
-            metrics_file = self.cvg_Y_out
+            if (self.sample_type == "CUSTOM_CAPTURE"
+                and not os.path.isfile(self.cvg_Y_out)):
+                return
+            else:
+                metrics_file = self.cvg_Y_out
         elif file_type == 'cs':
             metrics_file = self.cvg_cs_out
         elif file_type == 'all':
