@@ -96,7 +96,12 @@ def get_fastq_loc(curs, sample):
             #for externally submitted samples
             if seqsatalocs[0][1][0] == 'X':
                 print "Looking for external sample..."
-                if 'CGNDHDA' in sample['sample_name'] or 'FA000000' in sample['sample_name'] or 'NEU' in sample['sample_name']:
+                if 'SRR' in sample['sample_name']: #specifically for SRR samples
+                    fastq_loc = glob(('/nfs/seqscratch10/SRA/{}/1'
+                                ).format(sample['sample_name']))
+                    for flowcell in fastq_loc:
+                        locs.append(os.path.realpath(flowcell))
+                elif 'CGNDHDA' in sample['sample_name'] or 'FA000000' in sample['sample_name'] or 'NEU' in sample['sample_name']:
                     fastq_loc = glob(('/nfs/seqscratch09/tx_temp/tx_2390/CGND_11418-fastq/Project_CGND_11418_B01_GRM_WGS.2016-03-30/{}/1'
                                 ).format(sample['sample_name']))
                     for flowcell in fastq_loc:
@@ -104,6 +109,20 @@ def get_fastq_loc(curs, sample):
                 elif 'pgm' in sample['sample_name'][0:3] or 'PGM' in sample['sample_name'][0:3]:
                     fastq_loc = glob(('/nfs/fastq1*/PGM/{}/[0-9]'
                                 ).format(sample['sample_name']))
+                    for flowcell in fastq_loc:
+                        locs.append(os.path.realpath(flowcell))
+                elif glob(('/nfs/igmdata[0-9]/{}/{}/[0-9]'
+                    ).format(corrected_sample_type,sample['sample_name'])) != []: #for external igmdata samples with enumerated folders
+                    print 1
+                    fastq_loc = glob(('/nfs/fastq1[0-9]/{}/{}/[0-9]'
+                                ).format(corrected_sample_type,sample['sample_name']))
+                    if fastq_loc:
+                        for flowcell in fastq_loc:
+                            locs.append(os.path.realpath(flowcell))
+                elif glob(('/nfs/igmdata[0-9]/{}/{}/*XX'
+                    ).format(corrected_sample_type,sample['sample_name'])) != []: #for external igmdata samples with actual flowcell name
+                    fastq_loc = glob(('/nfs/fastq1[0-9]/{}/{}/*XX'
+                            ).format(corrected_sample_type,sample['sample_name']))
                     for flowcell in fastq_loc:
                         locs.append(os.path.realpath(flowcell))
                 elif glob(('/nfs/fastq1[0-9]/{}/{}/[0-9]'
@@ -135,15 +154,11 @@ def get_fastq_loc(curs, sample):
                     raise Exception, 'fastq files not found!'
             else: #For regular samples
                 for flowcell in seqsatalocs:
-                    if 'igmdata' in flowcell[0]:
+                    if 'igmdata' in flowcell[0] or 'fastq' in flowcell[0]: # for igmdata## or fastq_temp##
                         fastq_loc = ('/nfs/{0}/{1}/{2}/{3}'
                                 ).format(flowcell[0],corrected_sample_type,
                                         sample['sample_name'],flowcell[1])
-                    elif 'fastq' in flowcell[0]:
-                        fastq_loc = ('/nfs/{0}/{1}/{2}/{3}'
-                                ).format(flowcell[0],corrected_sample_type,
-                                        sample['sample_name'],flowcell[1])
-                    elif 'seqsata' in flowcell[0]:
+                    elif 'seqsata' in flowcell[0]: # for seqsata## drives
                         fastq_loc = ('/nfs/{0}/seqfinal/whole_genome/{1}/{2}'
                                 ).format(flowcell[0],sample['sample_name'],flowcell[1])
                     else:
@@ -156,8 +171,6 @@ def get_fastq_loc(curs, sample):
                         # have not had their location properly restored
                         fastq_loc = glob('/nfs/stornext/seqfinal/casava1.8/whole_{0}/{1}/*XX'.format(
                             corrected_sample_type.lower(),sample['sample_name']))
-                        print fastq_loc,'/nfs/stornext/seqfinal/casava1.8/whole_{0}/{1}/*XX'.format(
-                            corrected_sample_type.lower(),sample['sample_name'])
                         if fastq_loc:
                             for flowcell in fastq_loc:
                                 locs.append(os.path.realpath(flowcell))
@@ -215,13 +228,13 @@ def get_output_dir(curs,sample):
     seqscratch_drive = curs.fetchone()
     if seqscratch_drive is None:
         seqscratch_drive = 'seqscratch_ssd'
-
+    else:
+        seqscratch_drive = seqscratch_drive[0]
     output_dir = ('/nfs/{3}/ALIGNMENT/BUILD37/DRAGEN/{0}/{1}.{2}/'
         ).format(sample['sample_type'].upper(),
                  sample['sample_name'],
                  sample['pseudo_prepid'],
                  seqscratch_drive)
-
     return output_dir
 
 def get_lanes(curs,sample):
