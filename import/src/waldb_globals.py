@@ -12,7 +12,8 @@ from ConfigParser import ConfigParser, RawConfigParser
 import logging
 from db_statements import (
     GET_SAMPLE_DIRECTORY, GET_TIMES_STEP_RUN, BEGIN_STEP,
-    FINISH_STEP, FAIL_STEP, GET_PIPELINE_STEP_ID, GET_STEP_STATUS)
+    FINISH_STEP, FAIL_STEP, GET_PIPELINE_STEP_ID, GET_STEP_STATUS,
+    GET_SAMPLE_METADATA, GET_CAPTURE_KIT_BED)
 from itertools import chain
 from collections import OrderedDict, Counter, defaultdict
 from functools import wraps
@@ -398,7 +399,7 @@ class PipelineTask(SGEJobTask):
         # these will be passed onto subprocess, overwrite in pre_shell_commands
         # method if needed
         self.shell_options = {"record_commands_fn":None, "stdout":os.devnull,
-                              "stderr":None, "shell":True}
+                              "stderr":None, "shell":False}
         self.commands = []
         self.files = []
         self.directories = []
@@ -442,6 +443,7 @@ class PipelineTask(SGEJobTask):
         try:
             super(PipelineTask, self).run()
             self._update_step_success()
+            self._run_post_success()
         except:
             self._update_step_failure()
             raise
@@ -476,6 +478,12 @@ class PipelineTask(SGEJobTask):
             if seqdb.open:
                 seqdb.close()
 
+    def _run_post_success(self):
+        """Add anything here that should be performed only after successful
+        update of the database with the success of the task, e.g. deleting files
+        """
+        pass
+
     def _update_step_failure(self):
         seqdb = get_connection("seqdb")
         try:
@@ -498,6 +506,7 @@ class PipelineTask(SGEJobTask):
         Don't overwrite this method, instead overwrite pre- and post-shell
         command functions as needed
         """
+        os.umask(0002)
         self.pre_shell_commands()
         self.run_shell_commands()
         self.post_shell_commands()
@@ -566,15 +575,50 @@ class DragenPipelineTask(PipelineTask):
     """Add the parameters that are de facto in every gatk_pipe task to reduce
     repetitiveness
     """
-    sample_name = luigi.Parameter(description="The sample identifier")
+    sample_name = luigi.Parameter(
+        default=None, description="the sample identifier")
     capture_kit_bed = luigi.InputFileParameter(
-        description="The location of the BED file describing "
-        "the capture kit regions")
+        default=None,
+        description="the location of the BED file containing the capture kit regions")
     sample_type = luigi.ChoiceParameter(
+        default=None,
         choices=["EXOME", "GENOME"],
         description="The type of sequencing performed for this sample")
     scratch = luigi.Parameter(
+        default=None,
         description="The scratch space to use for the pipeline")
+
+    def __init__(self, *args, **kwargs):
+        super(DragenPipelineTask, self).__init__(*args, **kwargs)
+        if (not self.sample_name or not self.capture_kit_bed
+            or not self.sample_type or not self.scratch):
+            seqdb = get_connection("seqdb")
+            try:
+                seq_cur = seqdb.cursor()
+                seq_cur.execute(
+                    GET_SAMPLE_METADATA.format(prep_id=self.pseudo_prepid))
+                row = seq_cur.fetchone()
+                if row:
+                    sample_name, sample_type, capture_kit, scratch, _ = row
+                    if not self.sample_name:
+                        kwargs["sample_name"] = sample_name
+                    if not self.sample_type:
+                        kwargs["sample_type"] = sample_type.upper()
+                    if not self.scratch:
+                        kwargs["scratch"] = scratch
+                    if not self.capture_kit_bed:
+                        seq_cur.execute(GET_CAPTURE_KIT_BED.format(
+                            capture_kit="Roche"
+                            if kwargs["sample_type"] == "GENOME" else
+                            capture_kit))
+                        kwargs["capture_kit_bed"] = seq_cur.fetchone()[0]
+                else:
+                    raise ValueError("Couldn't find sample metadata for {}!".
+                                     format(self.pseudo_prepid))
+                super(DragenPipelineTask, self).__init__(*args, **kwargs)
+            finally:
+                if seqdb.open:
+                    seqdb.close()
 
 class GATKPipelineTask(DragenPipelineTask):
     """Add implicit parameters that will always be found in specific paths for
@@ -585,14 +629,17 @@ class GATKPipelineTask(DragenPipelineTask):
         name_prep = "{}.{}".format(self.sample_name, self.pseudo_prepid)
         self.name_prep = name_prep
         self.scratch_dir = os.path.join(
-            self.scratch, self.sample_type, name_prep)
-        self.log_file = os.path.join(
-            self.scratch_dir, "logs", "{}.{}.log".format(
-                name_prep, self.__class__.__name__))
+            "/nfs", self.scratch, "ALIGNMENT", "BUILD37", "DRAGEN",
+            self.sample_type, name_prep)
+        log_base = os.path.join(
+            self.scratch_dir, "logs", "{}.{}.{}".format(
+                self.pipeline_step_id, name_prep, self.__class__.__name__))
+        self.log_file = log_base + ".log"
+        self.err = log_base + ".err"
         self.log_dir = os.path.join(self.scratch_dir, "logs")
         self.script = os.path.join(
-            self.scratch_dir, "scripts", "{}.{}.sh".format(
-                name_prep, self.__class__.__name__))
+            self.scratch_dir, "scripts", "{}.{}.{}.sh".format(
+                self.pipeline_step_id, name_prep, self.__class__.__name__))
         self.interval_list = os.path.join(
             self.scratch_dir, name_prep + ".interval_list")
         self.scratch_bam = os.path.join(
@@ -636,9 +683,6 @@ class GATKPipelineTask(DragenPipelineTask):
         self.final_vcf = os.path.join(
             self.scratch_dir, name_prep + ".analysisReady.vcf")
         self.final_vcf_gz = self.final_vcf + ".gz"
-        self.deannotated_vcf = os.path.join(
-            self.scratch_dir, name_prep + ".analysisReady.deannotated.vcf")
-        self.deannotated_vcf_gz = self.deannotated_vcf + ".gz"
         self.annotated_vcf = os.path.join(
             self.scratch_dir, name_prep + ".analysisReady.annotated.vcf")
         self.annotated_vcf_gz = self.annotated_vcf + ".gz"
@@ -658,3 +702,6 @@ class GATKPipelineTask(DragenPipelineTask):
             self.scratch_dir, self.sample_name + ".genomecvg.bed")
         self.cov_dir = os.path.join(self.scratch_dir, "cvg_binned")
         self.gq_dir = os.path.join(self.scratch_dir, "gq_binned")
+        self.shell_options["record_commands_fn"] = self.script
+        self.shell_options["stdout"] = self.log_file
+        self.shell_options["stderr"] = self.err
