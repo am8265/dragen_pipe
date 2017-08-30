@@ -48,7 +48,7 @@ def initialize_samples(database, level=logging.DEBUG):
                 logger.warning("Found multiple records for {prep_id}".format(
                     prep_id=prep_id))
             else:
-                sample_name, sample_type, capture_kit, priority = rows[0]
+                sample_name, sample_type, capture_kit, scratch, priority = rows[0]
                 if sample_name.startswith("pgm"):
                     logger.info("Ignoring {sample_name}-{sample_type}-"
                                 "{capture_kit}-{prep_id}".format(

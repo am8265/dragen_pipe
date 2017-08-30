@@ -70,3 +70,6 @@ GET_SAMPLES_TO_RUN = (
     """AND d1.pipeline_step_id = 11 AND d1.finished = 1) as P ON """
     """D.pseudo_prepid = P.pseudo_prepid ORDER BY D.priority; """
 )
+GET_SAMPLES = """
+SELECT m.sample_name, m.pseudo_prepid, m.sample_type, m.capture_kit, m.priority
+"""
