@@ -226,9 +226,14 @@ WHERE p1.pipeline_step_id = {sample_archived_step_id} AND p1.finished = 1
     AND p2.pseudo_prepid IS NULL
 """
 GET_SAMPLE_METADATA = """
-SELECT sample_name, sample_type, capture_kit, priority
+SELECT sample_name, sample_type, capture_kit, seqscratch_drive, priority
 FROM dragen_sample_metadata
 WHERE pseudo_prepid = {prep_id}
+"""
+GET_CAPTURE_KIT_BED = """
+SELECT region_file_lsrc
+FROM captureKit
+WHERE chr = "all" AND name = "{capture_kit}"
 """
 INITIALIZE_SAMPLE = """
 INSERT INTO sample (sample_name, sample_type, capture_kit, prep_id, priority)
