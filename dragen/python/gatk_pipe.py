@@ -1,35 +1,28 @@
 #!/nfs/goldstein/software/python2.7.7/bin/python2.7
 
 import os
-import shlex
 import sys
 import subprocess
 import luigi
 import MySQLdb
-from dragen_db_statements import *
-from dragen_sample import dragen_sample
-import re
-import time
-from glob import glob
 import warnings
 import tabix
 import grp
 import tarfile
+from random import random
+from time import sleep
+from glob import glob
 from numpy import isclose
 from shutil import rmtree
-from copy import deepcopy
 from collections import Counter
 from getpass import getuser
 from pwd import getpwuid
 from gzip import open as gopen
+from dragen_db_statements import *
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.realpath(__file__)))), "import", "src"))
 from waldb_globals import *
-
-"""
-Run samples through a luigized GATK pipeline after finishing the
-Dragen based alignment
-"""
+from check_avere import check_avere
 
 def owner(fn):
     """Return the user name of the owner of the specified file
@@ -201,6 +194,7 @@ class GATKFPipelineTask(GATKPipelineTask):
         return s.format(**self.config_parameters)
 
 class RealignerTargetCreator(GATKFPipelineTask):
+    priority = 1 # run before other competing steps with no requirement
     n_cpu = 4
     def pre_shell_commands(self):
         self.commands = [self.format_string(
@@ -252,6 +246,7 @@ class PrintReads(GATKFPipelineTask):
         return self.clone(BaseRecalibrator)
 
 class HaplotypeCaller(GATKFPipelineTask):
+    priority = 1 # run before other steps needing the recalibrated BAM
     n_cpu = 6
     def pre_shell_commands(self):
         self.commands = [self.format_string(
@@ -265,6 +260,7 @@ class HaplotypeCaller(GATKFPipelineTask):
         return self.clone(PrintReads)
 
 class GenotypeGVCFs(GATKFPipelineTask):
+    priority = 1
     def pre_shell_commands(self):
         self.commands = [self.format_string(
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T GenotypeGVCFs "
@@ -275,6 +271,7 @@ class GenotypeGVCFs(GATKFPipelineTask):
         return self.clone(HaplotypeCaller)
 
 class SelectVariantsSNP(GATKFPipelineTask):
+    priority = 1
     def pre_shell_commands(self):
         self.commands = [self.format_string(
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T SelectVariants "
@@ -451,6 +448,7 @@ class CombineVariants(GATKFPipelineTask):
                 "Sample type: {} not supported".format(self.sample_type))
 
 class RBP(GATKFPipelineTask):
+    priority = 1
     def pre_shell_commands(self):
         self.commands = [self.format_string(
             "{java} -jar {gatk} -T ReadBackedPhasing -R {ref_genome} "
@@ -460,7 +458,7 @@ class RBP(GATKFPipelineTask):
             "-U ALLOW_SEQ_DICT_INCOMPATIBILITY")]
 
     def requires(self):
-        return self.clone(CombineVariants)
+        return self.clone(CombineVariants), self.clone(PrintReads)
 
 class FixMergedMNPInfo(GATKFPipelineTask):
     """ The MNPs phased by RBP are missing the DP,AD and other annotation info
@@ -642,6 +640,12 @@ class ArchiveSample(GATKFPipelineTask):
     """ Archive samples on Amplidata """
     n_cpu = 7
     def pre_shell_commands(self):
+        # wait for Avere to cooperate before loading
+        while True:
+            if check_avere():
+                break
+            else:
+                sleep(25 + 10 * random())
         if (self.sample_name.upper().startswith('PGMCLIN') or
             self.sample_name.upper().startswith('PGMVIP')):
             self.base_dir = os.path.join(
@@ -655,9 +659,9 @@ class ArchiveSample(GATKFPipelineTask):
             "{scratch_dir}/{name_prep}.pipeline_data.tar.gz".format(
                 scratch_dir=self.scratch_dir, name_prep=self.name_prep))
         self.cvg_tarball = (
-            "{cov_dir}/coverage.txt.gz".format(cov_dir=self.cov_dir))
+            "{cov_dir}/coverage.tar.gz".format(cov_dir=self.cov_dir))
         self.gq_tarball =  (
-            "{gq_dir}/gq.txt.gz".format(gq_dir=self.gq_dir))
+            "{gq_dir}/gq.tar.gz".format(gq_dir=self.gq_dir))
         if not os.path.isdir(self.base_dir):
             os.makedirs(self.base_dir)
         with tarfile.open(self.pipeline_tarball, "w:gz") as tar:
@@ -667,11 +671,11 @@ class ArchiveSample(GATKFPipelineTask):
                 tar.add(txt, arcname=os.path.basename(txt))
         with tarfile.open(self.cvg_tarball, "w:gz") as tar:
             for cvg_file in glob(
-                "{cvg_binned}/*.txt".format(cvg_binned=self.cvg_binned)):
+                "{cov_dir}/*.txt".format(cov_dir=self.cov_dir)):
                 tar.add(cvg_file, arcname=os.path.basename(cvg_file))
         with tarfile.open(self.gq_tarball, "w:gz") as tar:
             for gq_file in glob(
-                "{gq_binned}/*.txt".format(gq_binned=self.gq_binned)):
+                "{gq_dir}/*.txt".format(gq_dir=self.gq_dir)):
                 tar.add(gq_file, arcname=os.path.basename(gq_file))
 
         cmd = ["rsync", "-grlt", "--inplace", "--partial", "{pipeline_tarball}",
@@ -686,17 +690,21 @@ class ArchiveSample(GATKFPipelineTask):
 
     def post_shell_commands(self):
         ## Change folder permissions of base directory
-        os.chown(self.base_dir, os.getuid(), grp.getgrnam("bioinfo").gr_gid)
+        uid = os.getuid()
+        gid = grp.getgrnam("bioinfo").gr_gid
+        os.chown(self.base_dir, uid, gid)
         user = getuser()
         for root, dirs, files in os.walk(self.base_dir):
             for d in dirs:
                 d = os.path.join(root, d)
                 if not os.path.islink(d) and owner(d) == user:
                     os.chmod(d, 0775)
+                    os.chown(d, uid, gid)
             for f in files:
                 f = os.path.join(root, f)
-                if not os.path.islink(f) and owner(d) == user:
+                if not os.path.islink(f) and owner(f) == user:
                     os.chmod(f, 0664)
+                    os.chown(f, uid, gid)
         if os.path.isdir(self.scratch_dir):
             rmtree(self.scratch_dir)
 
@@ -937,7 +945,7 @@ class RunCvgMetrics(GATKFPipelineTask):
                     file_target=self.capture_file_Y,
                     raw_output_file=self.raw_output_file_Y)
             ## Run PicardHsMetrics for Capture Specificity
-            self.output_bait_file = os.path.join(self.scratch_dir, 'targets.interval')
+            self.output_bait_file = os.path.join(self.scratch_dir, "targets.interval")
             self.convert_cmd = self.format_string(
                 "{java} -jar {picard} BedToIntervalList I={capture_kit_bed} "
                 "SD={seqdict_file} OUTPUT={output_bait_file} >> {log_file}")
@@ -1017,7 +1025,7 @@ class VariantCallingMetrics(GATKFPipelineTask):
     def pre_shell_commands(self):
         self.metrics_raw = os.path.join(
             self.scratch_dir, self.sample_name + ".raw")
-        self.metrics_raw_summary = self.metrics_raw + ".variant_calling_summary_metrics.txt"
+        self.metrics_raw_summary = self.metrics_raw + ".variant_calling_summary_metrics"
         self.metrics_raw_detail = self.metrics_raw + "variant_calling_detail_metrics"
         self.metrics_file = os.path.join(
             self.scratch_dir, self.name_prep + ".variant_calling_summary_metrics.txt")
@@ -1049,6 +1057,12 @@ class GenotypeConcordance(GATKFPipelineTask):
             "-o {concordance_metrics} -U ALLOW_SEQ_DICT_INCOMPATIBILITY")
         production_vcf = get_productionvcf(
             self.pseudo_prepid, self.sample_name,self.sample_type)
+        # wait for Avere to cooperate before reading the production VCF
+        while True:
+            if check_avere():
+                break
+            else:
+                sleep(25 + 10 * random())
         self.subset_vcf(production_vcf, self.truth_vcf)
         self.subset_vcf(self.annotated_vcf_gz, self.eval_vcf)
         for idx in [vcf +  ".idx" for vcf in (self.truth_vcf, self.eval_vcf)]:
