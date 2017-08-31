@@ -231,7 +231,8 @@ class ParseVCF(SGEJobTask):
         self.novel_indels = self.output_base + ".novel_indels.txt"
         self.novel_transcripts = self.output_base + ".novel_transcripts.txt"
         self.called_variants = self.output_base + ".calls.txt"
-        self.variant_id_vcf = self.output_base + ".variant_id.vcf"
+        self.variant_id_vcf = self.output_base + ".{}.variant_id.vcf".format(
+            self.prep_id)
         self.matched_indels = self.output_base + ".matched_indels.txt"
         if not self.dont_load_data:
             seqdb = get_connection("seqdb")
