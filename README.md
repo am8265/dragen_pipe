@@ -12,3 +12,8 @@ To run automation script :
 To run manually using parallel :
 
 cat {sample_file} | parallel -j {n_jobs} --joblog {parallel_log_file} --tmpdir /nfs/seqscratch09/rp2801/parallel_tmp/ /nfs/goldstein/software/python2.7.7/bin/python run_gatk_jobs.py
+
+To import samples:
+ssh to annodb02
+cd to import/src
+`./import_samples.py -d waldb4 --run_locally`.  Additional parameters may be viewed via --help.
