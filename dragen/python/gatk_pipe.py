@@ -178,6 +178,8 @@ class qc_metrics(luigi.Config):
 # create one dict that contains all these parameters for ease of use
 
 class GATKFPipelineTask(GATKPipelineTask):
+    task_name_format = "{task_family}.{sample_name}.{pseudo_prepid}"
+    poll_time = 120
     def __init__(self, *args, **kwargs):
         self.config_parameters = {}
         for cls in (programs, locations, pipeline_files, gatk_resources, variables,
