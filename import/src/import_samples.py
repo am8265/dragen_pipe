@@ -51,13 +51,13 @@ class ImportSamples(ProcessSamples.ProcessSamples):
             cur.execute(query)
             samples = []
             for row in cur.fetchall():
-                samples.append((row[0], row[1], row[2:]))
+                samples.append((row[0], row[1], row[2], row[3:]))
         finally:
             if db.open:
                 db.close()
         return samples
 
-    def _get_command(self, sample_name, *args):
+    def _get_command(self, pseudo_prepid, sample_name, *args):
         sample_id, sample_type = args
         cmd = ("luigi --module data_import_pipeline ImportSample --sample-id "
                "{sample_id} --seqscratch {seqscratch} --workers {workers} "

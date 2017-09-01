@@ -189,7 +189,7 @@ FROM pseudo_prepid
 WHERE prepid = {prepid}
 """
 GET_SAMPLES_TO_IMPORT = """
-SELECT sample_name, priority, sample_id, sample_type
+SELECT prep_id, sample_name, priority, sample_id, sample_type
 FROM sample
 WHERE sample_finished = 0{failed_samples_clause}{sample_name_clause}
 ORDER BY initialization_time

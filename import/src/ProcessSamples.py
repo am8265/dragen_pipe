@@ -54,15 +54,15 @@ class ProcessSamples(object):
     def _get_samples(self):
         # overwrite to get samples from DB, check files, etc.
         # should return a list of tuples of:
-        # (sample_name, priority, (...))
+        # (pseudo_prepid, sample_name, priority, (...))
         # an example would be (sample_type, priority, (capture_kit, prep_id (pseudo_prep_id)))
         pass
 
-    def _get_command(self, sample_name, *args):
+    def _get_command(self, pseudo_prepid, sample_name, *args):
         # overwrite to format the actual command to run, and specify the timeout
         pass
 
-    def get_sge_job_ids(self, sample_name, *args):
+    def get_sge_job_ids(self, pseudo_prepid, sample_name, *args):
         """Pass in a pattern= parameter upon initialization if this method is to
         be used"""
         p = re.compile(r"^(\d+) ")
@@ -80,9 +80,9 @@ class ProcessSamples(object):
                     job_ids.append(job_id)
         return job_ids
 
-    def run_command(self, sample_name, *args):
+    def run_command(self, pseudo_prepid, sample_name, *args):
         # overwrite to run one or more commands
-        cmd, timeout = self._get_command(sample_name, *args)
+        cmd, timeout = self._get_command(pseudo_prepid, sample_name, *args)
         logger.info(cmd)
         start_time = time()
         if type(self.stdout) is file:
@@ -161,13 +161,13 @@ class ProcessSamples(object):
                     break
             if done:
                 break
-            for sample_name, priority, sample_metadata in self._get_samples():
+            for pseudo_prepid, sample_name, priority, sample_metadata in self._get_samples():
                 if ((sample_name, sample_metadata)
                     not in self.samples_already_queued):
                     self.samples_queue.put(
-                        (priority, (sample_name, sample_metadata)))
+                        (priority, (pseudo_prepid, sample_name, sample_metadata)))
                     self.samples_already_queued.add(
-                        (sample_name, sample_metadata))
+                        (pseudo_prepid, sample_name, sample_metadata))
             if self.samples_queue.empty():
                 # sleep for a while since we don't have any samples to run
                 logger.info("waiting for 300 seconds for new samples...")
@@ -175,7 +175,7 @@ class ProcessSamples(object):
             else:
                 priority, sample_metadata = self.samples_queue.get()
                 sample_metadata = tuple(
-                    [sample_metadata[0]] + list(sample_metadata[1]))
+                    sample_metadata[:2] + list(sample_metadata[1]))
                 thread = Thread(
                     target=self.run_command, args=sample_metadata)
                 self.all_threads.append(thread)
