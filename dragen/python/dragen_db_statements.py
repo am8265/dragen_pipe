@@ -71,5 +71,10 @@ GET_SAMPLES_TO_RUN = (
     """D.pseudo_prepid = P.pseudo_prepid ORDER BY D.priority; """
 )
 GET_SAMPLES = """
-SELECT m.sample_name, m.pseudo_prepid, m.sample_type, m.capture_kit, m.priority
+SELECT m.pseudo_prepid, m.sample_name, m.priority, m.sample_type, m.capture_kit
+FROM dragen_sample_metadata m
+INNER JOIN dragen_pipeline_step p1 ON m.pseudo_prepid = p1.pseudo_prepid
+LEFT JOIN dragen_pipeline_step p2 ON p1.pseudo_prepid = p2.pseudo_prepid
+WHERE p1.pipeline_step_id = 1 AND p1.finished = 1 AND
+    p2.pipeline_step_id = 31 AND (p2.finished = 0 OR p2.finished IS NULL)
 """
