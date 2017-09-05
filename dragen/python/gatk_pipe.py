@@ -18,6 +18,7 @@ from collections import Counter
 from getpass import getuser
 from pwd import getpwuid
 from gzip import open as gopen
+from string import Formatter
 from dragen_db_statements import *
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.realpath(__file__)))), "import", "src"))
@@ -185,8 +186,6 @@ class GATKFPipelineTask(GATKPipelineTask):
         for cls in (programs, locations, pipeline_files, gatk_resources, variables,
                     qc_metrics):
             self.config_parameters.update(cls().__dict__)
-        for key in dir(self):
-            self.config_parameters[key] = getattr(self, key)
         super(GATKFPipelineTask, self).__init__(*args, **kwargs)
         self.config_parameters.update(self.__dict__)
 
@@ -194,6 +193,10 @@ class GATKFPipelineTask(GATKPipelineTask):
         """Format the string s with any parameters in config_parameters, self, and kwargs
         (priority if overlap is given to kwargs then self)
         """
+        for field_name in (record[1] for record in list(Formatter().parse(s))):
+            if (field_name not in self.config_parameters
+                and hasattr(self, field_name)):
+                self.config_parameters[field_name] = getattr(self, field_name)
         self.config_parameters.update(kwargs)
         return s.format(**self.config_parameters)
 
