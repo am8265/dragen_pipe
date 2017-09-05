@@ -185,13 +185,15 @@ class GATKFPipelineTask(GATKPipelineTask):
         for cls in (programs, locations, pipeline_files, gatk_resources, variables,
                     qc_metrics):
             self.config_parameters.update(cls().__dict__)
+        for key in dir(self):
+            self.config_parameters[key] = getattr(self, key)
         super(GATKFPipelineTask, self).__init__(*args, **kwargs)
+        self.config_parameters.update(self.__dict__)
 
     def format_string(self, s, **kwargs):
         """Format the string s with any parameters in config_parameters, self, and kwargs
         (priority if overlap is given to kwargs then self)
         """
-        self.config_parameters.update(self.__dict__)
         self.config_parameters.update(kwargs)
         return s.format(**self.config_parameters)
 
