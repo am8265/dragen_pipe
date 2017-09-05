@@ -68,24 +68,6 @@ def getCaptureKit(pseudo_prepid):
             db.close()
     return capture_kit
 
-def getPanelOfNormals(captureKit,sample_type):
-    """ Get the panel of normals for CNV normalization
-
-    captureKit : str ; the capturekit , e.g. Roche
-    sample_type : str ; the sequencing type, e.g exome """
-
-    db = get_connection("seqdb")
-    try:
-        cur = db.cursor()
-        cur.execute(GET_PANEL_OF_NORMALS.format(
-            captureKit=captureKit,
-            sample_type=sample_type))
-        panelOfNormals = cur.fetchone()
-    finally:
-        if db.open:
-            db.close()
-    return panelOfNormals
-
 class programs(luigi.Config):
     """ Configuration class for instantiating parameters for this pipeline
     the values are read from luigi.cfg in the current folder """
@@ -176,8 +158,6 @@ class qc_metrics(luigi.Config):
     contamination_value = luigi.Parameter()
     concordance = luigi.Parameter()
 
-# create one dict that contains all these parameters for ease of use
-
 class GATKFPipelineTask(GATKPipelineTask):
     task_name_format = "{task_family}.{sample_name}.{pseudo_prepid}"
     poll_time = 120
@@ -196,6 +176,8 @@ class GATKFPipelineTask(GATKPipelineTask):
         for field_name in (record[1] for record in list(Formatter().parse(s))):
             if (field_name not in self.config_parameters
                 and hasattr(self, field_name)):
+                # not all attributes get set in __init__ such that they appear
+                # in __dict__ so this is a workaround to get them
                 self.config_parameters[field_name] = getattr(self, field_name)
         self.config_parameters.update(kwargs)
         return s.format(**self.config_parameters)
@@ -207,14 +189,13 @@ class RealignerTargetCreator(GATKFPipelineTask):
         self.commands = [self.format_string(
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T RealignerTargetCreator "
             "-I {scratch_bam} -o {interval_list} -known {Mills1000g} "
-            "-known {dbSNP} --log_to_file {log_file} -nt {n_cpu}")]
+            "-known {dbSNP} -nt {n_cpu}")]
 
 class IndelRealigner(GATKFPipelineTask):
     def pre_shell_commands(self):
         self.commands = [self.format_string(
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T IndelRealigner "
-            "-I {scratch_bam} -o {realn_bam} "
-            "--log_to_file {log_file} -targetIntervals {interval_list} "
+            "-I {scratch_bam} -o {realn_bam} -targetIntervals {interval_list} "
             "-maxReads 10000000 -maxInMemory 450000 -known {Mills1000g} "
             "-known {dbSNP}")]
 
@@ -230,8 +211,8 @@ class BaseRecalibrator(GATKFPipelineTask):
         self.commands = [self.format_string(
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} "
             "-T BaseRecalibrator -I {realn_bam} "
-            "-o {recal_table} --log_to_file {log_file} "
-            "-knownSites {Mills1000g} -knownSites {dbSNP} -nct {n_cpu}")]
+            "-o {recal_table} -knownSites {Mills1000g} "
+            "-knownSites {dbSNP} -nct {n_cpu}")]
 
     def requires(self):
         return self.clone(IndelRealigner)
@@ -242,9 +223,8 @@ class PrintReads(GATKFPipelineTask):
         # --disable_indel_quals are necessary to remove BI and BD tags in the bam file
         self.commands = [self.format_string(
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T PrintReads "
-            "-I {realn_bam} --log_to_file {log_file} "
-            "--disable_indel_quals -BQSR {recal_table} -o {recal_bam} "
-            "-nct {n_cpu}")]
+            "-I {realn_bam} --disable_indel_quals "
+            "-BQSR {recal_table} -o {recal_bam} -nct {n_cpu}")]
 
     def _run_pos_success(self):
         os.remove(self.realn_bam)
@@ -258,7 +238,7 @@ class HaplotypeCaller(GATKFPipelineTask):
     def pre_shell_commands(self):
         self.commands = [self.format_string(
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T HaplotypeCaller "
-            "-L {interval} -I {recal_bam} -o {gvcf} --log_to_file {log_file} "
+            "-L {interval} -I {recal_bam} -o {gvcf} "
             "-stand_call_conf 20 -stand_emit_conf 20 --emitRefConfidence GVCF "
             "-GQB 5 -GQB 15 -GQB 20 -GQB 60 --variant_index_type LINEAR "
             "--variant_index_parameter 128000 --dbsnp {dbSNP} -nct {n_cpu}")]
@@ -271,8 +251,7 @@ class GenotypeGVCFs(GATKFPipelineTask):
     def pre_shell_commands(self):
         self.commands = [self.format_string(
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T GenotypeGVCFs "
-            "-L {interval} -o {vcf} --log_to_file {log_file} "
-            "-stand_call_conf 20 -stand_emit_conf 20 -V {gvcf}")]
+            "-L {interval} -o {vcf} -stand_call_conf 20 -stand_emit_conf 20 -V {gvcf}")]
 
     def requires(self):
         return self.clone(HaplotypeCaller)
@@ -282,8 +261,7 @@ class SelectVariantsSNP(GATKFPipelineTask):
     def pre_shell_commands(self):
         self.commands = [self.format_string(
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T SelectVariants "
-            "-L {interval} -V {vcf} --log_to_file {log_file} -selectType SNP "
-            "-o {snp_vcf}")]
+            "-L {interval} -V {vcf}  -selectType SNP -o {snp_vcf}")]
 
     def requires(self):
         return self.clone(GenotypeGVCFs)
@@ -292,8 +270,7 @@ class SelectVariantsINDEL(GATKFPipelineTask):
     def pre_shell_commands(self):
         self.commands = [self.format_string(
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T SelectVariants "
-            "-L {interval} -V {vcf} --log_to_file {log_file} -selectType INDEL "
-            "-o {indel_vcf}")]
+            "-L {interval} -V {vcf}  -selectType INDEL -o {indel_vcf}")]
 
     def requires(self):
         return self.clone(GenotypeGVCFs)
@@ -309,8 +286,8 @@ class VariantRecalibratorSNP(GATKFPipelineTask):
         ## https://software.broadinstitute.org/gatk/guide/article?id=1259
         self.commands = [self.format_string(
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T VariantRecalibrator "
-            "-L {interval} --log_to_file {log_file} --input {snp_vcf} "
-            "-an QD -an FS -an SOR -an MQ -an MQRankSum -an ReadPosRankSum "
+            "-L {interval}  --input {snp_vcf} -an QD -an FS -an SOR -an MQ "
+            "-an MQRankSum -an ReadPosRankSum "
             "-mode SNP --maxGaussians 4 -tranche 100.0 -tranche 99.9 "
             "-tranche 99.0 -tranche 90.0 -recalFile {snp_recal} "
             "-tranchesFile {snp_tranches} -rscriptFile {snp_rscript} "
@@ -329,8 +306,7 @@ class VariantFiltrationSNP(GATKFPipelineTask):
             '{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T VariantFiltration '
             '-L {interval} -V {snp_vcf} --filterExpression '
             '"QD < 2.0 || FS > 60.0 || MQ < 40.0 || MQRankSum < -12.5 || '
-            'ReadPosRankSum < -8.0" --filterName "SNP_filter" '
-            '--log_to_file {log_file} -o {snp_filtered}')]
+            'ReadPosRankSum < -8.0" --filterName "SNP_filter" -o {snp_filtered}')]
 
     def requires(self):
         return self.clone(SelectVariantsSNP)
@@ -339,7 +315,7 @@ class VariantRecalibratorINDEL(GATKFPipelineTask):
     def pre_shell_commands(self):
         self.commands = [self.format_string(
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} "
-            "-T VariantRecalibrator -L {interval} --log_to_file {log_file} "
+            "-T VariantRecalibrator -L {interval} "
             "--input {indel_vcf} -an QD -an FS -an SOR -an MQRankSum "
             "-an ReadPosRankSum -mode INDEL --maxGaussians 4 "
             "-tranche 100.0 -tranche 99.9 -tranche 99.0 -tranche 90.0 "
@@ -353,7 +329,7 @@ class ApplyRecalibrationSNP(GATKFPipelineTask):
     def pre_shell_commands(self):
         commands = [self.format_string(
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T ApplyRecalibration "
-            "-L {interval} --log_to_file {log_file} -input {snp_vcf} "
+            "-L {interval}  -input {snp_vcf} "
             "-tranchesFile {snp_tranches} -recalFile {snp_recal} "
             "-o {snp_filtered} --ts_filter_level 90.0 -mode SNP")]
 
@@ -364,7 +340,7 @@ class ApplyRecalibrationINDEL(GATKFPipelineTask):
     def pre_shell_commands(self):
         self.commands = [self.format_string(
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T ApplyRecalibration "
-            "-L {interval} --log_to_file {log_file} -input {indel_vcf} "
+            "-L {interval}  -input {indel_vcf} "
             "-tranchesFile {indel_tranches} -recalFile {indel_recal} "
             "-o {indel_filtered} --ts_filter_level 90.0 -mode INDEL")]
 
@@ -377,7 +353,7 @@ class VariantFiltrationINDEL(GATKFPipelineTask):
             '{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T VariantFiltration '
             '-L {interval} -V {indel_vcf} --filterExpression '
             '"QD < 2.0 || FS > 200.0 || ReadPosRankSum < -20.0" --filterName '
-            '"INDEL_filter" --log_to_file {log_file} -o {indel_filtered}')]
+            '"INDEL_filter"  -o {indel_filtered}')]
 
     def requires(self):
       return self.clone(SelectVariantsINDEL)
