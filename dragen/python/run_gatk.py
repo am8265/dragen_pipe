@@ -20,27 +20,33 @@ cfg = get_cfg()
 
 class RunGATK(ProcessSamples):
     def __init__(self, max_samples_concurrently, workers,
-                 additional_sample_requirements,luigi_args):
+                 additional_sample_requirements, luigi_args):
         self.max_samples_concurrently = max_samples_concurrently
         self.workers = workers
         query = GET_SAMPLES
         self.query = (query + additional_sample_requirements if
                       additional_sample_requirements else query)
         self.luigi_args = " " + " ".join(luigi_args) if luigi_args else ""
-        self.pattern = None # fix this for getting SGE jobs
-        self.qdel_jobs = False
         self.last_query_time = None
         self.time_between_queries = 60
+        seqdb = get_connection("seqdb")
+        try:
+            seq_cur = seqdb.cursor()
+            seq_cur.execute(GET_STEP_NAMES)
+            self.pattern = (r"^(?:" +
+                            "|".join([row[0] for row in seq_cur.fetchall()]) +
+                            r")\.{sample_name}\.{pseudo_prepid}$")
+        finally:
+            if seqdb.open:
+                seqdb.close()
+        self.qdel_jobs = True
 
     def _get_samples(self):
         # execute the GET_SAMPLES query, but not more than every X seconds
-        #GET_SAMPLES: sample_name, priority, pseudo_prepid, sample_type, capture_kit
-        # NEED TO CHANGE TO GETTING pseudo_prepid FOR IMPORTING SAMPLES
         current_time = time()
         samples = []
         if (self.last_query_time and (current_time - self.last_query_time) <
             self.time_between_queries):
-            # don't run query yet to avoid hitting the database too often
             return samples
         self.last_query_time = current_time
         seqdb = get_connection("seqdb")
@@ -55,6 +61,9 @@ class RunGATK(ProcessSamples):
                 seqdb.close()
 
     def _get_command(self, pseudo_prepid, sample_name, *args):
+        """pass on a minimal set of parameters, but any additional arbitrary ones
+        specified in luigi_args
+        """
         return ("luigi --module gatk_pipe ArchiveSample --pseudo_prepid "
                 "{pseudo_prepid} --workers {workers}{luigi_args}".format(
                     pseudo_prepid=pseudo_prepid, workers=self.workers,

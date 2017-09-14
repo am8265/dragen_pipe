@@ -67,7 +67,8 @@ class ProcessSamples(object):
         be used"""
         p = re.compile(r"^(\d+) ")
         job_name = re.compile(self.pattern.format(
-            sample_name=sample_name, *args, **self.kwargs))
+            pseudo_prepid=pseudo_prepid, sample_name=sample_name,
+            *args, **self.kwargs))
         proc = subprocess.Popen(["qstat", "-r", "-ne"], stdout=subprocess.PIPE,
                                 preexec_fn=os.setpgrp)
         qstat_output = proc.communicate()[0].splitlines()
@@ -103,7 +104,8 @@ class ProcessSamples(object):
             exit_code = command.run(timeout=timeout)
         except Command.TimeoutException:
             if self.qdel_jobs:
-                for sge_job in self.get_sge_job_ids(sample_name, *args):
+                for sge_job in self.get_sge_job_ids(
+                    pseudo_prepid, sample_name, *args):
                     logger.debug("Killing job ID: {}".format(sge_job))
                     p = subprocess.Popen(
                         ["qdel", sge_job], preexec_fn=os.setpgrp)
@@ -124,7 +126,8 @@ class ProcessSamples(object):
         hours, minutes = divmod(minutes, 60)
         if exit_code:
             if self.qdel_jobs:
-                for sge_job in self.get_sge_job_ids(sample_name, *args):
+                for sge_job in self.get_sge_job_ids(
+                    pseudo_prepid, sample_name, *args):
                     p = subprocess.Popen(
                         ["qdel", sge_job], preexec_fn=os.setpgrp)
                     p.communicate()

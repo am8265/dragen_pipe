@@ -78,3 +78,10 @@ LEFT JOIN dragen_pipeline_step p2 ON p1.pseudo_prepid = p2.pseudo_prepid
 WHERE p1.pipeline_step_id = 1 AND p1.finished = 1 AND
     p2.pipeline_step_id = 31 AND (p2.finished = 0 OR p2.finished IS NULL)
 """
+GET_STEP_NAMES = """
+SELECT d2.step_name
+FROM dragen_pipeline_step_desc d1
+INNER JOIN dragen_pipeline_step_desc d2 ON d1.id < d2.id
+INNER JOIN dragen_pipeline_step_desc d3 ON d2.id <= d3.id
+WHERE d1.step_name = "DragenAlignment" AND d3.step_name = "ArchiveSample"
+"""

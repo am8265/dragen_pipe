@@ -535,6 +535,8 @@ class PipelineTask(SGEJobTask):
                     out.write("\n".join(self.commands))
 
             for command in self.commands:
+                if not command:
+                    continue
                 fhs = {"stdout":None, "stderr":None}
                 try:
                     if not self.shell_options["shell"]:
