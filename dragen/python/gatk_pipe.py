@@ -174,7 +174,7 @@ class GATKFPipelineTask(GATKPipelineTask):
         (priority if overlap is given to kwargs then self)
         """
         for field_name in (record[1] for record in list(Formatter().parse(s))):
-            if (field_name not in self.config_parameters
+            if (field_name and field_name not in self.config_parameters
                 and hasattr(self, field_name)):
                 # not all attributes get set in __init__ such that they appear
                 # in __dict__ so this is a workaround to get them
@@ -366,34 +366,34 @@ class CombineVariants(GATKFPipelineTask):
         only variants being outputted.  The same happens with the INDEL vcf.
         The resulting vcf is then sorted producing the analysisReady.vcf.
         """
-        filter_flag = 0
-        info_flag = 0
+        filter_encountered = False
+        info_encountered = False
         
         with open(self.tmp_vcf, "w") as vcf_out, open(self.snp_filtered) as header:
             for line in header.readlines():
                 if line.startswith("#"):
-                    if line.startswith("##FILTER") and filter_flag == 0 :
-                        filter_flag = 1
-                        #SNP specific FILTER whether using VQSR or snp filtering
-                        if self.sample_type in ("EXOME", "GENOME"):            ## Will a 90.0to99.00 tranche be needed in the header ?
-                            vcf_out.write('##FILTER=<ID=VQSRTrancheSNP90.00to99.00,Description="Truth sensitivity tranche level for SNP model"\n')
-                            vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.00to99.90,Description="Truth sensitivity tranche level for SNP model"\n')
-                            vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.90to100.00+,Description="Truth sensitivity tranche level for SNP model"\n')
-                            vcf_out.write('##FILTER=<ID=VQSRTrancheSNP99.90to100.00,Description="Truth sensitivity tranche level for SNP model"\n')
-                        else:
-                            vcf_out.write('##FILTER=<ID=SNP_filter,Description="QD < 2.0 || FS > 60.0 || MQ < 40.0 || MQRankSum < -12.5 || ReadPosRankSum < -8.0">\n')
+                    if line.startswith("##FILTER") and not filter_encountered:
+                        filter_encountered = True
+                        with open(self.indel_filtered) as indel_header:
+                            # obtain VQSR/filtering record(s) specific to indels
+                            prefix = ("##FILTER=<ID=VQSRTrancheINDEL"
+                                      if self.sample_type == "GENOME"
+                                      else "##FILTER=<ID=INDEL_FILTER,")
+                            indel_lines = []
+                            for indel_line in indel_header:
+                                if indel_line.startswith(prefix):
+                                    indel_lines.append(indel_line)
+                                elif not indel_line.startswith("#"):
+                                    break
+                            if not indel_lines:
+                                raise ValueError(
+                                    "Could not parse indel filter/VQSR line(s) "
+                                    "from filtered indel VCF")
+                            for indel_line in indel_lines:
+                                vcf_out.write(indel_line)
 
-                        #Indel specific filters whether using VQSR or indel filtering
-                        if self.sample_type == "GENOME":
-                            vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL90.00to99.00,Description="Truth sensitivity tranche level for INDEL model"\n')
-                            vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.00to99.90,Description="Truth sensitivity tranche level for INDEL model"\n')
-                            vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.90to100.00+,Description="Truth sensitivity tranche level for INDEL model"\n')
-                            vcf_out.write('##FILTER=<ID=VQSRTrancheINDEL99.90to100.00,Description="Truth sensitivity tranche level for INDEL model"\n')
-                        else:
-                            vcf_out.write('##FILTER=<ID=INDEL_filter,Description="QD < 2.0 || FS > 200.0 || ReadPosRankSum < -20.0">\n')
-
-                    if line.startswith("##INFO") and info_flag == 0:
-                        info_flag = 1
+                    if line.startswith("##INFO") and not info_encountered:
+                        info_encountered = True
                         ## Adding this wierd SAO info tag since there are rare cases where a variant has this information, but it is absent in the header
                         ## causing read backed phasing to crash.
                         vcf_out.write("""##INFO=<ID=SAO,Number=1,Type=Integer,Description="Variant Allele Origin: 0. unspecified, 1. Germline, 2. Somatic, 3. Both">\n""")
@@ -848,26 +848,27 @@ class RunCvgMetrics(GATKFPipelineTask):
         self.output_file_cs = os.path.join(
             self.scratch_dir, self.name_prep + ".cvg.metrics.cs.txt")
         self.DBID, self.prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+        ## An intermediate parsed file is created for extracting info for db update later, this remains the same for exomes and genomes
         if self.sample_type == "GENOME":
             ## Define shell commands to be run
             cvg_cmd = ("{java} -Xmx{max_mem}g -XX:ParallelGCThreads=4 -jar "
-                            "{picard} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT "
-                            "R={ref_genome} I={recal_bam} INTERVALS={file_target} "
-                            "O={raw_output_file} MQ=20 Q=10 >> {log_file}")
+                       "{picard} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT "
+                       "R={ref_genome} I={recal_bam} INTERVALS={file_target} "
+                       "O={raw_output_file} MQ=20 Q=10 >> {log_file}")
             ## Run on the ccds regions only
-            self.cvg_cmd1 = self.format_string(
+            cvg_cmd1 = self.format_string(
                 cvg_cmd, raw_output_file=self.raw_output_file_ccds,
                 file_target=self.config_parameters["target_file"])
             ## Run across the genome
-            self.cvg_cmd2 = self.format_string(
+            cvg_cmd2 = self.format_string(
                 "{java} -Xmx{max_mem}g -XX:ParallelGCThreads=4 -jar "
                 "{picard} CollectWgsMetrics R={ref_genome} I={recal_bam} "
                 "O={raw_output_file} MQ=20 Q=10 >> {log_file}")
             ## Run on X and Y Chromosomes only (across all regions there not just ccds)
-            self.cvg_cmd3 = self.format_string(cvg_cmd,
+            cvg_cmd3 = self.format_string(cvg_cmd,
                 file_target=self.config_parameters["target_file_X"],
                 raw_output_file=self.raw_output_file_X)
-            self.cvg_cmd4 = self.format_string(cvg_cmd,
+            cvg_cmd4 = self.format_string(cvg_cmd,
                 file_target=self.config_parameters["target_file_Y"],
                 raw_output_file=self.raw_output_file_Y)
         else:
@@ -911,28 +912,29 @@ class RunCvgMetrics(GATKFPipelineTask):
                        "-ct 5 -ct 10 -ct 15 -ct 20 -L {file_target} "
                        "-o {raw_output_file} >> {log_file}")
             ## Run across ccds regions
-            self.cvg_cmd1 = self.format_string(cvg_cmd,
+            cvg_cmd1 = self.format_string(cvg_cmd,
                 file_target=self.config_parameters["target_file"],
                 raw_output_file=self.raw_output_file_ccds)
             ## Run across capture kit regions
-            self.cvg_cmd2 = self.format_string(cvg_cmd,
+            cvg_cmd2 = self.format_string(cvg_cmd,
                 file_target=self.capture_kit_bed,
                 raw_output_file=self.raw_output_file)
             ## Run on X and Y Chromosomes only (across all regions there not just ccds)
             if self.capture_file_X:
-                self.cvg_cmd3 = self.format_string(cvg_cmd,
-                    file_target=self.capture_file_X,
+                cvg_cmd3 = self.format_string(
+                    cvg_cmd, file_target=self.capture_file_X,
                     raw_output_file=self.raw_output_file_X)
+            else:
+                cvg_cmd3 = None
             if self.capture_file_Y:
-                self.cvg_cmd4 = self.format_string(cvg_cmd,
-                    file_target=self.capture_file_Y,
+                cvg_cmd4 = self.format_string(
+                    cvg_cmd, file_target=self.capture_file_Y,
                     raw_output_file=self.raw_output_file_Y)
+            else:
+                cvg_cmd4 = None
             ## Run PicardHsMetrics for Capture Specificity
             self.output_bait_file = os.path.join(self.scratch_dir, "targets.interval")
-            self.convert_cmd = self.format_string(
-                "{java} -jar {picard} BedToIntervalList I={capture_kit_bed} "
-                "SD={seqdict_file} OUTPUT={output_bait_file} >> {log_file}")
-            self.cvg_cmd5 = self.format_string(
+            cvg_cmd5 = self.format_string(
                 "{java} -Xmx{max_mem}g -XX:ParallelGCThreads=4 -jar {picard} "
                 "CollectHsMetrics BI={output_bait_file} TI={output_bait_file} "
                 "VALIDATION_STRINGENCY=SILENT "
@@ -944,33 +946,31 @@ class RunCvgMetrics(GATKFPipelineTask):
             self.raw_output_file_X = self.raw_output_file_X + '.sample_summary'
             self.raw_output_file_Y = self.raw_output_file_Y + '.sample_summary'
 
-        ## An intermediate parsed file is created for extracting info for db update later, this remains the same for exomes and genomes
-        parser_cmd = ("grep -v '^#' {raw_output_file} | "
-                           "awk -f {transpose_awk} > {output_file}")
-        self.parser_cmd1 = self.format_string(
+        parser_cmd = "grep -v '^#' {raw_output_file} | awk -f {transpose_awk} > {output_file}"
+        parser_cmd1 = self.format_string(
             parser_cmd, raw_output_file=self.raw_output_file_ccds, output_file=self.output_file_ccds)
-        self.parser_cmd2 = self.format_string(
+        parser_cmd2 = self.format_string(
             parser_cmd, raw_output_file=self.raw_output_file, output_file=self.output_file)
-        if self.capture_file_X:
-            self.parser_cmd3 = self.format_string(
-                parser_cmd, raw_output_file=self.raw_output_file_X, output_file=self.output_file_X)
-        if self.capture_file_Y:
-            self.parser_cmd4 = self.format_string(
-                parser_cmd, raw_output_file=self.raw_output_file_Y, output_file=self.output_file_Y)
+        self.commands = [cvg_cmd1, parser_cmd1, cvg_cmd2, parser_cmd2]
+        if cvg_cmd3:
+            self.commands.append(cvg_cmd3)
+            self.commands.append(self.format_string(
+                parser_cmd, raw_output_file=self.raw_output_file_X,
+                output_file=self.output_file_X))
+        if cvg_cmd4:
+            self.commands.append(cvg_cmd4)
+            self.commands.append(self.format_string(
+                parser_cmd, raw_output_file=self.raw_output_file_Y,
+                output_file=self.output_file_Y))
         if self.sample_type != "GENOME": ## i.e. Exome or CustomCapture
-            self.parser_cmd5 = self.format_string(
+            self.commands.append(self.format_string(
+                "{java} -jar {picard} BedToIntervalList I={capture_kit_bed} "
+                "SD={seqdict_file} OUTPUT={output_bait_file} >> {log_file}"))
+            self.commands.append(cvg_cmd5)
+            self.commands.append(self.format_string(
                 parser_cmd, raw_output_file=self.raw_output_file_cs,
-                output_file=self.output_file_cs)
+                output_file=self.output_file_cs))
         self.shell_options.update({"stdout":None, "stderr":None, "shell":True})
-        self.commands = [
-            self.cvg_cmd1, self.parser_cmd1, self.cvg_cmd2, self.parser_cmd2]
-        if self.capture_file_X:
-            self.commands.extend([self.cvg_cmd3, self.parser_cmd3])
-        if self.capture_file_Y:
-            self.commands.extend([self.cvg_cmd4, self.parser_cmd4])
-        if self.sample_type != "GENOME":
-            self.commands.extend(
-                [self.convert_cmd, self.cvg_cmd5, self.parser_cmd5])
 
     def requires(self):
         yield self.clone(PrintReads)
