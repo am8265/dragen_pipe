@@ -1,77 +1,108 @@
-0	Sample Finished
-999	Sample Initialized in DB
-1000	Imported Chromosome 1 Variant Data
-1001	Imported Chromosome 2 Variant Data
-1002	Imported Chromosome 3 Variant Data
-1003	Imported Chromosome 4 Variant Data
-1004	Imported Chromosome 5 Variant Data
-1005	Imported Chromosome 6 Variant Data
-1006	Imported Chromosome 7 Variant Data
-1007	Imported Chromosome 8 Variant Data
-1008	Imported Chromosome 9 Variant Data
-1009	Imported Chromosome 10 Variant Data
-1010	Imported Chromosome 11 Variant Data
-1011	Imported Chromosome 12 Variant Data
-1012	Imported Chromosome 13 Variant Data
-1013	Imported Chromosome 14 Variant Data
-1014	Imported Chromosome 15 Variant Data
-1015	Imported Chromosome 16 Variant Data
-1016	Imported Chromosome 17 Variant Data
-1017	Imported Chromosome 18 Variant Data
-1018	Imported Chromosome 19 Variant Data
-1019	Imported Chromosome 20 Variant Data
-1020	Imported Chromosome 21 Variant Data
-1021	Imported Chromosome 22 Variant Data
-1022	Imported Chromosome X Variant Data
-1023	Imported Chromosome Y Variant Data
-1024	Imported Chromosome MT Variant Data
-1025	Imported Chromosome 1 GQ Data
-1026	Imported Chromosome 2 GQ Data
-1027	Imported Chromosome 3 GQ Data
-1028	Imported Chromosome 4 GQ Data
-1029	Imported Chromosome 5 GQ Data
-1030	Imported Chromosome 6 GQ Data
-1031	Imported Chromosome 7 GQ Data
-1032	Imported Chromosome 8 GQ Data
-1033	Imported Chromosome 9 GQ Data
-1034	Imported Chromosome 10 GQ Data
-1035	Imported Chromosome 11 GQ Data
-1036	Imported Chromosome 12 GQ Data
-1037	Imported Chromosome 13 GQ Data
-1038	Imported Chromosome 14 GQ Data
-1039	Imported Chromosome 15 GQ Data
-1040	Imported Chromosome 16 GQ Data
-1041	Imported Chromosome 17 GQ Data
-1042	Imported Chromosome 18 GQ Data
-1043	Imported Chromosome 19 GQ Data
-1044	Imported Chromosome 20 GQ Data
-1045	Imported Chromosome 21 GQ Data
-1046	Imported Chromosome 22 GQ Data
-1047	Imported Chromosome X GQ Data
-1048	Imported Chromosome Y GQ Data
-1049	Imported Chromosome MT GQ Data
-1050	Imported Chromosome 1 DP Data
-1051	Imported Chromosome 2 DP Data
-1052	Imported Chromosome 3 DP Data
-1053	Imported Chromosome 4 DP Data
-1054	Imported Chromosome 5 DP Data
-1055	Imported Chromosome 6 DP Data
-1056	Imported Chromosome 7 DP Data
-1057	Imported Chromosome 8 DP Data
-1058	Imported Chromosome 9 DP Data
-1059	Imported Chromosome 10 DP Data
-1060	Imported Chromosome 11 DP Data
-1061	Imported Chromosome 12 DP Data
-1062	Imported Chromosome 13 DP Data
-1063	Imported Chromosome 14 DP Data
-1064	Imported Chromosome 15 DP Data
-1065	Imported Chromosome 16 DP Data
-1066	Imported Chromosome 17 DP Data
-1067	Imported Chromosome 18 DP Data
-1068	Imported Chromosome 19 DP Data
-1069	Imported Chromosome 20 DP Data
-1070	Imported Chromosome 21 DP Data
-1071	Imported Chromosome 22 DP Data
-1072	Imported Chromosome X DP Data
-1073	Imported Chromosome Y DP Data
-1074	Imported Chromosome MT DP Data
+1	DragenAlignment	Align with DRAGEN
+2	DuplicateMetrics	Parse PCR duplication rate from DRAGEN log
+3	RealignerTargetCreator	Create targets for indel realignment
+4	IndelRealigner	Perform indel realignment
+5	BaseRecalibrator	Create model to recalibrate base qualities
+6	PrintReads	Apply base quality score recalibration
+7	ContaminationCheck	Run VerifyBamID for contamination check
+8	AlignmentMetrics	Run Picard alignment metrics
+9	RunCvgMetrics	Run Picard coverage metrics
+10	CreateGenomeBed	Create a coverage pileup bed
+11	CvgBinning	Encode and bin coverage strings
+12	HaplotypeCaller	Create a gVCF with HaplotypeCaller
+13	GQBinning	Encode and bin GQ strings
+14	GenotypeGVCFs	Genotype the gVCF with GenotypeGVCFs
+15	SelectVariantsSNP	Subset only SNVs from VCF
+16	VariantFiltrationSNP	Hard filter SNVs
+17	VariantRecalibratorSNP	Create a model to recalibrate SNVs' qualities
+18	ApplyRecalibrationSNP	Apply SNV quality score recalibration
+19	SelectVariantsINDEL	Subset only indels from VCF
+20	VariantFiltrationINDEL	Hard filter indels
+21	VariantRecalibratorINDEL	Create a model to recalibrate indels' qualities
+22	ApplyRecalibrationINDEL	Apply indel quality score recalibration
+23	CombineVariants	Merge filtered SNVs and indels
+24	GenotypeConcordance	Test genotype concordance with previous pipeline
+25	RBP	Run GATK's ReadBackedPhasing to merge MNPs and phase variants
+26	FixMergedMNPInfo	Update DP, AD_ref, & AD_alt at MNP sites
+27	AnnotateVCF	Annotate the VCF with ClinEff
+28	SubsetVCF	Subset the annotated VCF to capture kit regions
+29	VariantCallingMetrics	Run Picard variant calling metrics
+30	UpdateSeqdbMetrics	Update SeqDB with various QC metrics
+31	ArchiveSample	Move files to permanent storage
+32	Sample Initialized in DB	
+33	Imported Chromosome 1 Variant Data	
+34	Imported Chromosome 2 Variant Data	
+35	Imported Chromosome 3 Variant Data	
+36	Imported Chromosome 4 Variant Data	
+37	Imported Chromosome 5 Variant Data	
+38	Imported Chromosome 6 Variant Data	
+39	Imported Chromosome 7 Variant Data	
+40	Imported Chromosome 8 Variant Data	
+41	Imported Chromosome 9 Variant Data	
+42	Imported Chromosome 10 Variant Data	
+43	Imported Chromosome 11 Variant Data	
+44	Imported Chromosome 12 Variant Data	
+45	Imported Chromosome 13 Variant Data	
+46	Imported Chromosome 14 Variant Data	
+47	Imported Chromosome 15 Variant Data	
+48	Imported Chromosome 16 Variant Data	
+49	Imported Chromosome 17 Variant Data	
+50	Imported Chromosome 18 Variant Data	
+51	Imported Chromosome 19 Variant Data	
+52	Imported Chromosome 20 Variant Data	
+53	Imported Chromosome 21 Variant Data	
+54	Imported Chromosome 22 Variant Data	
+55	Imported Chromosome X Variant Data	
+56	Imported Chromosome Y Variant Data	
+57	Imported Chromosome MT Variant Data	
+58	Imported Chromosome 1 GQ Data	
+59	Imported Chromosome 2 GQ Data	
+60	Imported Chromosome 3 GQ Data	
+61	Imported Chromosome 4 GQ Data	
+62	Imported Chromosome 5 GQ Data	
+63	Imported Chromosome 6 GQ Data	
+64	Imported Chromosome 7 GQ Data	
+65	Imported Chromosome 8 GQ Data	
+66	Imported Chromosome 9 GQ Data	
+67	Imported Chromosome 10 GQ Data	
+68	Imported Chromosome 11 GQ Data	
+69	Imported Chromosome 12 GQ Data	
+70	Imported Chromosome 13 GQ Data	
+71	Imported Chromosome 14 GQ Data	
+72	Imported Chromosome 15 GQ Data	
+73	Imported Chromosome 16 GQ Data	
+74	Imported Chromosome 17 GQ Data	
+75	Imported Chromosome 18 GQ Data	
+76	Imported Chromosome 19 GQ Data	
+77	Imported Chromosome 20 GQ Data	
+78	Imported Chromosome 21 GQ Data	
+79	Imported Chromosome 22 GQ Data	
+80	Imported Chromosome X GQ Data	
+81	Imported Chromosome Y GQ Data	
+82	Imported Chromosome MT GQ Data	
+83	Imported Chromosome 1 DP Data	
+84	Imported Chromosome 2 DP Data	
+85	Imported Chromosome 3 DP Data	
+86	Imported Chromosome 4 DP Data	
+87	Imported Chromosome 5 DP Data	
+88	Imported Chromosome 6 DP Data	
+89	Imported Chromosome 7 DP Data	
+90	Imported Chromosome 8 DP Data	
+91	Imported Chromosome 9 DP Data	
+92	Imported Chromosome 10 DP Data	
+93	Imported Chromosome 11 DP Data	
+94	Imported Chromosome 12 DP Data	
+95	Imported Chromosome 13 DP Data	
+96	Imported Chromosome 14 DP Data	
+97	Imported Chromosome 15 DP Data	
+98	Imported Chromosome 16 DP Data	
+99	Imported Chromosome 17 DP Data	
+100	Imported Chromosome 18 DP Data	
+101	Imported Chromosome 19 DP Data	
+102	Imported Chromosome 20 DP Data	
+103	Imported Chromosome 21 DP Data	
+104	Imported Chromosome 22 DP Data	
+105	Imported Chromosome X DP Data	
+106	Imported Chromosome Y DP Data	
+107	Imported Chromosome MT DP Data	
+108	Sample Finished	
