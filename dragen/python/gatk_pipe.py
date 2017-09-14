@@ -87,7 +87,7 @@ class programs(luigi.Config):
     python_path = luigi.InputFileParameter()
 
 class locations(luigi.Config):
-    base = luigi.InputDirectoryParameter()
+    base = luigi.Parameter()
 
 class pipeline_files(luigi.Config):
     ccds_bed_file = luigi.InputFileParameter()
@@ -112,7 +112,7 @@ class gatk_resources(luigi.Config):
     omni = luigi.InputFileParameter()
     dbSNP = luigi.InputFileParameter()
     annotatedbSNP = luigi.InputFileParameter()
-    exac = luigi.InputFileParameter()
+    exac = luigi.Parameter()
 
 class variables(luigi.Config):
     create_targetfile = luigi.BooleanParameter()
