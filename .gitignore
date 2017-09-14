@@ -1,4 +1,10 @@
+*
+!*/
+!*.*
 *.pyc
 *.sh
 *.txt
 *.bak
+*.svg
+*.html
+*.log
