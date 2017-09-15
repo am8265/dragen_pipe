@@ -22,6 +22,7 @@ import subprocess
 import shlex
 from luigi.contrib.sge import SGEJobTask
 from shlex import split as sxsplit
+from pprint import pprint
 
 cfg = RawConfigParser()
 cfg.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "waldb.cfg"))
@@ -392,6 +393,7 @@ class PipelineTask(SGEJobTask):
     pseudo_prepid = luigi.IntParameter(
         description="The pseudo_prepid for this sample; used for "
         "obtaining/updating statuses")
+    print_init = luigi.BoolParameter(default=False)
 
     def __init__(self, *args, **kwargs):
         super(PipelineTask, self).__init__(*args, **kwargs)
@@ -403,6 +405,8 @@ class PipelineTask(SGEJobTask):
         self.commands = []
         self.files = []
         self.directories = []
+        if self.print_init:
+            print("Initializing {}".format(self.__class__.__name__))
 
     def _get_pipeline_step_id(self):
         """Set the pipeline_step_id for any class inheriting from this

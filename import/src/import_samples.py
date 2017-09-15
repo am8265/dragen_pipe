@@ -16,7 +16,7 @@ from db_statements import *
 cfg = get_cfg()
 
 class ImportSamples(ProcessSamples.ProcessSamples):
-    def __init__(self, database="waldb4", seqscratch="_ssd",
+    def __init__(self, database="waldb6", seqscratch="_ssd",
                  force_failed_samples=False,
                  timeout_exome=1800, timeout_genome=7200,
                  timeout_custom_capture=1800, sample_names=None,
@@ -106,8 +106,8 @@ def main(database, seqscratch, force_failed_samples, sample_names,
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=CustomFormatter)
-    parser.add_argument("-d", "--database", default="waldb4",
-                        choices=["waldb", "waldb2", "waldb4", "waldb1"],
+    parser.add_argument("-d", "--database", default="waldb6",
+                        choices=["waldb", "waldb2", "waldb4", "waldb1", "waldb6"],
                         help="the database to import to")
     parser.add_argument("-s", "--seqscratch",
                         choices=["09", "10", "11", "_ssd"], default="_ssd",

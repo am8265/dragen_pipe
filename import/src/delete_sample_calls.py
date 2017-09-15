@@ -18,7 +18,7 @@ def get_sample_ids(input_sample_ids, sample_name_string):
     """return all sample_id(s) found
     """
     sample_ids = []
-    db = get_connection("waldb4")
+    db = get_connection("waldb6")
     try:
         cur = db.cursor()
         if input_sample_ids:
@@ -41,7 +41,7 @@ def get_sample_ids(input_sample_ids, sample_name_string):
 def delete_sample_chromosome(sample_id, CHROM):
     """delete a given sample_id's calls on the specified chromosome
     """
-    db = get_connection("waldb4")
+    db = get_connection("waldb6")
     seqdb = get_connection("seqdb")
     try:
         cur = db.cursor()
@@ -72,7 +72,7 @@ def delete_sample_chromosome(sample_id, CHROM):
 def delete_samples_chromosome(sample_ids, CHROM):
     """delete all samples' calls on the specified chromosome
     """
-    db = get_connection("waldb4")
+    db = get_connection("waldb6")
     seqdb = get_connection("seqdb")
     try:
         cur = db.cursor()

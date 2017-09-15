@@ -205,8 +205,8 @@ class ParseVCF(SGEJobTask):
         choices=LOGGING_LEVELS, significant=False,
         default="DEBUG", description="the logging level to use")
     database = luigi.ChoiceParameter(
-        choices=["waldb", "dragen", "waldb4", "waldb1"], default="waldb",
-        description="the database to load to")
+        choices=["waldb", "dragen", "waldb4", "waldb1", "waldb6"],
+        default="waldb6", description="the database to load to")
     min_dp_to_include = luigi.NumericalParameter(
         min_value=0, max_value=sys.maxsize, var_type=int,
         default=cfg.getint("pipeline", "min_dp_to_include"),
@@ -377,8 +377,8 @@ class LoadBinData(SGEJobTask):
     data_type = luigi.ChoiceParameter(
         choices=["DP", "GQ"], description="the type of binned data to load")
     database = luigi.ChoiceParameter(
-        choices=["waldb", "dragen", "waldb4", "waldb1"], default="waldb",
-        description="the database to load to")
+        choices=["waldb", "dragen", "waldb4", "waldb1", "waldb6"],
+        default="waldb6", description="the database to load to")
     dont_load_data = luigi.BoolParameter(
         description="don't actually load any data, used for testing purposes")
 
@@ -466,8 +466,8 @@ class ImportSample(luigi.Task):
         significant=False,
         description="don't remove the tmp dir if there's a failure")
     database = luigi.ChoiceParameter(
-        choices=["waldb", "dragen", "waldb4", "waldb1"], default="waldb",
-        description="the database to load to")
+        choices=["waldb", "dragen", "waldb4", "waldb1", "waldb6"],
+        default="waldb6", description="the database to load to")
     min_dp_to_include = luigi.NumericalParameter(
         min_value=0, max_value=sys.maxsize, var_type=int,
         default=cfg.getint("pipeline", "min_dp_to_include"),
@@ -572,14 +572,6 @@ class ImportSample(luigi.Task):
             ParseVCF, chromosome=CHROM, 
             output_base=self.output_directory + CHROM)
             for CHROM in CHROMs.iterkeys()] +
-            [self.clone(
-                LoadBinData,
-                fn=os.path.join(
-                    self.data_directory, "gq_binned",
-                    "{sample_name}.{prep_id}_gq_binned_10000_chr{chromosome}.txt".format(
-                        sample_name=self.sample_name, prep_id=self.prep_id,
-                        chromosome=CHROM)), chromosome=CHROM, data_type="GQ")
-                for CHROM in CHROMs.iterkeys()] +
             [self.clone(
                 LoadBinData,
                 fn=os.path.join(

@@ -813,8 +813,8 @@ if __name__ == "__main__":
                         type=partial(valid_numerical_argument, arg_name="sample_id"),
                         help="the id of the sample")
     parser.add_argument("OUTPUT_BASE", help="the base output file name structure")
-    parser.add_argument("-d", "--database", default="waldb4",
-                        choices=["waldb", "dragen", "waldb4", "waldb1"],
+    parser.add_argument("-d", "--database", default="waldb6",
+                        choices=["waldb", "dragen", "waldb4", "waldb1", "waldb6"],
                         help="the database to load to")
     parser.add_argument("-m", "--min_dp_to_include", type=int,
                         default=cfg.getint("pipeline", "min_dp_to_include"),

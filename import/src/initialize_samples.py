@@ -88,8 +88,8 @@ def initialize_samples(database, level=logging.DEBUG):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=CustomFormatter)
-    parser.add_argument("-d", "--database", default="waldb4",
-                        choices=["waldb", "waldb2", "waldb4", "waldb1"],
+    parser.add_argument("-d", "--database", default="waldb6",
+                        choices=["waldb", "waldb2", "waldb4", "waldb1", "waldb6"],
                         help="the database to initialize samples in")
     parser.add_argument("--level", default="DEBUG", action=DereferenceKeyAction,
                         choices=LOGGING_LEVELS, help="the logging level to use")
