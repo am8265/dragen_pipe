@@ -33,6 +33,15 @@ CHROMs = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
           "14", "15", "16", "17", "18", "19", "20", "21", "22", "X", "Y", "MT"]
 # exclude variant calls below this read depth
 
+def get_pipeline_version():
+    version = subprocess.check_output(
+        ["git", "describe", "--tags"]).strip()
+    if version:
+        return version
+    else:
+        raise ValuError("Could not get the version # of the pipeline; "
+                        "maybe run it from a directory in the repo?")
+
 class SQLTarget(luigi.Target):
     """ A luigi target class describing verification of the entries in the database
     """
@@ -430,13 +439,7 @@ class PipelineTask(SGEJobTask):
         """Set the version of the pipeline being executed by checking the git
         respository's version tag
         """
-        version = subprocess.check_output(
-            ["git", "describe", "--tags"]).strip()
-        if version:
-            self.version = version
-        else:
-            raise ValuError("Could not get the version # of the pipeline; "
-                            "maybe run it from a directory in the repo?")
+        self.version = get_pipeline_version()
 
     def run(self):
         """First create/update as needed the record in the pipeline step table,

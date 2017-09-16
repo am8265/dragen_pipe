@@ -56,6 +56,8 @@ def initialize_samples(database, level=logging.DEBUG):
                                     sample_type=sample_type,
                                     capture_kit=capture_kit, prep_id=prep_id))
                     continue
+                if sample_type.lower() == "genome":
+                    capture_kit = "N/A"
                 try:
                     cur.execute(INITIALIZE_SAMPLE.format(
                         sample_name=sample_name, sample_type=sample_type,
@@ -66,8 +68,9 @@ def initialize_samples(database, level=logging.DEBUG):
                     add_to_count = False
                     logger.warning("Prep ID {prep_id} is already initialized".format(
                         prep_id=prep_id))
+                version = get_pipeline_version()
                 seq_cur.execute(INITIALIZE_SAMPLE_SEQDB.format(
-                    prep_id=prep_id,
+                    pseudo_prepid=prep_id, version=version,
                     sample_initialized_step_id=sample_initialized_step_id))
                 if add_to_count:
                     initialized_count += 1

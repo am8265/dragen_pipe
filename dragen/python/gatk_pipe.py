@@ -14,7 +14,7 @@ from time import sleep
 from glob import glob
 from numpy import isclose
 from shutil import rmtree
-from collections import Counter
+from collections import Counter, defaultdict
 from getpass import getuser
 from pwd import getpwuid
 from gzip import open as gopen
@@ -645,6 +645,8 @@ class ArchiveSample(GATKFPipelineTask):
             "{cov_dir}/coverage.tar.gz".format(cov_dir=self.cov_dir))
         self.gq_tarball =  (
             "{gq_dir}/gq.tar.gz".format(gq_dir=self.gq_dir))
+        self.raw_coverage = os.path.join(
+            self.scratch_dir, "{}.coverage_bins".format(self.name_prep))
         if not os.path.isdir(self.base_dir):
             os.makedirs(self.base_dir)
         with tarfile.open(self.pipeline_tarball, "w:gz") as tar:
@@ -664,7 +666,7 @@ class ArchiveSample(GATKFPipelineTask):
         cmd = ["rsync", "-grlt", "--inplace", "--partial", "{pipeline_tarball}",
                "{recal_bam}", "{recal_bam_index}", "{annotated_vcf_gz}",
                "{annotated_vcf_gz_index}", "{gvcf}", "{gvcf_index}",
-               "{cvg_tarball}", "{gq_tarball}"]
+               "{cvg_tarball}", "{gq_tarball}", "{raw_coverage}"]
         if self.sample_type == "GENOME":
             if os.path.isfile(self.original_vcf_gz):
                 cmd.append("{original_vcf_gz}")
@@ -754,37 +756,108 @@ def get_productionvcf(pseudo_prepid, sample_name, sample_type):
     finally:
         if db.open:
             db.close()
-   
-class CreateGenomeBed(GATKFPipelineTask):
-    """Use bedtools to create the input bed file for the coverage binning script"""
+
+class CoverageBinning(GATKFPipelineTask):
+    """Call Dan's program to bin coverage where we require some minimum
+    standards in base quality and mapping quality, and only output records for
+    blocks which have at least one base meeting the specified binned depth value
+    """
+    bin_program = luigi.InputFileParameter(
+        description="The path to the binning program to run")
+    mmq = luigi.IntParameter(
+        description="Require a minimum base quality score of this value for a "
+        "base in a read to be counted")
+    mmb = luigi.IntParameter(
+        description="Require a minimum mapping quality score of this value for "
+        "a given read to be counted")
+    mbd = luigi.ChoiceParameter(
+        choices=["a", "b", "c", "d", "e", "f", "g"],
+        description="Require a block to have at least one base of the given "
+        "binned coverage value to be output")
+
     def pre_shell_commands(self):
         self.shell_options.update(
-            {"stdout":self.genome_cov_bed, "stderr":self.log_file})
+            {"stdout":os.path.join(
+                self.scratch_dir, "{}.coverage_bins".format(self.name_prep)),
+             "stderr":self.log_file})
         self.commands = [self.format_string(
-            "{bedtools} genomecov -bga -ibam {recal_bam}")]
+            "{bin_program} {recal_bam} {mmq} {mmb} {mbd}")]
 
     def requires(self):
         return self.clone(PrintReads)
 
-class CvgBinning(GATKFPipelineTask):
+class SplitAndSubsetDPBins(GATKFPipelineTask):
+    """Split the DP bins by chromosome and subset them to the blocks of interest
+    if they aren't genomes
+    """
     def pre_shell_commands(self):
-        try: # This syntax is needed to avoid race conditions in certain cases  
-            if not os.path.isdir(self.cov_dir):
-                os.makedirs(self.cov_dir)
-        except OSError,e:
-            if e.errno != 17:
-                raise Exception("Problem Creating Directory : {0}".format(e))
-            pass
-        self.human_chromosomes = [str(x) for x in xrange(1, 23)] + ["X", "Y", "MT"]
-        self.commands = [self.format_string(
-            "{pypy} {coverage_binner} 1000 {name_prep} {genome_cov_bed} {cov_dir}")]
+        if not os.path.isdir(self.cov_dir):
+            os.makedirs(self.cov_dir)
+        if self.sample_type == "GENOME":
+            dp_blocks_fn = None
+        else:
+            seqdb = get_connection("seqdb")
+            try:
+                seq_cur = seqdb.cursor()
+                seq_cur.execute(GET_DP_BLOCKS_FILE.format(
+                    capture_kit=self.capture_kit))
+                row = seq_cur.fetchone()
+                if row:
+                    dp_blocks_fn = row[0]
+                else:
+                    raise ValueError(
+                        "Could not find DP blocks file name for capture kit {}".
+                        format(self.capture_kit))
+                if not os.path.isfile(dp_blocks_fn):
+                    raise OSError("DP blocks file does not exist for capture kit {}".
+                                  format(self.capture_kit))
+            finally:
+                if seqdb.open:
+                    seqdb.close()
 
-    def _run_post_success(self):
-        os.remove(self.genome_cov_bed)
+        coverage_files = dict([chrom, os.path.join(self.cov_dir),
+                          "{name_prep}_coverage_binned_1000_chr{chrom}.txt".format(
+                              name_prep=self.name_prep, chrom=chrom)]
+                              for chrom in CHROMs)
+        for coverage_fn in coverage_files.itervalues():
+            with open(coverage_fn, "w") as _:
+                pass
+        if dp_blocks_fn:
+            blocks_to_retain = defaultdict(set)
+            with open(dp_blocks_fn) as dp_blocks_fh:
+                for line in dp_blocks_fh:
+                    chrom, block_id = line.strip().split(":")
+                    blocks_to_retain[chrom].add(block_id)
+        coverage_out_fh = None
+        prev_chrom = None
+        with open(os.path.join(
+            self.scratch_dir, "{}.coverage_bins".format(self.name_prep))) as coverage_fh:
+            for line in coverage_fh:
+                chrom, block_id = line.split("\t")[:2]
+                if dp_blocks_fn:
+                    output_record = block_id in blocks_to_retain[chrom]
+                    if block_id in blocks_to_retain[chrom]:
+                        output_record = True
+                        if prev_chrom != chrom:
+                            coverage_out_fh = open(coverage_files[chrom], "w")
+                            prev_chrom = chrom
+                    else:
+                        output_record = False
+                else:
+                    output_record = chrom in CHROMs
+                if output_record:
+                    if prev_chrom != chrom:
+                        if coverage_out_fh:
+                            coverage_out_fh.close()
+                        coverage_out_fh = open(coverage_files[chrom], "w")
+                        prev_chrom = chrom
+                    coverage_out_fh.write(line)
+        if coverage_out_fh:
+            coverage_out_fh.close()
 
     def requires(self):
-        return self.clone(CreateGenomeBed)
-
+        return self.clone(CoverageBinning)
+   
 class GQBinning(GATKFPipelineTask):
     def pre_shell_commands(self):
         try:

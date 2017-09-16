@@ -85,3 +85,8 @@ INNER JOIN dragen_pipeline_step_desc d2 ON d1.id < d2.id
 INNER JOIN dragen_pipeline_step_desc d3 ON d2.id <= d3.id
 WHERE d1.step_name = "DragenAlignment" AND d3.step_name = "ArchiveSample"
 """
+GET_DP_BLOCKS_FILE = """
+SELECT path
+FROM blocks_by_kit
+WHERE capture_kit = "{capture_kit}"
+"""
