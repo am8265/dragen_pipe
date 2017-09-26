@@ -74,9 +74,11 @@ GET_SAMPLES = """
 SELECT m.pseudo_prepid, m.sample_name, m.priority, m.sample_type, m.capture_kit
 FROM dragen_sample_metadata m
 INNER JOIN dragen_pipeline_step p1 ON m.pseudo_prepid = p1.pseudo_prepid
-LEFT JOIN dragen_pipeline_step p2 ON p1.pseudo_prepid = p2.pseudo_prepid
-WHERE p1.pipeline_step_id = 1 AND p1.finished = 1 AND
-    p2.pipeline_step_id = 31 AND (p2.finished = 0 OR p2.finished IS NULL)
+WHERE p1.pipeline_step_id = 1 AND p1.finished = 1 AND NOT EXISTS (
+    SELECT 1
+    FROM dragen_pipeline_step p2
+    WHERE p1.pseudo_prepid = p2.pseudo_prepid AND p2.pipeline_step_id = 31
+        AND p2.finished = 1)
 """
 GET_STEP_NAMES = """
 SELECT d2.step_name
@@ -89,4 +91,10 @@ GET_DP_BLOCKS_FILE = """
 SELECT path
 FROM blocks_by_kit
 WHERE capture_kit = "{capture_kit}"
+"""
+ANY_STEP_FAILED = """
+SELECT 1
+FROM dragen_pipeline_step
+WHERE failure = 1 AND pipeline_step_id >= 2 AND pipeline_step_id <= 31
+    AND pseudo_prepid = {pseudo_prepid}
 """
