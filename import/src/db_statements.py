@@ -125,8 +125,8 @@ INSERT INTO dragen_pipeline_step
 VALUE ({prep_id}, {pipeline_step_id}, NOW(), 1, 1)
 """
 INSERT_PIPELINE_STEP = """
-INSERT INTO dragen_pipeline_step (pseudo_prepid, pipeline_step_id)
-VALUE ({prep_id}, {pipeline_step_id})
+INSERT INTO dragen_pipeline_step (pseudo_prepid, pipeline_step_id, version)
+VALUE ({prep_id}, {pipeline_step_id}, "")
 """
 GET_TIMES_STEP_RUN = """
 SELECT times_ran
@@ -242,7 +242,7 @@ VALUE ("{sample_name}", "{sample_type}", "{capture_kit}", {prep_id}, {priority})
 INITIALIZE_SAMPLE_SEQDB = """
 REPLACE dragen_pipeline_step (pseudo_prepid, pipeline_step_id,
     version, finish_time, times_ran, finished)
-VALUE ({pseudo_prepid}, {sample_initialized_step_id}, {version}, NOW(), 1, 1)
+VALUE ({pseudo_prepid}, {sample_initialized_step_id}, "{version}", NOW(), 1, 1)
 """
 BEGIN_STEP = """
 REPLACE dragen_pipeline_step
