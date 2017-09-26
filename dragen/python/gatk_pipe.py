@@ -718,60 +718,6 @@ class ArchiveSample(GATKFPipelineTask):
             yield self.clone(SubsetVCF)
         yield self.clone(UpdateSeqdbMetrics)
 
-def get_productionvcf(pseudo_prepid, sample_name, sample_type):
-    """
-    Query seqdbClone to get AlignSeqFileLoc
-    Extend that to search for the production vcf
-    file, tabix index it, if not already.
-
-    Args :    pseudo_prepid; Int; An identifier for the sample in the database
-              sample_name : String; CHGVID, a string identifier for the 
-                            sequencing sample
-              sample_type : String; The sequencing type i.e. Exome,Genomee,etc.
-
-    Returns : String; Path to the production vcf file
-              None if vcf was not found or if the sample
-              was not run through the production pipeline
-              before
-    """
-
-    DBID,prepID = getDBIDMaxPrepID(pseudo_prepid)
-    query_statement = (
-        """ SELECT AlignSeqFileLoc FROM seqdbClone WHERE"""
-        """ CHGVID = '{0}' AND seqType = '{1}' AND """
-        """ prepID = '{2}'""".format(
-            sample_name, sample_type, prepID))
-    print(query_statement)
-    db = get_connection("seqdb")
-    try:
-        cur = db.cursor()
-        cur.execute(query_statement)
-        db_val = cur.fetchall()
-        # dsth: NO, NO, NO... we cannot continue without a result!?!?
-        # Pass control back, note the finally clause is still executed 
-        if len(db_val) == 0: # If the query returned no results
-            # raise Exception("couldn't get file location for '%d', '%s', '%s'" % ( pseudo_prepid, sample_name, sample_type ))
-            return None 
-        elif len(db_val) > 1:
-            warnings.warn("More than 1 entry , warning :" 
-                          "duplicate pseudo_prepids !")
-        alignseqfileloc = db_val[-1][0] ## Get the last result
-        if alignseqfileloc:
-            vcf_loc = os.path.join(alignseqfileloc, "combined")
-            vcf = os.path.join(vcf_loc, "{}.analysisReady.annotated.vcf".format(sample_name))
-            if os.path.isfile(vcf):
-                return vcf
-            vcf += ".gz"
-            if os.path.isfile(vcf):
-                return vcf
-            else:
-                return None
-        else:
-            return None
-    finally:
-        if db.open:
-            db.close()
-
 class CoverageBinning(GATKFPipelineTask):
     """Call Dan's program to bin coverage where we require some minimum
     standards in base quality and mapping quality, and only output records for
@@ -1112,54 +1058,6 @@ class VariantCallingMetrics(GATKFPipelineTask):
     def requires(self):
         return self.clone(AnnotateVCF)
 
-class GenotypeConcordance(GATKFPipelineTask):
-    """ Run the gatk tool for evaluation of the variant calls
-    with older production pipeline variant calls """
-    n_cpu = 7
-    def pre_shell_commands(self):
-        self.truth_vcf = os.path.join(self.scratch_dir, "truth.vcf")
-        self.eval_vcf = os.path.join(self.scratch_dir, "eval.vcf")
-        self.concordance_metrics = os.path.join(
-            self.scratch_dir, self.name_prep + ".genotype_concordance_metrics.txt")
-        self.concordance_cmd = self.format_string(
-            "{java} -jar {gatk} -T GenotypeConcordance "
-            "-R {ref_genome} -eval {eval_vcf} -comp {truth_vcf} "
-            "-o {concordance_metrics} -U ALLOW_SEQ_DICT_INCOMPATIBILITY")
-        # print("attempting to get vcf file '%d', '%s', '%s'" % ( self.pseudo_prepid, self.sample_name, self.sample_type ))
-        production_vcf = get_productionvcf( self.pseudo_prepid, self.sample_name, self.sample_type )
-        # wait for Avere to cooperate before reading the production VCF
-        while True:
-            if check_avere():
-                break
-            else:
-                sleep(25 + 10 * random())
-        if production_vcf==None:
-            raise Exception("it's best to actually give a file name '%s'" % vcf_fn );
-        self.subset_vcf(production_vcf, self.truth_vcf)
-        if not os.path.isfile(self.annotated_vcf_gz):
-            raise Exception("it's even better if the file exists '%s'" % self.annotated_vcf_gz );
-        self.subset_vcf(self.annotated_vcf_gz, self.eval_vcf)
-        self.commands = [self.format_string(self.concordance_cmd)]
-
-    def subset_vcf(self, vcf_fn, vcf_out_fn):
-        """ Get only PASS variants based on the FILTER field
-        Returns : Path to the output vcf
-        """
-        with get_fh(vcf_fn) as vcf_in, open(vcf_out_fn, "w") as vcf_out:
-            for line in vcf_in:
-                vcf_out.write(line)
-                if line.startswith("#CHROM"):
-                    FILTER_idx = line.split("\t").index("FILTER")
-                    break
-            for line in vcf_in:
-                if line.split("\t")[FILTER_idx] == "PASS":
-                    vcf_out.write(line)
-
-    def requires(self):
-        # dsth: SERIOUSLY, WTF!?!
-        # return self.clone(CombineVariants)
-        return self.clone(AnnotateVCF)
-
 class ContaminationCheck(GATKFPipelineTask):
     """ Run VerifyBamID to check for sample contamination """
     def pre_shell_commands(self):
@@ -1273,10 +1171,6 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
                 self.update_coverage_metrics('cs')
             self.update_duplicates()
             self.update_variant_calling_metrics()
-            production_vcf = get_productionvcf(
-                self.pseudo_prepid, self.sample_name, self.sample_type)
-            if production_vcf:
-                self.update_genotype_concordance_metrics()
             self.update_contamination_metrics()
             self.update_seqgender()
             self.update_qc_message()
@@ -1447,39 +1341,6 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
                           (self.X_snv_het + self.X_indel_het))
         self.update_database(self.qc_table, qc_metrics().x_homhet_ratio, x_homhet_ratio)
              
-    def update_genotype_concordance_metrics(self):
-        genotype_concordance = {
-            "ALLELES_MATCH":1, "ALLELES_DO_NOT_MATCH":1, "EVAL_ONLY":1, "TRUTH_ONLY":1}
-        self.temp_geno_concordance = os.path.join(
-            self.scratch_dir, "temp_geno_concordance.txt")
-        cmd = self.format_string(
-            "grep -A 2 '#:GATKTable:SiteConcordance_Summary:Site-level summary statistics' "
-            "{geno_concordance_out} | grep -v '#' | awk -f {transpose_awk} > {temp_geno_concordance}")
-        proc = subprocess.Popen(cmd,shell=True,stdout=subprocess.PIPE)
-        proc.wait()
-        if proc.returncode:
-            print >> self.LOG_FILE,subprocess.CalledProcessError(proc.returncode,self.get_het_cmd)
-        with open(self.temp_geno_concordance,'r') as concordance_fh:
-            for line in concordance_fh:
-                field, value = line.strip().split(' ')[:2]
-                if field in genotype_concordance:
-                    genotype_concordance[field] = int(value)
-
-        concordance = (
-            float(genotype_concordance['ALLELES_MATCH']) /
-            (genotype_concordance['ALLELES_DO_NOT_MATCH'] + genotype_concordance['ALLELES_MATCH']
-             + genotype_concordance['EVAL_ONLY'] + genotype_concordance['TRUTH_ONLY']))
-        self.update_database(self.qc_table, qc_metrics().concordance, concordance)
-
-    def update_contamination_metrics(self):
-        with open(self.contamination_out) as contamination_fh:
-            for line in contamination_fh:
-                field, value = line.strip().split(' ')[:2]
-                if field == "FREEMIX":
-                    db_field = qc_metrics().contamination_value
-                    self.update_database(self.qc_table, db_field,value)
-                    return
-
     def update_seqgender(self):
         """
         Calculates the X/Y coverage for Exomes and Genomes and updates the seq gender
@@ -1697,9 +1558,6 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         yield self.clone(DuplicateMetrics)
         yield self.clone(VariantCallingMetrics)
         yield self.clone(ContaminationCheck)
-        if get_productionvcf(
-            self.pseudo_prepid,self.sample_name,self.sample_type):
-            yield self.clone(GenotypeConcordance)
 
 if __name__ == "__main__":
     os.environ['NO_PROXY'] = 'igm-atav01.igm.cumc.columbia.edu:8082'
