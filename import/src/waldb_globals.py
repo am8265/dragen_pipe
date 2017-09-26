@@ -13,7 +13,7 @@ import logging
 from db_statements import (
     GET_SAMPLE_DIRECTORY, GET_TIMES_STEP_RUN, BEGIN_STEP,
     FINISH_STEP, FAIL_STEP, GET_PIPELINE_STEP_ID, GET_STEP_STATUS,
-    GET_SAMPLE_METADATA, GET_CAPTURE_KIT_BED)
+    GET_SAMPLE_METADATA, GET_CAPTURE_KIT_BED, INSERT_PIPELINE_STEP)
 from itertools import chain
 from collections import OrderedDict, Counter, defaultdict
 from functools import wraps
@@ -35,7 +35,7 @@ CHROMs = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
 
 def get_pipeline_version():
     version = subprocess.check_output(
-        ["git", "describe", "--tags"]).strip()
+        ["/nfs/goldstein/software/git-2.5.0/bin/git", "describe", "--tags"]).strip()
     if version:
         return version
     else:
@@ -586,6 +586,8 @@ class DragenPipelineTask(PipelineTask):
     """
     sample_name = luigi.Parameter(
         default=None, description="the sample identifier")
+    capture_kit = luigi.Parameter(
+        default=None, description="the capture kit used")
     capture_kit_bed = luigi.InputFileParameter(
         default=None,
         description="the location of the BED file containing the capture kit regions")
@@ -615,6 +617,8 @@ class DragenPipelineTask(PipelineTask):
                         kwargs["sample_type"] = sample_type.upper()
                     if not self.scratch:
                         kwargs["scratch"] = scratch
+                    if not self.capture_kit:
+                        kwargs["capture_kit"] = capture_kit
                     if not self.capture_kit_bed:
                         seq_cur.execute(GET_CAPTURE_KIT_BED.format(
                             capture_kit="Roche"
@@ -714,3 +718,7 @@ class GATKPipelineTask(DragenPipelineTask):
         self.shell_options["record_commands_fn"] = self.script
         self.shell_options["stdout"] = self.log_file
         self.shell_options["stderr"] = self.err
+        for d in (os.path.join(self.scratch_dir, "logs"),
+                  os.path.join(self.scratch_dir, "scripts")):
+            if not os.path.isdir(d):
+                os.makedirs(d)
