@@ -199,8 +199,8 @@ class IndelRealigner(GATKFPipelineTask):
             "-maxReads 10000000 -maxInMemory 450000 -known {Mills1000g} "
             "-known {dbSNP}")]
 
-    def _run_post_success(self):
-        os.remove(self.scratch_bam)
+    #def _run_post_success(self):
+    #    os.remove(self.scratch_bam)
 
     def requires(self):
         return self.clone(RealignerTargetCreator)
@@ -226,8 +226,8 @@ class PrintReads(GATKFPipelineTask):
             "-I {realn_bam} --disable_indel_quals "
             "-BQSR {recal_table} -o {recal_bam} -nct {n_cpu}")]
 
-    def _run_pos_success(self):
-        os.remove(self.realn_bam)
+    #def _run_post_success(self):
+    #    os.remove(self.realn_bam)
 
     def requires(self):
         return self.clone(BaseRecalibrator)
@@ -238,6 +238,9 @@ class HaplotypeCaller(GATKFPipelineTask):
     def pre_shell_commands(self):
         self.commands = [self.format_string(
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T HaplotypeCaller "
+            # dsth: making this sensible to avoid the bounds condition in 3.6...
+            # dsth: updated gatk 3.6 to 2016-08-27-g667f78b
+            # "-maxAltAlleles 3 "
             "-L {interval} -I {recal_bam} -o {gvcf} "
             "-stand_call_conf 20 -stand_emit_conf 20 --emitRefConfidence GVCF "
             "-GQB 5 -GQB 15 -GQB 20 -GQB 60 --variant_index_type LINEAR "
@@ -327,7 +330,7 @@ class VariantRecalibratorINDEL(GATKFPipelineTask):
 
 class ApplyRecalibrationSNP(GATKFPipelineTask):
     def pre_shell_commands(self):
-        commands = [self.format_string(
+        self.commands = [self.format_string(
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T ApplyRecalibration "
             "-L {interval}  -input {snp_vcf} "
             "-tranchesFile {snp_tranches} -recalFile {snp_recal} "
@@ -359,6 +362,7 @@ class VariantFiltrationINDEL(GATKFPipelineTask):
       return self.clone(SelectVariantsINDEL)
 
 class CombineVariants(GATKFPipelineTask):
+
     def pre_shell_commands(self):
         """Merges SNP and INDEL vcfs.  Using the filtered SNP vcf header as a
         base, variant type/sample type specific ##FILTERs are added to the header.
@@ -369,22 +373,26 @@ class CombineVariants(GATKFPipelineTask):
         filter_encountered = False
         info_encountered = False
         
-        with open(self.tmp_vcf, "w") as vcf_out, open(self.snp_filtered) as header:
-            for line in header.readlines():
+        with open(self.tmp_vcf, "w") as vcf_out:
+
+            for line in open(self.snp_filtered).readlines():
+
                 if line.startswith("#"):
-                    if line.startswith("##FILTER") and not filter_encountered:
+
+                    if line.startswith("##FILTER"): # why?!?  and not filter_encountered:
                         filter_encountered = True
+
                         with open(self.indel_filtered) as indel_header:
-                            # obtain VQSR/filtering record(s) specific to indels
-                            prefix = ("##FILTER=<ID=VQSRTrancheINDEL"
-                                      if self.sample_type == "GENOME"
-                                      else "##FILTER=<ID=INDEL_FILTER,")
+
+                            prefix = ("##FILTER=<ID=VQSRTrancheINDEL" if self.sample_type == "GENOME" else "##FILTER=<ID=INDEL_filter,")
                             indel_lines = []
+
                             for indel_line in indel_header:
                                 if indel_line.startswith(prefix):
                                     indel_lines.append(indel_line)
                                 elif not indel_line.startswith("#"):
                                     break
+
                             if not indel_lines:
                                 raise ValueError(
                                     "Could not parse indel filter/VQSR line(s) "
@@ -411,7 +419,7 @@ class CombineVariants(GATKFPipelineTask):
                         vcf_out.write(indel)
 
         self.commands.append(self.format_string(
-            "{java} -jar {picard} SortVcf I={tmp_vcf} O={final_vcf}"))
+            "{java} -XX:ParallelGCThreads=1 -jar {picard} SortVcf I={tmp_vcf} O={final_vcf}"))
         self.commands.append(self.format_string("{bgzip} -f {final_vcf}"))
         self.commands.append(self.format_string(
             "{tabix} -f {final_vcf_gz}"))
@@ -434,7 +442,7 @@ class RBP(GATKFPipelineTask):
     priority = 1
     def pre_shell_commands(self):
         self.commands = [self.format_string(
-            "{java} -jar {gatk} -T ReadBackedPhasing -R {ref_genome} "
+            "{java} -XX:ParallelGCThreads=1 -jar {gatk} -T ReadBackedPhasing -R {ref_genome} "
             "-I {recal_bam} --variant {final_vcf_gz} -o {phased_vcf} "
             "--phaseQualityThresh 20.0 --maxGenomicDistanceForMNP 2 "
             "--enableMergePhasedSegregatingPolymorphismsToMNP "
@@ -450,7 +458,7 @@ class FixMergedMNPInfo(GATKFPipelineTask):
     and add these information to the fixed vcf """
     def post_shell_commands(self):
         self.fix_phased_vcf()
-        os.remove(self.phased_vcf)
+        #os.remove(self.phased_vcf)
 
     def fix_phased_vcf(self):
         """ Fix the missing DP and AD fields for the phased variants
@@ -584,7 +592,8 @@ class AnnotateVCF(GATKFPipelineTask):
         self.shell_options.update(
             {"stdout":None, "stderr":self.log_file, "shell":True})
         self.commands = [self.format_string(
-            "/nfs/goldstein/software/jdk1.8.0_05/bin/java -Xmx6g -jar {clineff} "
+            "/nfs/goldstein/software/jdk1.8.0_05/bin/java "
+            "-XX:ParallelGCThreads=1 -Xmx6g -jar {clineff} "
             "-c {clineff_cfg} -v -db {annotatedbSNP} GRCh37.87 {fixed_vcf} "
             "> {annotated_vcf}"),
             self.format_string("{bgzip} -f {annotated_vcf}"),
@@ -690,8 +699,6 @@ class ArchiveSample(GATKFPipelineTask):
                 if not os.path.islink(f) and owner(f) == user:
                     os.chmod(f, 0664)
                     os.chown(f, uid, gid)
-        if os.path.isdir(self.scratch_dir):
-            rmtree(self.scratch_dir)
 
         ## Update the AlignSeqFile loc to the final archive location
         location = "{0}/{1}".format(
@@ -704,6 +711,7 @@ class ArchiveSample(GATKFPipelineTask):
         finally:
             if db.open:
                 db.close()
+        #rmtree(self.scratch_dir)
 
     def requires(self):
         if self.sample_name.upper().startswith('SRR'):
@@ -731,26 +739,33 @@ def get_productionvcf(pseudo_prepid, sample_name, sample_type):
     query_statement = (
         """ SELECT AlignSeqFileLoc FROM seqdbClone WHERE"""
         """ CHGVID = '{0}' AND seqType = '{1}' AND """
-        """ pseudo_prepid = '{2}'""".format(
-            sample_name, sample_type, pseudo_prepid))
+        """ prepID = '{2}'""".format(
+            sample_name, sample_type, prepID))
+    print(query_statement)
     db = get_connection("seqdb")
     try:
         cur = db.cursor()
         cur.execute(query_statement)
         db_val = cur.fetchall()
+        # dsth: NO, NO, NO... we cannot continue without a result!?!?
+        # Pass control back, note the finally clause is still executed 
         if len(db_val) == 0: # If the query returned no results
-            return None # Pass control back, note the finally clause is still executed 
+            # raise Exception("couldn't get file location for '%d', '%s', '%s'" % ( pseudo_prepid, sample_name, sample_type ))
+            return None 
         elif len(db_val) > 1:
             warnings.warn("More than 1 entry , warning :" 
                           "duplicate pseudo_prepids !")
         alignseqfileloc = db_val[-1][0] ## Get the last result
-        vcf_loc = os.path.join(alignseqfileloc, "combined")
-        vcf = os.path.join(vcf_loc, "{}.analysisReady.annotated.vcf".format(sample_name))
-        if os.path.isfile(vcf):
-            return vcf
-        vcf += ".gz"
-        if os.path.isfile(vcf):
-            return vcf
+        if alignseqfileloc:
+            vcf_loc = os.path.join(alignseqfileloc, "combined")
+            vcf = os.path.join(vcf_loc, "{}.analysisReady.annotated.vcf".format(sample_name))
+            if os.path.isfile(vcf):
+                return vcf
+            vcf += ".gz"
+            if os.path.isfile(vcf):
+                return vcf
+            else:
+                return None
         else:
             return None
     finally:
@@ -815,13 +830,12 @@ class SplitAndSubsetDPBins(GATKFPipelineTask):
                 if seqdb.open:
                     seqdb.close()
 
-        coverage_files = dict([chrom, os.path.join(self.cov_dir),
+        coverage_files = dict([chrom, os.path.join(self.cov_dir,
                           "{name_prep}_coverage_binned_1000_chr{chrom}.txt".format(
-                              name_prep=self.name_prep, chrom=chrom)]
+                              name_prep=self.name_prep, chrom=chrom))]
                               for chrom in CHROMs)
         for coverage_fn in coverage_files.itervalues():
-            with open(coverage_fn, "w") as _:
-                pass
+            with open(coverage_fn, "w"): pass
         if dp_blocks_fn:
             blocks_to_retain = defaultdict(set)
             with open(dp_blocks_fn) as dp_blocks_fh:
@@ -832,11 +846,11 @@ class SplitAndSubsetDPBins(GATKFPipelineTask):
         prev_chrom = None
         with open(os.path.join(
             self.scratch_dir, "{}.coverage_bins".format(self.name_prep))) as coverage_fh:
-            for line in coverage_fh:
+            for x, line in enumerate(coverage_fh):
                 chrom, block_id = line.split("\t")[:2]
                 if dp_blocks_fn:
                     output_record = block_id in blocks_to_retain[chrom]
-                    if block_id in blocks_to_retain[chrom]:
+                    if block_id in blocks_to_retain[chrom] or chrom == "MT":
                         output_record = True
                         if prev_chrom != chrom:
                             coverage_out_fh = open(coverage_files[chrom], "w")
@@ -882,8 +896,8 @@ class AlignmentMetrics(GATKFPipelineTask):
             "{sample_name}.{pseudo_prepid}.alignment.metrics.raw".format(
                 sample_name=self.sample_name, pseudo_prepid=self.pseudo_prepid))
         cmd = self.format_string(
-            "{java} -XX:ParallelGCThreads=4 -jar {picard} "
-            "CollectAlignmentSummaryMetrics TMP_DIR={scratch_dir} "
+            "{java} -XX:ParallelGCThreads=1 -jar {picard} CollectAlignmentSummaryMetrics "
+            "TMP_DIR={scratch_dir} "
             "VALIDATION_STRINGENCY=SILENT REFERENCE_SEQUENCE={ref_genome} "
             "INPUT={recal_bam} OUTPUT={alignment_metrics_raw} >& {log_file}")
         parser_cmd = self.format_string(
@@ -924,19 +938,19 @@ class RunCvgMetrics(GATKFPipelineTask):
         ## An intermediate parsed file is created for extracting info for db update later, this remains the same for exomes and genomes
         if self.sample_type == "GENOME":
             ## Define shell commands to be run
-            cvg_cmd = ("{java} -Xmx{max_mem}g -XX:ParallelGCThreads=4 -jar "
+            cvg_cmd = ("{java} -XX:ParallelGCThreads=1 -Xmx{max_mem}g -jar "
                        "{picard} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT "
                        "R={ref_genome} I={recal_bam} INTERVALS={file_target} "
-                       "O={raw_output_file} MQ=20 Q=10 >> {log_file}")
+                       "O={raw_output_file} MQ=20 Q=10 >> {log_file} 2>&1")
             ## Run on the ccds regions only
             cvg_cmd1 = self.format_string(
                 cvg_cmd, raw_output_file=self.raw_output_file_ccds,
                 file_target=self.config_parameters["target_file"])
             ## Run across the genome
             cvg_cmd2 = self.format_string(
-                "{java} -Xmx{max_mem}g -XX:ParallelGCThreads=4 -jar "
+                "{java} -XX:ParallelGCThreads=1 -Xmx{max_mem}g -jar "
                 "{picard} CollectWgsMetrics R={ref_genome} I={recal_bam} "
-                "O={raw_output_file} MQ=20 Q=10 >> {log_file}")
+                "O={raw_output_file} MQ=20 Q=10 >> {log_file} 2>&1")
             ## Run on X and Y Chromosomes only (across all regions there not just ccds)
             cvg_cmd3 = self.format_string(cvg_cmd,
                 file_target=self.config_parameters["target_file_X"],
@@ -978,12 +992,12 @@ class RunCvgMetrics(GATKFPipelineTask):
                     db.close()
 
             self.calc_capture_specificity = 1 ## We need to run an additional picard module for calculating capture specificity
-            cvg_cmd = ("{java} -Xmx{max_mem}g -XX:ParallelGCThreads=4 -jar "
+            cvg_cmd = ("{java} -XX:ParallelGCThreads=1 -Xmx{max_mem}g -jar "
                        "{gatk} -T DepthOfCoverage -mbq 10 -mmq 20 "
                        "--omitIntervalStatistics --omitDepthOutputAtEachBase "
                        "--omitLocusTable -R {ref_genome} -I {recal_bam} "
                        "-ct 5 -ct 10 -ct 15 -ct 20 -L {file_target} "
-                       "-o {raw_output_file} >> {log_file}")
+                       "-o {raw_output_file} >> {log_file} 2>&1")
             ## Run across ccds regions
             cvg_cmd1 = self.format_string(cvg_cmd,
                 file_target=self.config_parameters["target_file"],
@@ -1008,11 +1022,11 @@ class RunCvgMetrics(GATKFPipelineTask):
             ## Run PicardHsMetrics for Capture Specificity
             self.output_bait_file = os.path.join(self.scratch_dir, "targets.interval")
             cvg_cmd5 = self.format_string(
-                "{java} -Xmx{max_mem}g -XX:ParallelGCThreads=4 -jar {picard} "
+                "{java} -XX:ParallelGCThreads=1 -Xmx{max_mem}g -jar {picard} "
                 "CollectHsMetrics BI={output_bait_file} TI={output_bait_file} "
                 "VALIDATION_STRINGENCY=SILENT "
                 "METRIC_ACCUMULATION_LEVEL=ALL_READS "
-                "I={recal_bam} O={raw_output_file_cs} MQ=20 Q=10 >> {log_file}")
+                "I={recal_bam} O={raw_output_file_cs} MQ=20 Q=10 >> {log_file} 2>&1")
             ## DepthOfCoverage output has an extra suffix at the end
             self.raw_output_file_ccds = self.raw_output_file_ccds + '.sample_summary'
             self.raw_output_file = self.raw_output_file + '.sample_summary'
@@ -1037,8 +1051,8 @@ class RunCvgMetrics(GATKFPipelineTask):
                 output_file=self.output_file_Y))
         if self.sample_type != "GENOME": ## i.e. Exome or CustomCapture
             self.commands.append(self.format_string(
-                "{java} -jar {picard} BedToIntervalList I={capture_kit_bed} "
-                "SD={seqdict_file} OUTPUT={output_bait_file} >> {log_file}"))
+                "{java} -XX:ParallelGCThreads=1 -jar {picard} BedToIntervalList I={capture_kit_bed} "
+                "SD={seqdict_file} OUTPUT={output_bait_file} >> {log_file} 2>&1"))
             self.commands.append(cvg_cmd5)
             self.commands.append(self.format_string(
                 parser_cmd, raw_output_file=self.raw_output_file_cs,
@@ -1086,7 +1100,7 @@ class VariantCallingMetrics(GATKFPipelineTask):
         self.metrics_file = os.path.join(
             self.scratch_dir, self.name_prep + ".variant_calling_summary_metrics.txt")
         self.metrics_cmd = self.format_string(
-            "{java} -XX:ParallelGCThreads=4 -jar {picard} CollectVariantCallingMetrics "
+            "{java} -XX:ParallelGCThreads=1 -jar {picard} CollectVariantCallingMetrics "
             "INPUT={annotated_vcf_gz} OUTPUT={metrics_raw} DBSNP={dbSNP} >& {log_file}")
         self.parser_cmd = self.format_string(
             "grep -v '^#' {metrics_raw_summary} | awk -f {transpose_awk} "
@@ -1108,22 +1122,23 @@ class GenotypeConcordance(GATKFPipelineTask):
         self.concordance_metrics = os.path.join(
             self.scratch_dir, self.name_prep + ".genotype_concordance_metrics.txt")
         self.concordance_cmd = self.format_string(
-            "{java} -XX:ParallelGCThreads=4 -jar {gatk} -T GenotypeConcordance "
+            "{java} -jar {gatk} -T GenotypeConcordance "
             "-R {ref_genome} -eval {eval_vcf} -comp {truth_vcf} "
             "-o {concordance_metrics} -U ALLOW_SEQ_DICT_INCOMPATIBILITY")
-        production_vcf = get_productionvcf(
-            self.pseudo_prepid, self.sample_name,self.sample_type)
+        # print("attempting to get vcf file '%d', '%s', '%s'" % ( self.pseudo_prepid, self.sample_name, self.sample_type ))
+        production_vcf = get_productionvcf( self.pseudo_prepid, self.sample_name, self.sample_type )
         # wait for Avere to cooperate before reading the production VCF
         while True:
             if check_avere():
                 break
             else:
                 sleep(25 + 10 * random())
+        if production_vcf==None:
+            raise Exception("it's best to actually give a file name '%s'" % vcf_fn );
         self.subset_vcf(production_vcf, self.truth_vcf)
+        if not os.path.isfile(self.annotated_vcf_gz):
+            raise Exception("it's even better if the file exists '%s'" % self.annotated_vcf_gz );
         self.subset_vcf(self.annotated_vcf_gz, self.eval_vcf)
-        for idx in [vcf +  ".idx" for vcf in (self.truth_vcf, self.eval_vcf)]:
-            if os.path.isfile(idx):
-                os.remove(idx)
         self.commands = [self.format_string(self.concordance_cmd)]
 
     def subset_vcf(self, vcf_fn, vcf_out_fn):
@@ -1134,14 +1149,16 @@ class GenotypeConcordance(GATKFPipelineTask):
             for line in vcf_in:
                 vcf_out.write(line)
                 if line.startswith("#CHROM"):
-                    FILTER_idx = fields.split("\t").index("FILTER")
+                    FILTER_idx = line.split("\t").index("FILTER")
                     break
             for line in vcf_in:
                 if line.split("\t")[FILTER_idx] == "PASS":
                     vcf_out.write(line)
 
     def requires(self):
-        return self.clone(CombineVariants)
+        # dsth: SERIOUSLY, WTF!?!
+        # return self.clone(CombineVariants)
+        return self.clone(AnnotateVCF)
 
 class ContaminationCheck(GATKFPipelineTask):
     """ Run VerifyBamID to check for sample contamination """
@@ -1210,19 +1227,19 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         ## The new lean equivalent of seqdbClone 
         self.master_table = "seqdbClone"
         self.DBID,self.prepID = getDBIDMaxPrepID(self.pseudo_prepid)
-        raw_vcfs = os.path.join(
-            self.scratch_dir, self.name_prep + ".raw*vcf*")
-        indel_vcfs = os.path.join(
-            self.scratch_dir, self.name_prep + ".indel*")
-        snp_vcfs = os.path.join(
-            self.scratch_dir, self.name_prep + ".snp*")
-        analysis_vcfs = os.path.join(
-            self.scratch_dir, self.name_prep + ".analysisReady.vcf*")
-        fixed_vcf = os.path.join(
-            self.scratch_dir, self.name_prep + ".analysisReady.fixed.vcf")
-        tmp_vcf = os.path.join(
-            self.scratch_dir, self.name_prep + ".tmp.vcf")
-        self.files_to_remove = [raw_vcfs, indel_vcfs, snp_vcfs, analysis_vcfs, fixed_vcf, tmp_vcf]
+        #raw_vcfs = os.path.join(
+        #    self.scratch_dir, self.name_prep + ".raw*vcf*")
+        #indel_vcfs = os.path.join(
+        #    self.scratch_dir, self.name_prep + ".indel*")
+        #snp_vcfs = os.path.join(
+        #    self.scratch_dir, self.name_prep + ".snp*")
+        #analysis_vcfs = os.path.join(
+        #    self.scratch_dir, self.name_prep + ".analysisReady.vcf*")
+        #fixed_vcf = os.path.join(
+        #    self.scratch_dir, self.name_prep + ".analysisReady.fixed.vcf")
+        #tmp_vcf = os.path.join(
+        #    self.scratch_dir, self.name_prep + ".tmp.vcf")
+        #self.files_to_remove = [raw_vcfs, indel_vcfs, snp_vcfs, analysis_vcfs, fixed_vcf, tmp_vcf]
         self.cvg_parse = {"EXOME":{
             "all":{"mean":qc_metrics().mean_cvg, "granular_median":qc_metrics().median_cvg,
                    "%_bases_above_5":qc_metrics().pct_bases5X, "%_bases_above_10":qc_metrics().pct_bases10X,
@@ -1256,8 +1273,9 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
                 self.update_coverage_metrics('cs')
             self.update_duplicates()
             self.update_variant_calling_metrics()
-            if get_productionvcf(
-                self.pseudo_prepid, self.sample_name, self.sample_type) is not None:
+            production_vcf = get_productionvcf(
+                self.pseudo_prepid, self.sample_name, self.sample_type)
+            if production_vcf:
                 self.update_genotype_concordance_metrics()
             self.update_contamination_metrics()
             self.update_seqgender()
@@ -1268,9 +1286,9 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             update_alignseqfile(
                 self.cur, os.path.dirname(self.scratch_dir), self.pseudo_prepid)
             self.db.commit()
-            for tmp_file in self.files_to_remove:
-                for fn in glob(tmp_file):
-                    os.remove(fn)
+            #for tmp_file in self.files_to_remove:
+            #    for fn in glob(tmp_file):
+            #        os.remove(fn)
         finally:
             if self.db.open:
                 self.db.close()
@@ -1279,10 +1297,15 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         """
         Initialize the sample in the qc table, use update statements later to update qc metrics
         """
-        query = self.format_string("""
-        INSERT INTO {qc_table} (CHGVID, seqType, pseudo_prepid)
-        VALUES ("{sample_name}", "{sample_type}", {pseudo_prepid})""")
-        self.cur.execute(query)
+        self.cur.execute(self.format_string("""
+        SELECT 1 FROM {qc_table} WHERE CHGVID = "{sample_name}" AND seqType =
+        "{sample_type}" AND pseudo_prepid = {pseudo_prepid}"""))
+        row = self.cur.fetchone()
+        if not row:
+            query = self.format_string("""
+            INSERT INTO {qc_table} (CHGVID, seqType, pseudo_prepid)
+            VALUES ("{sample_name}", "{sample_type}", {pseudo_prepid})""")
+            self.cur.execute(query)
 
     def check_qc(self):
         """
@@ -1668,12 +1691,16 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
 
     def requires(self):
         yield self.clone(GQBinning)
-        yield self.clone(CvgBinning)
+        yield self.clone(SplitAndSubsetDPBins)
         yield self.clone(AlignmentMetrics)
         yield self.clone(RunCvgMetrics)
         yield self.clone(DuplicateMetrics)
         yield self.clone(VariantCallingMetrics)
         yield self.clone(ContaminationCheck)
         if get_productionvcf(
-            self.pseudo_prepid,self.sample_name,self.sample_type) is not None:
+            self.pseudo_prepid,self.sample_name,self.sample_type):
             yield self.clone(GenotypeConcordance)
+
+if __name__ == "__main__":
+    os.environ['NO_PROXY'] = 'igm-atav01.igm.cumc.columbia.edu:8082'
+    sys.exit(luigi.run())
