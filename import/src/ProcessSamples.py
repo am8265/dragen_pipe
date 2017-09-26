@@ -131,15 +131,16 @@ class ProcessSamples(object):
                     p = subprocess.Popen(
                         ["qdel", sge_job], preexec_fn=os.setpgrp)
                     p.communicate()
-                logger.error("failed processing {sample_name} after "
-                             "{h}:{m:0>2}:{s:0>2}".format(
-                                 sample_name=sample_name, h=hours,
-                                 m=minutes, s=seconds))
+            logger.error("failed processing "
+                         "{sample_name}.{pseudo_prepid} after "
+                         "{h}:{m:0>2}:{s:0>2}".format(
+                             sample_name=sample_name, h=hours,
+                             m=minutes, s=seconds, pseudo_prepid=pseudo_prepid))
         else:
-            logger.info("succeeded processing {sample_name} after "
+            logger.info("succeeded processing {sample_name}.{pseudo_prepid} after "
                         "{h}:{m:0>2}:{s:0>2}".format(
                             sample_name=sample_name, h=hours, m=minutes,
-                            s=seconds))
+                            s=seconds, pseudo_prepid=pseudo_prepid))
 
     def process_samples(self):
         done = False
@@ -165,7 +166,7 @@ class ProcessSamples(object):
             if done:
                 break
             for pseudo_prepid, sample_name, priority, sample_metadata in self._get_samples():
-                if ((sample_name, sample_metadata)
+                if ((pseudo_prepid, sample_name, sample_metadata)
                     not in self.samples_already_queued):
                     self.samples_queue.put(
                         (priority, (pseudo_prepid, sample_name, sample_metadata)))
@@ -177,10 +178,10 @@ class ProcessSamples(object):
                 sleep(300)
             else:
                 priority, sample_metadata = self.samples_queue.get()
-                sample_metadata = tuple(
-                    sample_metadata[:2] + list(sample_metadata[1]))
-                thread = Thread(
-                    target=self.run_command, args=sample_metadata)
+                args = list(sample_metadata[:2])
+                for arg in sample_metadata[2]:
+                    args.append(arg)
+                thread = Thread(target=self.run_command, args=args)
                 self.all_threads.append(thread)
                 thread.start()
         self.bh.disable()
