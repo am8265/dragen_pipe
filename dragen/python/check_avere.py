@@ -92,7 +92,9 @@ def check_avere(script_fn=SCRIPT, max_load_any_node=MAX_LOAD_ANY_NODE,
             found = True
             break
     if not found:
-        raise ValueError("Didn't find load data")
+        # dsth: temporary hack
+        return False
+        # raise ValueError("Didn't find load data")
     logger.debug("Load is {}".format(load))
     clients_found = [False, False, False]
     node_client_p = re.compile(r"^node(\d)_clients=")
