@@ -4,6 +4,7 @@ import os
 import sys
 import subprocess
 import luigi
+from luigi.contrib.sge import SGEJobTask
 import MySQLdb
 import warnings
 import tabix
@@ -160,7 +161,9 @@ class qc_metrics(luigi.Config):
 
 class GATKFPipelineTask(GATKPipelineTask):
     task_name_format = "{task_family}.{sample_name}.{pseudo_prepid}"
-    poll_time = 120
+    poll_time = luigi.IntParameter(
+        default=120,
+        description="the number of seconds to wait before rerunning qstat for a task")
     def __init__(self, *args, **kwargs):
         self.config_parameters = {}
         for cls in (programs, locations, pipeline_files, gatk_resources, variables,
@@ -182,6 +185,34 @@ class GATKFPipelineTask(GATKPipelineTask):
         self.config_parameters.update(kwargs)
         return s.format(**self.config_parameters)
 
+class DragenBAMExists(luigi.ExternalTask):
+    bam = luigi.Parameter(
+        description="the expected path to the DRAGEN aligned BAM")
+
+    def output(self):
+        return luigi.LocalTarget(self.bam)
+
+class ValidateBAM(SGEJobTask):
+    bam = luigi.Parameter(description="the expected path to the BAM to check")
+
+    def work(self):
+        with open(os.devnull, "w") as devnull:
+            if subprocess.call(
+                ["samtools", "view", self.bam], stdout=devnull, stderr=devnull):
+                with open(self.bam + ".corrupted", "w") as o:
+                    pass
+                raise Exception("Corrupt BAM!")
+            else:
+                with self.output().open("w") as o:
+                    pass
+
+    def requires(self):
+        return DragenBAMExists(self.bam)
+
+    def output(self):
+        return luigi.LocalTarget(self.bam + ".validated")
+
+
 class RealignerTargetCreator(GATKFPipelineTask):
     priority = 1 # run before other competing steps with no requirement
     n_cpu = 4
@@ -190,6 +221,9 @@ class RealignerTargetCreator(GATKFPipelineTask):
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T RealignerTargetCreator "
             "-I {scratch_bam} -o {interval_list} -known {Mills1000g} "
             "-known {dbSNP} -nt {n_cpu}")]
+
+    def requires(self):
+        return ValidateBAM(bam=self.scratch_bam)
 
 class IndelRealigner(GATKFPipelineTask):
     def pre_shell_commands(self):
@@ -379,7 +413,7 @@ class CombineVariants(GATKFPipelineTask):
 
                 if line.startswith("#"):
 
-                    if line.startswith("##FILTER"): # why?!?  and not filter_encountered:
+                    if line.startswith("##FILTER") and not filter_encountered:
                         filter_encountered = True
 
                         with open(self.indel_filtered) as indel_header:
@@ -672,15 +706,16 @@ class ArchiveSample(GATKFPipelineTask):
                 "{gq_dir}/*.txt".format(gq_dir=self.gq_dir)):
                 tar.add(gq_file, arcname=os.path.basename(gq_file))
 
-        cmd = ["rsync", "-grlt", "--inplace", "--partial", "{pipeline_tarball}",
-               "{recal_bam}", "{recal_bam_index}", "{annotated_vcf_gz}",
-               "{annotated_vcf_gz_index}", "{gvcf}", "{gvcf_index}",
-               "{cvg_tarball}", "{gq_tarball}", "{raw_coverage}"]
+        data_to_copy = [
+            "{pipeline_tarball}", "{recal_bam}", "{recal_bam_index}",
+            "{annotated_vcf_gz}", "{annotated_vcf_gz_index}", "{gvcf}",
+            "{gvcf_index}", "{cvg_tarball}", "{gq_tarball}", "{raw_coverage}"]
         if self.sample_type == "GENOME":
             if os.path.isfile(self.original_vcf_gz):
-                cmd.append("{original_vcf_gz}")
-        cmd.append("{base_dir}")
-        self.commands = [self.format_string(" ".join(cmd))]
+                data_to_copy.append("{original_vcf_gz}")
+        for data_file in data_to_copy:
+            self.commands.append(self.format_string(
+                "rsync -grlt --inplace --partial " + data_file + " {base_dir}"))
 
     def post_shell_commands(self):
         ## Change folder permissions of base directory
@@ -880,7 +915,10 @@ class RunCvgMetrics(GATKFPipelineTask):
             self.scratch_dir, self.sample_name + ".cvg.metrics.cs.raw")
         self.output_file_cs = os.path.join(
             self.scratch_dir, self.name_prep + ".cvg.metrics.cs.txt")
-        self.DBID, self.prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+        _, self.prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+        if not self.prepID:
+            raise ValueError("Couldn't get prepID from {sample_name}:{pseudo_prepid}!".
+                             format(sample_name=self.sample_name, pseudo_prepid=self.pseudo_prepid))
         ## An intermediate parsed file is created for extracting info for db update later, this remains the same for exomes and genomes
         if self.sample_type == "GENOME":
             ## Define shell commands to be run
@@ -1037,6 +1075,9 @@ class DuplicateMetrics(GATKFPipelineTask):
         else:
             raise ValueError("Could not find duplicate metrics in dragen log!")
 
+    def requires(self):
+        return ValidateBAM(bam=self.scratch_bam)
+
 class VariantCallingMetrics(GATKFPipelineTask):
     def pre_shell_commands(self):
         self.metrics_raw = os.path.join(
@@ -1092,9 +1133,9 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
     def pre_shell_commands(self):
         ## Generic query to be used for updates 
         self.update_statement = """
-        UPDATE {table} SET {field} = "{value}"
+        UPDATE {table} SET {field} = {value}
         WHERE CHGVID = "{sample_name}" AND seqType = "{sample_type}"
-            AND pseudo_prepid = "{pseudo_prepid}" """
+            AND pseudo_prepid = {pseudo_prepid}"""
         self.query_statement = """
         SELECT {field}
         FROM {table}
@@ -1124,7 +1165,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         self.qc_table = "dragen_qc_metrics"
         ## The new lean equivalent of seqdbClone 
         self.master_table = "seqdbClone"
-        self.DBID,self.prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+        _, self.prepID = getDBIDMaxPrepID(self.pseudo_prepid)
         #raw_vcfs = os.path.join(
         #    self.scratch_dir, self.name_prep + ".raw*vcf*")
         #indel_vcfs = os.path.join(
@@ -1160,25 +1201,26 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         try:
             self.db = get_connection("seqdb")
             self.cur = self.db.cursor()
-            self.get_variant_counts()
-            self.add_sample_to_qc()
-            self.update_alignment_metrics()
-            self.update_coverage_metrics('all')
-            self.update_coverage_metrics('ccds')
-            self.update_coverage_metrics('X')
-            self.update_coverage_metrics('Y')
-            if self.sample_type != 'GENOME':
-                self.update_coverage_metrics('cs')
-            self.update_duplicates()
-            self.update_variant_calling_metrics()
-            self.update_contamination_metrics()
-            self.update_seqgender()
-            self.update_qc_message()
-            ## Update alignseqfile location here to keep track of scratch location
-            # Due to bad decision the data location does not include the
-            # sample's name and prep ID
-            update_alignseqfile(
-                self.cur, os.path.dirname(self.scratch_dir), self.pseudo_prepid)
+            with open(self.log_file, "w") as self.log_fh:
+                self.get_variant_counts()
+                self.add_sample_to_qc()
+                self.update_alignment_metrics()
+                self.update_coverage_metrics('all')
+                self.update_coverage_metrics('ccds')
+                self.update_coverage_metrics('X')
+                self.update_coverage_metrics('Y')
+                if self.sample_type != 'GENOME':
+                    self.update_coverage_metrics('cs')
+                self.update_duplicates()
+                self.update_variant_calling_metrics()
+                self.update_contamination_metrics()
+                self.update_seqgender()
+                self.update_qc_message()
+                ## Update alignseqfile location here to keep track of scratch location
+                # Due to bad decision the data location does not include the
+                # sample's name and prep ID
+                update_alignseqfile(
+                    self.cur, os.path.dirname(self.scratch_dir), self.pseudo_prepid)
             self.db.commit()
             #for tmp_file in self.files_to_remove:
             #    for fn in glob(tmp_file):
@@ -1187,19 +1229,22 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             if self.db.open:
                 self.db.close()
 
+    def execute_query(self, query):
+        self.log_fh.write(query + "\n")
+        self.cur.execute(query)
+
     def add_sample_to_qc(self):
         """
         Initialize the sample in the qc table, use update statements later to update qc metrics
         """
-        self.cur.execute(self.format_string("""
+        self.execute_query(self.format_string("""
         SELECT 1 FROM {qc_table} WHERE CHGVID = "{sample_name}" AND seqType =
         "{sample_type}" AND pseudo_prepid = {pseudo_prepid}"""))
         row = self.cur.fetchone()
         if not row:
-            query = self.format_string("""
+            self.execute_query(self.format_string("""
             INSERT INTO {qc_table} (CHGVID, seqType, pseudo_prepid)
-            VALUES ("{sample_name}", "{sample_type}", {pseudo_prepid})""")
-            self.cur.execute(query)
+            VALUES ("{sample_name}", "{sample_type}", {pseudo_prepid})"""))
 
     def check_qc(self):
         """
@@ -1221,20 +1266,19 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         self.failed_qc = "QC review needed"
         self.passed_qc = "Passed Bioinfo QC"
         message = []
-        self.db = get_connection("seqdb")
         qc_failures = self.check_qc()
         if qc_failures:
             message.append(self.failed_qc)
-            if self.issue_contamination_warning == True: ## Check for contamination warning
+            if self.issue_contamination_warning: ## Check for contamination warning
                 message.append("Warning sample contamination is high, but below qc fail threshold")
             message.extend(qc_failures.values())
         else:
             message.append(self.passed_qc)
-        final_message = ';'.join(message)
+        final_message = '"{}"'.format(';'.join(message))
         self.update_database(self.qc_table,'QCMessage',final_message)
 
     def update_database(self, table, field, value):
-        self.cur.execute(self.format_string(
+        self.execute_query(self.format_string(
             self.update_statement, table=table, field=field, value=value))
 
     def get_metrics(self, query):
@@ -1242,7 +1286,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             self.cur.execute(query)
             db_val = self.cur.fetchall()
             return db_val
-        except MySQLdb.Error, e:
+        except:
             raise ValueError(query)
 
     def update_alignment_metrics(self):
@@ -1313,7 +1357,6 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             "TOTAL_SNPS":qc_metrics().total_snps, "PCT_DBSNP":qc_metrics().pct_dbsnp_snps,
             "TOTAL_INDELS":qc_metrics().total_indels, "PCT_DBSNP_INDELS":qc_metrics().pct_dbsnp_indels}
         temp = {}
-        flag = 0 
         with open(self.variant_call_out) as variant_call_metrics_fh:
             for line in variant_call_metrics_fh:
                 field, value = line.strip().split(" ")[:2]
@@ -1340,6 +1383,15 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         x_homhet_ratio = (float(self.X_snv_hom + self.X_indel_hom) /
                           (self.X_snv_het + self.X_indel_het))
         self.update_database(self.qc_table, qc_metrics().x_homhet_ratio, x_homhet_ratio)
+
+    def update_contamination_metrics(self):
+        with open(self.contamination_out) as contamination_fh:
+            for line in contamination_fh:
+                field, value = line.strip().split(' ')[:2]
+                if field == "FREEMIX":
+                    db_field = qc_metrics().contamination_value
+                    self.update_database(self.qc_table, db_field,value)
+                    return
              
     def update_seqgender(self):
         """
@@ -1396,7 +1448,8 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             elif ratio > 0.58:
                 seq_gender = "F"
 
-        self.update_database(self.qc_table, 'SeqGender', seq_gender)
+        self.update_database(
+            self.qc_table, 'SeqGender', '"{}"'.format(seq_gender))
 
     def check_alignment_rate(self):
         """
@@ -1491,7 +1544,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         WHERE CHGVID = "{sample_name}" AND seqType = "{sample_type}"
         AND pseudo_prepid = {pseudo_prepid}"""
         declared_query = self.format_string(base_query, sex_field="SelfDeclGender")
-        result = self.get_metrics(declared_query)[0][0]
+        self_declared_sex = self.get_metrics(declared_query)[0][0]
         sequenced_query = self.format_string(base_query, sex_field="SeqGender")
         seq_sex = self.get_metrics(sequenced_query)[0][0]
         return self_declared_sex == seq_sex
