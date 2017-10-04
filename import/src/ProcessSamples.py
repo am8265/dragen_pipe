@@ -3,7 +3,7 @@ Definition for an abstract class running a given pipeline step for a maximum
 amount of time given
 """
 import sys
-from Queue import PriorityQueue
+from Queue import Queue, PriorityQueue
 from time import sleep, time
 from threading import Thread
 from BreakHandler import BreakHandler
@@ -20,10 +20,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 class ProcessSamples(object):
-    def __init__(self, max_samples_concurrently, force_failed_samples=False,
-                 run_locally=False, qdel_jobs=True, local_scheduler=False,
-                 stdout=sys.stdout, stdout_mode="w", stderr=sys.stderr,
-                 stderr_mode="w", **kwargs):
+    def __init__(self, max_samples_concurrently, ignore_priority=False,
+                 force_failed_samples=False, run_locally=False, qdel_jobs=True,
+                 local_scheduler=False, stdout=sys.stdout, stdout_mode="w",
+                 stderr=sys.stderr, stderr_mode="w", **kwargs):
         self.max_samples_concurrently = max_samples_concurrently
         self.force_failed_samples = force_failed_samples
         self.run_locally = run_locally
@@ -38,7 +38,8 @@ class ProcessSamples(object):
         # keep a set of samples processed so we don't try to run it again and
         # again
         self.samples_already_queued = set()
-        self.samples_queue = PriorityQueue()
+        self.ignore_priority = ignore_priority
+        self.samples_queue = Queue() if ignore_priority else PriorityQueue()
         self.all_threads = []
         self.bh = BreakHandler()
         self.bh.enable()
@@ -168,8 +169,12 @@ class ProcessSamples(object):
             for pseudo_prepid, sample_name, priority, sample_metadata in self._get_samples():
                 if ((pseudo_prepid, sample_name, sample_metadata)
                     not in self.samples_already_queued):
-                    self.samples_queue.put(
-                        (priority, (pseudo_prepid, sample_name, sample_metadata)))
+                    if self.ignore_priority:
+                        record = (pseudo_prepid, sample_name, sample_metadata)
+                    else:
+                        record = (priority,
+                                  (pseudo_prepid, sample_name, sample_metadata))
+                    self.samples_queue.put(record)
                     self.samples_already_queued.add(
                         (pseudo_prepid, sample_name, sample_metadata))
             if self.samples_queue.empty():
@@ -177,7 +182,10 @@ class ProcessSamples(object):
                 logger.info("waiting for 300 seconds for new samples...")
                 sleep(300)
             else:
-                priority, sample_metadata = self.samples_queue.get()
+                if self.ignore_priority:
+                    sample_metadata = self.samples_queue.get()
+                else:
+                    _, sample_metadata = self.samples_queue.get()
                 args = list(sample_metadata[:2])
                 for arg in sample_metadata[2]:
                     args.append(arg)
