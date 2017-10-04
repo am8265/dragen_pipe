@@ -23,7 +23,7 @@ class ImportSamples(ProcessSamples.ProcessSamples):
                  run_locally=False, workers=40, qdel_jobs=True,
                  local_scheduler=False, **kwargs):
         super(ImportSamples, self).__init__(
-            max_samples_concurrently=1,
+            max_samples_concurrently=1, ignore_priority=False,
             force_failed_samples=force_failed_samples,
             sample_names=sample_names,
             run_locally=run_locally, qdel_jobs=qdel_jobs,
