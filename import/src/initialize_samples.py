@@ -50,14 +50,17 @@ def initialize_samples(database, level=logging.DEBUG):
             else:
                 sample_name, sample_type, capture_kit, scratch, priority = rows[0]
                 if sample_name.startswith("pgm"):
-                    logger.info("Ignoring {sample_name}-{sample_type}-"
-                                "{capture_kit}-{prep_id}".format(
+                    logger.info("Ignoring {sample_name}:{sample_type}:"
+                                "{capture_kit}:{prep_id}".format(
                                     sample_name=sample_name,
                                     sample_type=sample_type,
                                     capture_kit=capture_kit, prep_id=prep_id))
                     continue
                 if sample_type.lower() == "genome":
                     capture_kit = "N/A"
+                logger.debug("Initializing {sample_name}:{sample_type}:{capture_kit}:{prep_id}".
+                             format(sample_name=sample_name, sample_type=sample_type,
+                                    capture_kit=capture_kit, prep_id=prep_id))
                 try:
                     cur.execute(INITIALIZE_SAMPLE.format(
                         sample_name=sample_name, sample_type=sample_type,
