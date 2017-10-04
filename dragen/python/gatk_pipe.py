@@ -199,12 +199,10 @@ class ValidateBAM(SGEJobTask):
         with open(os.devnull, "w") as devnull:
             if subprocess.call(
                 ["samtools", "view", self.bam], stdout=devnull, stderr=devnull):
-                with open(self.bam + ".corrupted", "w") as o:
-                    pass
+                with open(self.bam + ".corrupted", "w"): pass
                 raise Exception("Corrupt BAM!")
             else:
-                with self.output().open("w") as o:
-                    pass
+                with self.output().open("w"): pass
 
     def requires(self):
         return DragenBAMExists(self.bam)
@@ -1134,13 +1132,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         ## Generic query to be used for updates 
         self.update_statement = """
         UPDATE {table} SET {field} = {value}
-        WHERE CHGVID = "{sample_name}" AND seqType = "{sample_type}"
-            AND pseudo_prepid = {pseudo_prepid}"""
-        self.query_statement = """
-        SELECT {field}
-        FROM {table}
-        WHERE CHGVID = '{sample_name}' AND seqType = '{sample_type}'
-            AND prepid = {prep_id}"""
+        WHERE pseudo_prepid = {pseudo_prepid}"""
         self.issue_contamination_warning = False
         ## The output files from the tasks run 
         self.cvg_out = os.path.join(
@@ -1166,19 +1158,6 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         ## The new lean equivalent of seqdbClone 
         self.master_table = "seqdbClone"
         _, self.prepID = getDBIDMaxPrepID(self.pseudo_prepid)
-        #raw_vcfs = os.path.join(
-        #    self.scratch_dir, self.name_prep + ".raw*vcf*")
-        #indel_vcfs = os.path.join(
-        #    self.scratch_dir, self.name_prep + ".indel*")
-        #snp_vcfs = os.path.join(
-        #    self.scratch_dir, self.name_prep + ".snp*")
-        #analysis_vcfs = os.path.join(
-        #    self.scratch_dir, self.name_prep + ".analysisReady.vcf*")
-        #fixed_vcf = os.path.join(
-        #    self.scratch_dir, self.name_prep + ".analysisReady.fixed.vcf")
-        #tmp_vcf = os.path.join(
-        #    self.scratch_dir, self.name_prep + ".tmp.vcf")
-        #self.files_to_remove = [raw_vcfs, indel_vcfs, snp_vcfs, analysis_vcfs, fixed_vcf, tmp_vcf]
         self.cvg_parse = {"EXOME":{
             "all":{"mean":qc_metrics().mean_cvg, "granular_median":qc_metrics().median_cvg,
                    "%_bases_above_5":qc_metrics().pct_bases5X, "%_bases_above_10":qc_metrics().pct_bases10X,
@@ -1238,13 +1217,11 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         Initialize the sample in the qc table, use update statements later to update qc metrics
         """
         self.execute_query(self.format_string("""
-        SELECT 1 FROM {qc_table} WHERE CHGVID = "{sample_name}" AND seqType =
-        "{sample_type}" AND pseudo_prepid = {pseudo_prepid}"""))
+        SELECT 1 FROM {qc_table} WHERE pseudo_prepid = {pseudo_prepid}"""))
         row = self.cur.fetchone()
         if not row:
-            self.execute_query(self.format_string("""
-            INSERT INTO {qc_table} (CHGVID, seqType, pseudo_prepid)
-            VALUES ("{sample_name}", "{sample_type}", {pseudo_prepid})"""))
+            self.execute_query(self.format_string(
+                "INSERT INTO {qc_table} (pseudo_prepid) VALUE ({pseudo_prepid})"))
 
     def check_qc(self):
         """
@@ -1403,12 +1380,11 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         Returns : String; One of the following values : [Male,Female,Ambiguous]
         """
 
-        if self.sample_type in ("EXOME","GENOME"):
+        if self.sample_type in ("EXOME", "GENOME"):
             query = """
             SELECT {cvg_type}
             FROM {qc_table}
-            WHERE CHGVID = "{sample_name}" AND seqType = "{sample_type}"
-                AND pseudo_prepid = {pseudo_prepid}"""
+            WHERE pseudo_prepid = {pseudo_prepid}"""
             result = self.get_metrics(
                 self.format_string(query, cvg_type=qc_metrics().mean_X_cvg))
             if result:
@@ -1460,8 +1436,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         query = self.format_string(
             """SELECT {pct_reads_aligned}
             FROM {qc_table}
-            WHERE CHGVID = "{sample_name}" AND seqType = "{sample_type}" AND
-                pseudo_prepid = {pseudo_prepid}""")
+            WHERE pseudo_prepid = {pseudo_prepid}""")
         result = self.get_metrics(query)
         perc_reads_aligned = float(result[0][0])
         return (perc_reads_aligned >= 0.70)
@@ -1474,8 +1449,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         query = self.format_string(
             """SELECT {pct_bases5X}, {mean_cvg}
             FROM {qc_table}
-            WHERE CHGVID = "{sample_name}" AND seqType = "{sample_type}" AND
-                pseudo_prepid = {pseudo_prepid}""")
+            WHERE pseudo_prepid = {pseudo_prepid}""")
         result = self.get_metrics(query)
         pct_bases_5X = float(result[0][0])
         mean_cvg = float(result[0][1])
@@ -1489,8 +1463,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         query = self.format_string(
             """SELECT {pct_duplicate_reads}
             FROM {qc_table}
-            WHERE CHGVID = "{sample_name}" AND seqType = "{sample_type}" AND
-                pseudo_prepid = {pseudo_prepid}""")
+            WHERE pseudo_prepid = {pseudo_prepid}""")
         result = self.get_metrics(query)
         perc_duplicate_reads = float(result[0][0])
         if self.sample_type == "GENOME":
@@ -1506,8 +1479,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         """
         query = self.format_string(
             """SELECT {total_snps}
-            FROM {qc_table} WHERE CHGVID = "{sample_name}" AND seqType = "{sample_type}"
-            AND pseudo_prepid = {pseudo_prepid}""")
+            FROM {qc_table} WHERE pseudo_prepid = {pseudo_prepid}""")
         result = self.get_metrics(query)
         num_snvs = int(result[0][0])
 
@@ -1524,8 +1496,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         query = self.format_string(
             """SELECT {contamination_value}
             FROM {qc_table}
-            WHERE CHGVID = "{sample_name}" AND seqType = "{sample_type}"
-                AND pseudo_prepid = {pseudo_prepid}""")
+            WHERE pseudo_prepid = {pseudo_prepid}""")
         result = self.get_metrics(query)
         contamination_value = float(result[0][0])
         if contamination_value < 0.08:
@@ -1534,20 +1505,6 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             return True
         elif contamination_value >= 0.08:
             return False
-
-    def check_gender(self):
-        """
-        Query seqdbClone and check whether the seq and selfdecl gender matchup
-        """
-        base_query = """SELECT {sex_field}
-        FROM {master_table}
-        WHERE CHGVID = "{sample_name}" AND seqType = "{sample_type}"
-        AND pseudo_prepid = {pseudo_prepid}"""
-        declared_query = self.format_string(base_query, sex_field="SelfDeclGender")
-        self_declared_sex = self.get_metrics(declared_query)[0][0]
-        sequenced_query = self.format_string(base_query, sex_field="SeqGender")
-        seq_sex = self.get_metrics(sequenced_query)[0][0]
-        return self_declared_sex == seq_sex
 
     def get_variant_counts(self):
         """Set the number of het & hom variant counts, divided up by X vs.
