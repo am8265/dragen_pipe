@@ -14,23 +14,6 @@ SELECT DISTINCT(effect_id)
 FROM variant_chr{CHROM}
 WHERE variant_id = {variant_id}
 """
-# insert a novel variant
-VARIANT_INSERT = """
-INSERT INTO variant_chr{CHROM} ({variant_id_placeholder}POS, REF, ALT,
-    rs_number, transcript_stable_id, effect, HGVS_c, HGVS_p, impact,
-    polyphen_humdiv, polyphen_humvar, gene, indel)
-VALUE ({variant_id}{POS}, "{REF}", "{ALT}", {rs_number},
-    {transcript_stable_id}, {effect}, {HGVS_c}, {HGVS_p}, {impact},
-    {polyphen_humdiv}, {polyphen_humvar}, {gene}, {indel})
-"""
-# handle SnpEff "bug" of sometimes outputting multiple impacts for
-# splice_region_variants, and take the least impactful (last)
-UPDATE_SPLICE_REGION_VARIANT = """
-UPDATE variant_chr{CHROM}
-SET impact = "{impact}"
-WHERE POS = {POS} AND variant_id = {variant_id} AND
-    transcript_stable_id = "{transcript_stable_id}" AND effect = "effect"
-"""
 # get the current maximum variant id in the specified table
 GET_MAX_VARIANT_ID = """
 SELECT auto_increment
@@ -63,27 +46,6 @@ FROM homo_sapiens_variation_87_37.protein_function_predictions
 WHERE translation_md5_id = {translation_md5_id}
     AND analysis_attrib_id = {attrib_id}
 """
-GET_SAMPLE_NAME = """
-SELECT sample_name
-FROM sample
-WHERE sample_id = {sample_id}
-"""
-GET_SAMPLE_ID = """
-SELECT sample_id
-FROM sample
-WHERE sample_name = "{sample_name}" AND sample_type = "{sample_type}"
-    AND capture_kit = "{capture_kit}"
-"""
-INSERT_SAMPLE = """
-INSERT INTO sample (sample_name, sample_type, capture_kit, prep_id, priority)
-VALUE ("{sample_name}", "{sample_type}", "{capture_kit}", {prep_id}, {priority})
-"""
-GET_DATA_DIRECTORY_FOR_SAMPLE = """
-SELECT DragenFileLoc
-FROM seqdbClone
-WHERE CHGVID = "{sample_name}" AND SeqType = "{sample_type}" AND
-    ExomeSamPrepKit = "{capture_kit}" AND prepId = {prep_id}
-"""
 GET_NUM_CALLS_FOR_SAMPLE = """
 SELECT c.variant_id
 FROM called_variant_chr{CHROM} c
@@ -91,18 +53,13 @@ INNER JOIN variant_chr{CHROM} v ON c.variant_id = v.variant_id
 WHERE c.sample_id = {sample_id}
 """
 GET_EFFECT_RANKINGS = """
-SELECT *
+SELECT id, impact, effect
 FROM effect_ranking
 """
 GET_SAMPLE_INFO = """
 SELECT sample_name, sample_type, capture_kit, prep_id
 FROM sample
 WHERE sample_id = {sample_id}
-"""
-GET_PIPELINE_SAMPLE_INITIALIZED_ID = """
-SELECT id
-FROM dragen_pipeline_step_desc
-WHERE step_name = "Sample Initialized in DB"
 """
 GET_DATA_LOADED_PIPELINE_STEP_ID = """
 SELECT id
@@ -115,14 +72,9 @@ FROM dragen_pipeline_step_desc
 WHERE step_name = "Sample Finished"
 """
 GET_STEP_STATUS = """
-SELECT finished
+SELECT step_status
 FROM dragen_pipeline_step
 WHERE pseudo_prepid = {prep_id} AND pipeline_step_id = {pipeline_step_id}
-"""
-INITIALIZE_SAMPLE_PIPELINE_STEP = """
-INSERT INTO dragen_pipeline_step 
-    (pseudo_prepid, pipeline_step_id, finish_time, times_ran, finished)
-VALUE ({prep_id}, {pipeline_step_id}, NOW(), 1, 1)
 """
 INSERT_PIPELINE_STEP = """
 INSERT INTO dragen_pipeline_step (pseudo_prepid, pipeline_step_id, version)
@@ -145,19 +97,8 @@ WHERE pseudo_prepid = {prep_id} AND pipeline_step_id = {pipeline_step_id}
 """
 UPDATE_PIPELINE_STEP_FINISH_TIME = """
 UPDATE dragen_pipeline_step
-SET finish_time = NOW(), finished = 1
+SET finish_time = NOW(), step_status = "completed"
 WHERE pseudo_prepid = {prep_id} AND pipeline_step_id = {pipeline_step_id}
-"""
-UPDATE_PIPELINE_FINISH_SUBMIT_TIME = """
-UPDATE dragen_pipeline_step p1
-INNER JOIN (
-    SELECT pseudo_prepid, MIN(submit_time) as st
-    FROM dragen_pipeline_step
-    WHERE pseudo_prepid = {prep_id} AND pipeline_step_id NOT IN
-        ({pipeline_step_id}, {sample_initialized_id})
-    GROUP BY pseudo_prepid) AS p2
-ON p1.pseudo_prepid = p2.pseudo_prepid AND p1.pipeline_step_id = {pipeline_step_id}
-SET p1.submit_time = p2.st
 """
 SET_SAMPLE_FINISHED = """
 UPDATE sample
@@ -177,27 +118,11 @@ GET_CUSTOM_TRANSCRIPT_IDS = """
 SELECT id, transcript_ids
 FROM custom_transcript_ids_chr{CHROM}
 """
-GET_SAMPLE_PREPID = """
-SELECT pseudo_prepid, prepid, BioInfoPriority
-FROM seqdbClone
-WHERE CHGVID = "{sample_name}" AND SeqType = "{sample_type}"
-    AND ExomeSamPrepKit = "{capture_kit}" AND Status <> "Blacklisted"
-"""
-GET_PREPID = """
-SELECT pseudo_prepid
-FROM pseudo_prepid
-WHERE prepid = {prepid}
-"""
 GET_SAMPLES_TO_IMPORT = """
 SELECT prep_id, sample_name, priority, sample_id, sample_type
 FROM sample
 WHERE sample_finished = 0{failed_samples_clause}{sample_name_clause}
 ORDER BY initialization_time
-"""
-GET_SAMPLE_INITIALIZED_STEP_ID = """
-SELECT id
-FROM dragen_pipeline_step_desc
-WHERE step_name = "Sample Initialized In DB"
 """
 GET_SAMPLE_DIRECTORY = """
 SELECT AlignSeqFileLoc
@@ -209,7 +134,7 @@ SELECT 1
 FROM dragen_pipeline_step p
 INNER JOIN dragen_pipeline_step_desc d ON p.pipeline_step_id = d.id
 WHERE p.pseudo_prepid = {prep_id} AND d.step_name = "Imported {step_name}"
-    AND p.finished = 1
+    AND p.step_status = "completed"
 """
 GET_PIPELINE_STEP_ID = """
 SELECT id
@@ -220,9 +145,9 @@ GET_SAMPLES_TO_INITIALIZE = """
 SELECT p1.pseudo_prepid
 FROM dragen_pipeline_step p1
 LEFT JOIN dragen_pipeline_step p2 ON p1.pseudo_prepid = p2.pseudo_prepid
-    AND p1.pipeline_step_id = {sample_archived_step_id} AND p1.finished = 1
-    AND p2.pipeline_step_id = {sample_initialized_step_id} AND p2.finished = 1
-WHERE p1.pipeline_step_id = {sample_archived_step_id} AND p1.finished = 1
+    AND p1.pipeline_step_id = {sample_archived_step_id} AND p1.step_status = "completed"
+    AND p2.pipeline_step_id = {sample_initialized_step_id} AND p2.step_status = "completed"
+WHERE p1.pipeline_step_id = {sample_archived_step_id} AND p1.step_status = "completed"
     AND p2.pseudo_prepid IS NULL
 """
 GET_SAMPLE_METADATA = """
@@ -241,20 +166,21 @@ VALUE ("{sample_name}", "{sample_type}", "{capture_kit}", {prep_id}, {priority})
 """
 INITIALIZE_SAMPLE_SEQDB = """
 REPLACE dragen_pipeline_step (pseudo_prepid, pipeline_step_id,
-    version, finish_time, times_ran, finished)
-VALUE ({pseudo_prepid}, {sample_initialized_step_id}, "{version}", NOW(), 1, 1)
+    version, finish_time, times_ran, step_status)
+VALUE ({pseudo_prepid}, {sample_initialized_step_id}, "{version}", NOW(), 1, "completed")
 """
 BEGIN_STEP = """
 REPLACE dragen_pipeline_step
-VALUE ({pseudo_prepid}, {pipeline_step_id}, "{version}", NOW(), NULL, {times_ran}, 0, 0)
+    (pseudo_prepid, pipeline_step_id, version, submit_time, finish_time, times_ran, step_status)
+VALUE ({pseudo_prepid}, {pipeline_step_id}, "{version}", NOW(), NULL, {times_ran}, "started")
 """
 FINISH_STEP = """
 UPDATE dragen_pipeline_step
-SET finished = 1, failure = 0, finish_time = NOW()
+SET step_status = "completed", finish_time = NOW()
 WHERE pseudo_prepid = {pseudo_prepid} AND pipeline_step_id = {pipeline_step_id}
 """
 FAIL_STEP = """
 UPDATE dragen_pipeline_step
-SET finished = 0, failure = 1, finish_time = NOW()
+SET step_status = "failed", finish_time = NOW()
 WHERE pseudo_prepid = {pseudo_prepid} AND pipeline_step_id = {pipeline_step_id}
 """

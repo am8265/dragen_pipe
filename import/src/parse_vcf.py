@@ -487,12 +487,10 @@ def output_novel_variant_entry(
         gene=format_NULL_value(gene), indel_length=indel_length,
         has_high_quality_call=int(high_quality_call)) + "\n")
 
-def parse_vcf(vcf, CHROM, sample_id, database, min_dp_to_include, output_base,
-              load_calls=True, chromosome_length=None):
+def parse_vcf(vcf, CHROM, sample_id, database, min_dp_to_include, output_base):
     logger = logging.getLogger(__name__)
     logger.info("starting CHROM {}\n".format(CHROM))
     start_time = time()
-    cfg = get_cfg()
     # store the set of indel_ids for calls, because in rare circumstances there
     # are multiple entries for the same indel
     # (because of repetitive genome/indel matching)
@@ -738,7 +736,7 @@ def parse_vcf(vcf, CHROM, sample_id, database, min_dp_to_include, output_base,
                     else:
                         raise ValueError(
                             "error: invalid GT {GT} @ {CHROM}-{POS}-{REF}"
-                            "-{ALT}".format(GT=calls_stats["GT"], **fields))
+                            "-{ALT}".format(GT=call_stats["GT"], **fields))
                     call["GT"] = sum(GTs)
                     try:
                         call["AD_REF"], call["AD_ALT"] = call_stats["AD"].split(",")

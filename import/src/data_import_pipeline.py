@@ -10,7 +10,6 @@ import luigi
 from luigi.contrib.sge import SGEJobTask
 import os
 import subprocess
-import operator
 import tabix
 import shlex
 from shutil import copy
@@ -27,8 +26,8 @@ from random import random
 
 cfg = get_cfg()
 # the maximum number of tables to load concurrently
-max_tables_to_load = cfg.getint("pipeline", "max_tables_to_load")
-table_load_wait_time = cfg.getint("pipeline", "table_load_wait_time")
+MAX_TABLES_TO_LOAD = cfg.getint("pipeline", "max_tables_to_load")
+TABLE_LOAD_WAIT_TIME = cfg.getint("pipeline", "table_load_wait_time")
 CHROMs = OrderedDict([[chromosome.upper(), int(length)]
                       for chromosome, length in cfg.items("chromosomes")])
 logger = logging.getLogger(__name__)
@@ -70,8 +69,8 @@ def check_if_sample_importing(cur):
     return get_num_tables_loading(cur) > 0
 
 def block_until_loading_slot_available(
-    cur, max_tables_to_load=max_tables_to_load,
-    table_load_wait_time=table_load_wait_time):
+    cur, max_tables_to_load=MAX_TABLES_TO_LOAD,
+    table_load_wait_time=TABLE_LOAD_WAIT_TIME):
     """infinite loop to wait until fewer than the maximum number of tables are
     loading
     """
@@ -192,36 +191,6 @@ class ExtractTarball(SGEJobTask):
                 chromosome=chromosome, **self.__dict__)) for chromosome in
                 CHROMs])
 
-class SQLTarget(luigi.Target):
-    """Target describing verification of the entries in the database
-    """
-    def __init__(self, prep_id, pipeline_step_id):
-        self.prep_id = prep_id
-        self.pipeline_step_id = pipeline_step_id
-
-    def exists(self):
-        seqdb = get_connection("seqdb")
-        try:
-            seq_cur = seqdb.cursor()
-            seq_cur.execute(GET_STEP_STATUS.format(
-                prep_id=self.prep_id,
-                pipeline_step_id=self.pipeline_step_id))
-            row = seq_cur.fetchone()
-            if row:
-                if row[0] == 1:
-                    return True
-                else:
-                    return False
-            else:
-                seq_cur.execute(INSERT_PIPELINE_STEP.format(
-                    prep_id=self.prep_id,
-                    pipeline_step_id=self.pipeline_step_id))
-                seqdb.commit()
-                return False
-        finally:
-            if seqdb.open:
-                seqdb.close()
-
 class ParseVCF(SGEJobTask):
     """parse the specified VCF, output text files for the data, and
     import to the database
@@ -302,17 +271,15 @@ class ParseVCF(SGEJobTask):
         level = LOGGING_LEVELS[self.level]
         parse_logger = logging.getLogger("parse_vcf")
         parse_logger.setLevel(level)
-        handler = logging.StreamHandler(sys.stdout)
-        handler.setLevel(level)
-        formatter = logging.Formatter(cfg.get("logging", "format"))
+        parse_vcf_handler = logging.StreamHandler(sys.stdout)
+        parse_vcf_handler.setLevel(level)
         handler.setFormatter(formatter)
         parse_logger.addHandler(handler)
         parse_vcf(
             vcf=self.copied_files[0],
             CHROM=self.chromosome, sample_id=self.sample_id,
             database=self.database, min_dp_to_include=self.min_dp_to_include,
-            output_base=self.output_base,
-            chromosome_length=CHROMs[self.chromosome])
+            output_base=self.output_base)
         for fn in (self.novel_variants, self.novel_indels,
                    self.novel_transcripts,
                    self.called_variants, self.variant_id_vcf,
@@ -398,7 +365,7 @@ class ParseVCF(SGEJobTask):
                   self.called_variants, self.variant_id_vcf, self.matched_indels]])
         else:
             return SQLTarget(
-                prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id)
+                pseudo_prepid=self.prep_id, pipeline_step_id=self.pipeline_step_id)
 
 class LoadBinData(SGEJobTask):
     """Import the DP/GQ binning data for a single chromosome for a sample
@@ -468,7 +435,7 @@ class LoadBinData(SGEJobTask):
                     pipeline_step_id=self.pipeline_step_id))
                 seqdb.commit()
                 statement = INSERT_BIN_STATEMENT.format(
-                    data_file=self.temp_fn, data_type=self.data_type,
+                    data_file=self.fn, data_type=self.data_type,
                     chromosome=self.chromosome, sample_id=self.sample_id)
                 cur.execute(statement)
                 db.commit()
@@ -485,10 +452,10 @@ class LoadBinData(SGEJobTask):
 
     def output(self):
         if self.dont_load_data:
-            return MultipleFilesTarget([[self.temp_fn]])
+            return MultipleFilesTarget([[self.fn]])
         else:
             return SQLTarget(
-                prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id)
+                pseudo_prepid=self.prep_id, pipeline_step_id=self.pipeline_step_id)
 
 class ImportSample(luigi.Task):
     """import a sample by requiring() a ParseVCF Task for each chromosome
@@ -737,7 +704,7 @@ class ImportSample(luigi.Task):
         else:
             # check final DB status
             return SQLTarget(
-                prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id)
+                pseudo_prepid=self.prep_id, pipeline_step_id=self.pipeline_step_id)
 
 if __name__ == "__main__":
     sys.exit(luigi.run())

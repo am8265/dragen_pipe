@@ -56,10 +56,7 @@ class SQLTarget(luigi.Target):
                 pipeline_step_id=self.pipeline_step_id))
             row = cur.fetchone()
             if row:
-                if row[0] == 1:
-                    return True
-                else:
-                    return False
+                return row[0] == "completed"
             else:
                 cur.execute(INSERT_PIPELINE_STEP.format(
                     prep_id=self.pseudo_prepid,
