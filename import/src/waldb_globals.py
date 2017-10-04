@@ -19,7 +19,6 @@ from collections import OrderedDict, Counter, defaultdict
 from functools import wraps
 import time
 import subprocess
-import shlex
 from luigi.contrib.sge import SGEJobTask
 from shlex import split as sxsplit
 from pprint import pprint
@@ -31,7 +30,6 @@ LOGGING_LEVELS = {
     "WARNING":logging.WARNING, "INFO":logging.INFO, "DEBUG":logging.DEBUG}
 CHROMs = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
           "14", "15", "16", "17", "18", "19", "20", "21", "22", "X", "Y", "MT"]
-# exclude variant calls below this read depth
 
 def get_pipeline_version():
     version = subprocess.check_output(
@@ -39,13 +37,12 @@ def get_pipeline_version():
     if version:
         return version
     else:
-        raise ValuError("Could not get the version # of the pipeline; "
-                        "maybe run it from a directory in the repo?")
+        raise ValueError("Could not get the version # of the pipeline; "
+                         "maybe run it from a directory in the repo?")
 
 class SQLTarget(luigi.Target):
     """ A luigi target class describing verification of the entries in the database
     """
-
     def __init__(self, pseudo_prepid, pipeline_step_id):
         self.pseudo_prepid = pseudo_prepid
         self.pipeline_step_id = pipeline_step_id
@@ -371,7 +368,7 @@ def run_command(command, directory, task_name, print_command=True):
             open(base_name + ".err", "w") as err_fh:
         out_fh.write(command + "\n")
         out_fh.flush()
-        p = subprocess.Popen(shlex.split(command), stdout=out_fh, stderr=err_fh)
+        p = subprocess.Popen(sxsplit(command), stdout=out_fh, stderr=err_fh)
         p.wait()
     if p.returncode:
         raise subprocess.CalledProcessError(p.returncode, command)
@@ -535,12 +532,10 @@ class PipelineTask(SGEJobTask):
         """Run an arbitrary list of commands and raise a CalledProcessError in
         the event that any returns a non-zero error code
         """
+        with open(self.shell_options.pop("record_commands_fn"), "w") as out:
+            out.write("Pipeline version #:{version}\n".format(self.version))
+            out.write("\n".join(self.commands))
         if self.commands:
-            fn = self.shell_options.pop("record_commands_fn")
-            if fn:
-                with open(fn, "w") as out:
-                    out.write("\n".join(self.commands))
-
             for command in self.commands:
                 if not command:
                     continue
@@ -574,7 +569,7 @@ class PipelineTask(SGEJobTask):
         for fn in self.files:
             os.chmod(fn, 0664)
         for d in self.directories:
-            os.chmod(fn, 0775)
+            os.chmod(d, 0775)
 
     def output(self):
         return SQLTarget(pseudo_prepid=self.pseudo_prepid,
@@ -592,8 +587,7 @@ class DragenPipelineTask(PipelineTask):
         default=None,
         description="the location of the BED file containing the capture kit regions")
     sample_type = luigi.ChoiceParameter(
-        default=None,
-        choices=["EXOME", "GENOME"],
+        default=None, choices=["EXOME", "GENOME"],
         description="The type of sequencing performed for this sample")
     scratch = luigi.Parameter(
         default=None,
