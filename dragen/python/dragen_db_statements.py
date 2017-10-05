@@ -35,6 +35,6 @@ WHERE capture_kit = "{capture_kit}"
 ANY_STEP_FAILED = """
 SELECT 1
 FROM dragen_pipeline_step
-WHERE failure = 1 AND pipeline_step_id >= 2 AND pipeline_step_id <= 31
+WHERE step_status = "failed" AND pipeline_step_id >= 2 AND pipeline_step_id <= 31
     AND pseudo_prepid = {pseudo_prepid}
 """
