@@ -258,8 +258,8 @@ class PrintReads(GATKFPipelineTask):
             "-I {realn_bam} --disable_indel_quals "
             "-BQSR {recal_table} -o {recal_bam} -nct {n_cpu}")]
 
-    #def _run_post_success(self):
-    #    os.remove(self.realn_bam)
+    def _run_post_success(self):
+        os.remove(self.realn_bam)
 
     def requires(self):
         return self.clone(BaseRecalibrator)
