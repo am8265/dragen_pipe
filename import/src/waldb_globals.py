@@ -530,8 +530,8 @@ class PipelineTask(SGEJobTask):
         the event that any returns a non-zero error code
         """
         with open(self.shell_options.pop("record_commands_fn"), "w") as out:
-            out.write("Pipeline version #:{version}\n".format(version=self.version))
-            out.write("\n".join(self.commands))
+            out.write("#Pipeline version #:{version}\n".format(version=self.version))
+            out.write("\n".join(self.commands) + "\n")
         if self.commands:
             for command in self.commands:
                 if not command:
