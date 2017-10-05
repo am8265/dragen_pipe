@@ -1,6 +1,5 @@
 import sys
 import subprocess
-from utilities import is_gzipped,fh
 import argparse
 import os
 
@@ -12,6 +11,24 @@ import os
 ###  Author : Raghav                ###
 #######################################
 
+def is_gzipped(file_name):
+    """is the specified file gzipped?
+    """
+    with open(file_name, "rb") as fh:
+        magic_number = fh.read(2)
+    return magic_number == "\x1f\x8b"
+
+def fh(file_name):
+    """return a file handle to the file whether it's gzipped or not
+    """
+    if os.path.isfile(file_name):
+        if is_gzipped(file_name):
+            return gzip.open(file_name)
+        else:
+            return open(file_name)
+    else:
+        raise argparse.ArgumentTypeError(
+            "{} does not exist".format(file_name))
 
 def gq_to_letter(gq):
     

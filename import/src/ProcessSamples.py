@@ -3,7 +3,7 @@ Definition for an abstract class running a given pipeline step for a maximum
 amount of time given
 """
 import sys
-from Queue import PriorityQueue
+from Queue import Queue, PriorityQueue
 from time import sleep, time
 from threading import Thread
 from BreakHandler import BreakHandler
@@ -20,10 +20,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 class ProcessSamples(object):
-    def __init__(self, max_samples_concurrently, force_failed_samples=False,
-                 run_locally=False, qdel_jobs=True, local_scheduler=False,
-                 stdout=sys.stdout, stdout_mode="w", stderr=sys.stderr,
-                 stderr_mode="w", **kwargs):
+    def __init__(self, max_samples_concurrently, ignore_priority=False,
+                 force_failed_samples=False, run_locally=False, qdel_jobs=True,
+                 local_scheduler=False, stdout=sys.stdout, stdout_mode="w",
+                 stderr=sys.stderr, stderr_mode="w", **kwargs):
         self.max_samples_concurrently = max_samples_concurrently
         self.force_failed_samples = force_failed_samples
         self.run_locally = run_locally
@@ -38,7 +38,8 @@ class ProcessSamples(object):
         # keep a set of samples processed so we don't try to run it again and
         # again
         self.samples_already_queued = set()
-        self.samples_queue = PriorityQueue()
+        self.ignore_priority = ignore_priority
+        self.samples_queue = Queue() if ignore_priority else PriorityQueue()
         self.all_threads = []
         self.bh = BreakHandler()
         self.bh.enable()
@@ -54,20 +55,21 @@ class ProcessSamples(object):
     def _get_samples(self):
         # overwrite to get samples from DB, check files, etc.
         # should return a list of tuples of:
-        # (sample_name, priority, (...))
+        # (pseudo_prepid, sample_name, priority, (...))
         # an example would be (sample_type, priority, (capture_kit, prep_id (pseudo_prep_id)))
         pass
 
-    def _get_command(self, sample_name, *args):
+    def _get_command(self, pseudo_prepid, sample_name, *args):
         # overwrite to format the actual command to run, and specify the timeout
         pass
 
-    def get_sge_job_ids(self, sample_name, *args):
+    def get_sge_job_ids(self, pseudo_prepid, sample_name, *args):
         """Pass in a pattern= parameter upon initialization if this method is to
         be used"""
         p = re.compile(r"^(\d+) ")
         job_name = re.compile(self.pattern.format(
-            sample_name=sample_name, *args, **self.kwargs))
+            pseudo_prepid=pseudo_prepid, sample_name=sample_name,
+            *args, **self.kwargs))
         proc = subprocess.Popen(["qstat", "-r", "-ne"], stdout=subprocess.PIPE,
                                 preexec_fn=os.setpgrp)
         qstat_output = proc.communicate()[0].splitlines()
@@ -80,9 +82,9 @@ class ProcessSamples(object):
                     job_ids.append(job_id)
         return job_ids
 
-    def run_command(self, sample_name, *args):
+    def run_command(self, pseudo_prepid, sample_name, *args):
         # overwrite to run one or more commands
-        cmd, timeout = self._get_command(sample_name, *args)
+        cmd, timeout = self._get_command(pseudo_prepid, sample_name, *args)
         logger.info(cmd)
         start_time = time()
         if type(self.stdout) is file:
@@ -103,7 +105,8 @@ class ProcessSamples(object):
             exit_code = command.run(timeout=timeout)
         except Command.TimeoutException:
             if self.qdel_jobs:
-                for sge_job in self.get_sge_job_ids(sample_name, *args):
+                for sge_job in self.get_sge_job_ids(
+                    pseudo_prepid, sample_name, *args):
                     logger.debug("Killing job ID: {}".format(sge_job))
                     p = subprocess.Popen(
                         ["qdel", sge_job], preexec_fn=os.setpgrp)
@@ -124,19 +127,21 @@ class ProcessSamples(object):
         hours, minutes = divmod(minutes, 60)
         if exit_code:
             if self.qdel_jobs:
-                for sge_job in self.get_sge_job_ids(sample_name, *args):
+                for sge_job in self.get_sge_job_ids(
+                    pseudo_prepid, sample_name, *args):
                     p = subprocess.Popen(
                         ["qdel", sge_job], preexec_fn=os.setpgrp)
                     p.communicate()
-                logger.error("failed processing {sample_name} after "
-                             "{h}:{m:0>2}:{s:0>2}".format(
-                                 sample_name=sample_name, h=hours,
-                                 m=minutes, s=seconds))
+            logger.error("failed processing "
+                         "{sample_name}.{pseudo_prepid} after "
+                         "{h}:{m:0>2}:{s:0>2}".format(
+                             sample_name=sample_name, h=hours,
+                             m=minutes, s=seconds, pseudo_prepid=pseudo_prepid))
         else:
-            logger.info("succeeded processing {sample_name} after "
+            logger.info("succeeded processing {sample_name}.{pseudo_prepid} after "
                         "{h}:{m:0>2}:{s:0>2}".format(
                             sample_name=sample_name, h=hours, m=minutes,
-                            s=seconds))
+                            s=seconds, pseudo_prepid=pseudo_prepid))
 
     def process_samples(self):
         done = False
@@ -161,23 +166,30 @@ class ProcessSamples(object):
                     break
             if done:
                 break
-            for sample_name, priority, sample_metadata in self._get_samples():
-                if ((sample_name, sample_metadata)
+            for pseudo_prepid, sample_name, priority, sample_metadata in self._get_samples():
+                if ((pseudo_prepid, sample_name, sample_metadata)
                     not in self.samples_already_queued):
-                    self.samples_queue.put(
-                        (priority, (sample_name, sample_metadata)))
+                    if self.ignore_priority:
+                        record = (pseudo_prepid, sample_name, sample_metadata)
+                    else:
+                        record = (priority,
+                                  (pseudo_prepid, sample_name, sample_metadata))
+                    self.samples_queue.put(record)
                     self.samples_already_queued.add(
-                        (sample_name, sample_metadata))
+                        (pseudo_prepid, sample_name, sample_metadata))
             if self.samples_queue.empty():
                 # sleep for a while since we don't have any samples to run
                 logger.info("waiting for 300 seconds for new samples...")
                 sleep(300)
             else:
-                priority, sample_metadata = self.samples_queue.get()
-                sample_metadata = tuple(
-                    [sample_metadata[0]] + list(sample_metadata[1]))
-                thread = Thread(
-                    target=self.run_command, args=sample_metadata)
+                if self.ignore_priority:
+                    sample_metadata = self.samples_queue.get()
+                else:
+                    _, sample_metadata = self.samples_queue.get()
+                args = list(sample_metadata[:2])
+                for arg in sample_metadata[2]:
+                    args.append(arg)
+                thread = Thread(target=self.run_command, args=args)
                 self.all_threads.append(thread)
                 thread.start()
         self.bh.disable()

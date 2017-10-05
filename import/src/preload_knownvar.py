@@ -71,7 +71,7 @@ def main(vcf_fn, output_directory, level=logging.DEBUG, load_tables=True):
             p = subprocess.Popen(shlex.split(clineff_cmd), stdout=out_fh)
             p.communicate()
 
-    db = get_connection("waldb4")
+    db = get_connection("waldb6")
     cur = db.cursor()
     (effect_rankings, high_impact_effect_ids, moderate_impact_effect_ids,
      low_impact_effect_ids, modifier_impact_effect_ids) = (

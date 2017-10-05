@@ -80,7 +80,7 @@ if __name__ == "__main__":
         formatter_class=CustomFormatter, description=__doc__)
     parser.add_argument("KNOWNVAR_VCF", type=argparse.FileType("r"),
                         help="the knownvar VCF to check")
-    parser.add_argument("--database", default="waldb4",
+    parser.add_argument("--database", default="waldb6",
                         help="the database to connect to")
     args = parser.parse_args()
     main(args.KNOWNVAR_VCF, args.database)

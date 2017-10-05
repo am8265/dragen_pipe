@@ -48,14 +48,19 @@ def initialize_samples(database, level=logging.DEBUG):
                 logger.warning("Found multiple records for {prep_id}".format(
                     prep_id=prep_id))
             else:
-                sample_name, sample_type, capture_kit, priority = rows[0]
+                sample_name, sample_type, capture_kit, scratch, priority = rows[0]
                 if sample_name.startswith("pgm"):
-                    logger.info("Ignoring {sample_name}-{sample_type}-"
-                                "{capture_kit}-{prep_id}".format(
+                    logger.info("Ignoring {sample_name}:{sample_type}:"
+                                "{capture_kit}:{prep_id}".format(
                                     sample_name=sample_name,
                                     sample_type=sample_type,
                                     capture_kit=capture_kit, prep_id=prep_id))
                     continue
+                if sample_type.lower() == "genome":
+                    capture_kit = "N/A"
+                logger.debug("Initializing {sample_name}:{sample_type}:{capture_kit}:{prep_id}".
+                             format(sample_name=sample_name, sample_type=sample_type,
+                                    capture_kit=capture_kit, prep_id=prep_id))
                 try:
                     cur.execute(INITIALIZE_SAMPLE.format(
                         sample_name=sample_name, sample_type=sample_type,
@@ -66,8 +71,9 @@ def initialize_samples(database, level=logging.DEBUG):
                     add_to_count = False
                     logger.warning("Prep ID {prep_id} is already initialized".format(
                         prep_id=prep_id))
+                version = get_pipeline_version()
                 seq_cur.execute(INITIALIZE_SAMPLE_SEQDB.format(
-                    prep_id=prep_id,
+                    pseudo_prepid=prep_id, version=version,
                     sample_initialized_step_id=sample_initialized_step_id))
                 if add_to_count:
                     initialized_count += 1
@@ -88,8 +94,8 @@ def initialize_samples(database, level=logging.DEBUG):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=CustomFormatter)
-    parser.add_argument("-d", "--database", default="waldb4",
-                        choices=["waldb", "waldb2", "waldb4", "waldb1"],
+    parser.add_argument("-d", "--database", default="waldb6",
+                        choices=["waldb", "waldb2", "waldb4", "waldb1", "waldb6"],
                         help="the database to initialize samples in")
     parser.add_argument("--level", default="DEBUG", action=DereferenceKeyAction,
                         choices=LOGGING_LEVELS, help="the logging level to use")

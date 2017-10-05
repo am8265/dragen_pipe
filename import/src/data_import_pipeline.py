@@ -10,7 +10,6 @@ import luigi
 from luigi.contrib.sge import SGEJobTask
 import os
 import subprocess
-import operator
 import tabix
 import shlex
 from shutil import copy
@@ -21,13 +20,14 @@ from db_statements import *
 import sys
 import logging
 import Command
+import tarfile
 from time import sleep
 from random import random
 
 cfg = get_cfg()
 # the maximum number of tables to load concurrently
-max_tables_to_load = cfg.getint("pipeline", "max_tables_to_load")
-table_load_wait_time = cfg.getint("pipeline", "table_load_wait_time")
+MAX_TABLES_TO_LOAD = cfg.getint("pipeline", "max_tables_to_load")
+TABLE_LOAD_WAIT_TIME = cfg.getint("pipeline", "table_load_wait_time")
 CHROMs = OrderedDict([[chromosome.upper(), int(length)]
                       for chromosome, length in cfg.items("chromosomes")])
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ def get_task_list_to_run(cur, prep_id):
     """get the list of all tasks that still need to be run for the sample
     """
     steps_needed = []
-    for data_type in ("Variant", "DP", "GQ"):
+    for data_type in ("Variant", "DP"):
         for CHROM in CHROMs:
             step_name = "Chromosome {CHROM} {data_type} Data".format(
                 CHROM=CHROM, data_type=data_type)
@@ -69,8 +69,8 @@ def check_if_sample_importing(cur):
     return get_num_tables_loading(cur) > 0
 
 def block_until_loading_slot_available(
-    cur, max_tables_to_load=max_tables_to_load,
-    table_load_wait_time=table_load_wait_time):
+    cur, max_tables_to_load=MAX_TABLES_TO_LOAD,
+    table_load_wait_time=TABLE_LOAD_WAIT_TIME):
     """infinite loop to wait until fewer than the maximum number of tables are
     loading
     """
@@ -109,17 +109,17 @@ class CopyDataTarget(luigi.Target):
     def __init__(self, targets, originals):
         self.targets = targets
         self.originals = originals
+        assert len(self.targets) == len(self.originals)
 
     def exists(self):
-        for fn in self.targets.itervalues():
+        for fn in self.targets:
             if not os.path.isfile(fn):
                 return False
         # verify all files are exactly the same
         with open(os.devnull, "w") as devnull:
-            for file_type, fn in self.targets.iteritems():
+            for target, original in zip(self.targets, self.originals):
                 p = subprocess.Popen([
-                    "diff", "-q", fn, self.originals[file_type]],
-                    stdout=devnull, stderr=devnull)
+                    "diff", "-q", target, original], stdout=devnull, stderr=devnull)
                 p.communicate()
                 if p.returncode:
                     return False
@@ -130,60 +130,66 @@ class CopyDataTarget(luigi.Target):
         # file location
         return self.targets
 
-class CopyDataToScratch(luigi.Task):
+class CopyDataToScratch(SGEJobTask):
     """Copy the VCF and its index to scratch space for processing
     """
-    vcf = luigi.InputFileParameter(description="the VCF to copy")
-    sample_name = luigi.Parameter(description="the name of the sample")
+    originals = luigi.ListParameter(description="the list of files to copy")
     output_directory = luigi.Parameter(
         description="the scratch directory for outputting files")
+    sample_name = luigi.Parameter(description="the name of the sample")
+    sample_id = luigi.NumericalParameter(
+        min_value=1, max_value=sys.maxsize, var_type=int,
+        description="the sample_id for this sample")
 
     def __init__(self, *args, **kwargs):
+        kwargs["task_name_format"] = "{task_family}.{sample_name}.{sample_id}"
         super(CopyDataToScratch, self).__init__(*args, **kwargs)
-        self.vcf_idx = self.vcf + ".tbi"
-        self.targets = {}
-        self.originals = {}
-        for file_type in ("vcf", "vcf_idx"):
-            self.targets[file_type] = (
-                self.output_directory + os.path.basename(self.__dict__[file_type]))
-            self.originals[file_type] = self.__dict__[file_type]
+        self.targets = []
+        for fn in self.originals:
+            self.targets.append(os.path.join(
+                self.output_directory, os.path.basename(fn)))
 
-    def run(self):
-        for file_type, fn in self.targets.iteritems():
-            copy(self.originals[file_type], fn)
+    def work(self):
+        for original, target in zip(self.originals, self.targets):
+            copy(original, target)
 
     def output(self):
         return CopyDataTarget(targets=self.targets, originals=self.originals)
 
-class SQLTarget(luigi.Target):
-    """Target describing verification of the entries in the database
+class ExtractTarball(SGEJobTask):
+    """Extract a tarball to the output directory
     """
-    def __init__(self, prep_id, pipeline_step_id):
-        self.prep_id = prep_id
-        self.pipeline_step_id = pipeline_step_id
+    tarball = luigi.Parameter(
+        description="the path to the tarball to copy and extract")
+    fn_format = luigi.Parameter(
+        description="the format of the file names in the tarball")
+    output_directory = luigi.Parameter(
+        description="the scratch directory for outputting files")
+    sample_name = luigi.Parameter(description="the name of the sample")
+    prep_id = luigi.IntParameter(
+        description="the (pseudo) prep_id for the sample")
+    sample_id = luigi.NumericalParameter(
+        min_value=1, max_value=sys.maxsize, var_type=int,
+        description="the sample_id for this sample")
 
-    def exists(self):
-        seqdb = get_connection("seqdb")
-        try:
-            seq_cur = seqdb.cursor()
-            seq_cur.execute(GET_STEP_STATUS.format(
-                prep_id=self.prep_id,
-                pipeline_step_id=self.pipeline_step_id))
-            row = seq_cur.fetchone()
-            if row:
-                if row[0] == 1:
-                    return True
-                else:
-                    return False
-            else:
-                seq_cur.execute(INSERT_PIPELINE_STEP.format(
-                    prep_id=self.prep_id,
-                    pipeline_step_id=self.pipeline_step_id))
-                seqdb.commit()
-                return False
-        finally:
-            if seqdb.open:
-                seqdb.close()
+    def __init__(self, *args, **kwargs):
+        kwargs["task_name_format"] = "{task_family}.{sample_name}.{sample_id}"
+        super(ExtractTarball, self).__init__(*args, **kwargs)
+
+    def requires(self):
+        return self.clone(CopyDataToScratch, originals=[self.tarball])
+
+    def work(self):
+        new_tarball = os.path.join(
+            self.output_directory, os.path.basename(self.tarball))
+        with tarfile.open(new_tarball, "r:gz") as tar:
+            tar.extractall(self.output_directory)
+
+    def output(self):
+        return MultipleFilesTarget(
+            [os.path.join(self.output_directory, self.fn_format.format(
+                chromosome=chromosome, **self.__dict__)) for chromosome in
+                CHROMs])
 
 class ParseVCF(SGEJobTask):
     """parse the specified VCF, output text files for the data, and
@@ -205,8 +211,8 @@ class ParseVCF(SGEJobTask):
         choices=LOGGING_LEVELS, significant=False,
         default="DEBUG", description="the logging level to use")
     database = luigi.ChoiceParameter(
-        choices=["waldb", "dragen", "waldb4", "waldb1"], default="waldb",
-        description="the database to load to")
+        choices=["waldb", "dragen", "waldb4", "waldb1", "waldb6"],
+        default="waldb6", description="the database to load to")
     min_dp_to_include = luigi.NumericalParameter(
         min_value=0, max_value=sys.maxsize, var_type=int,
         default=cfg.getint("pipeline", "min_dp_to_include"),
@@ -226,7 +232,7 @@ class ParseVCF(SGEJobTask):
         else:
             kwargs["output_base"] = os.path.splitext(self.vcf)[0]
             super(ParseVCF, self).__init__(*args, **kwargs)
-        self.copied_files_dict = self.input().get_targets()
+        self.copied_files  = self.input().get_targets()
         self.novel_variants = self.output_base + ".novel_variants.txt"
         self.novel_indels = self.output_base + ".novel_indels.txt"
         self.novel_transcripts = self.output_base + ".novel_transcripts.txt"
@@ -245,7 +251,7 @@ class ParseVCF(SGEJobTask):
                     seqdb.close()
 
     def requires(self):
-        return self.clone(CopyDataToScratch)
+        return self.clone(CopyDataToScratch, originals=[self.vcf, self.vcf + ".tbi"])
 
     def work(self):
         if not self.dont_load_data:
@@ -265,24 +271,24 @@ class ParseVCF(SGEJobTask):
         level = LOGGING_LEVELS[self.level]
         parse_logger = logging.getLogger("parse_vcf")
         parse_logger.setLevel(level)
-        handler = logging.StreamHandler(sys.stdout)
-        handler.setLevel(level)
-        formatter = logging.Formatter(cfg.get("logging", "format"))
+        parse_vcf_handler = logging.StreamHandler(sys.stdout)
+        parse_vcf_handler.setLevel(level)
         handler.setFormatter(formatter)
         parse_logger.addHandler(handler)
         parse_vcf(
-            vcf=self.copied_files_dict["vcf"],
+            vcf=self.copied_files[0],
             CHROM=self.chromosome, sample_id=self.sample_id,
             database=self.database, min_dp_to_include=self.min_dp_to_include,
-            output_base=self.output_base,
-            chromosome_length=CHROMs[self.chromosome])
+            output_base=self.output_base)
         for fn in (self.novel_variants, self.novel_indels,
                    self.novel_transcripts,
                    self.called_variants, self.variant_id_vcf,
                    self.matched_indels):
             if not os.path.isfile(fn):
-                raise ValueError("failed running task; {} doesn't exist".format(
-                    fn=fn))
+                import ipdb
+                ipdb.set_trace()
+                ipdb.pm()
+                raise ValueError("failed running task; {} doesn't exist".format(fn=fn))
         variants = set()
         with open(self.variant_id_vcf) as vcf:
             for line in vcf:
@@ -359,31 +365,43 @@ class ParseVCF(SGEJobTask):
                   self.called_variants, self.variant_id_vcf, self.matched_indels]])
         else:
             return SQLTarget(
-                prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id)
+                pseudo_prepid=self.prep_id, pipeline_step_id=self.pipeline_step_id)
 
 class LoadBinData(SGEJobTask):
     """Import the DP/GQ binning data for a single chromosome for a sample
     """
-    fn = luigi.Parameter(description="the file to import")
+    fn = luigi.Parameter(default=None, description="the file to import")
     chromosome = luigi.Parameter(description="the chromosome")
     sample_id = luigi.IntParameter(
         description="the sample_id for the sample")
     output_directory = luigi.Parameter(
         description="the scratch directory for outputting files")
+    data_directory = luigi.Parameter(
+        default=None, description="the sample's data directory "
+        "(doesn't need to be specified)")
     sample_name = luigi.Parameter(description="the name of the sample")
     prep_id = luigi.IntParameter(
         description="the (pseudo) prep_id for the sample")
     data_type = luigi.ChoiceParameter(
         choices=["DP", "GQ"], description="the type of binned data to load")
     database = luigi.ChoiceParameter(
-        choices=["waldb", "dragen", "waldb4", "waldb1"], default="waldb",
-        description="the database to load to")
+        choices=["waldb", "dragen", "waldb4", "waldb1", "waldb6"],
+        default="waldb6", description="the database to load to")
     dont_load_data = luigi.BoolParameter(
         description="don't actually load any data, used for testing purposes")
 
     def __init__(self, *args, **kwargs):
         super(LoadBinData, self).__init__(*args, **kwargs)
-        self.temp_fn = os.path.join(self.output_directory, os.path.basename(self.fn))
+        if self.data_type == "DP":
+            self.fn_format = (
+                "{sample_name}.{prep_id}_coverage_binned_1000_chr{chromosome}.txt")
+        else:
+            raise NotImplementedError(
+                "This type of bin {} is not supported!".format(self.data_type))
+        self.fn = os.path.join(
+            self.output_directory, self.fn_format.format(
+                sample_name=self.sample_name, prep_id=self.prep_id,
+                chromosome=self.chromosome))
         if not self.dont_load_data:
             seqdb = get_connection("seqdb")
             try:
@@ -396,8 +414,12 @@ class LoadBinData(SGEJobTask):
                 if seqdb.open:
                     seqdb.close()
 
+    def requires(self):
+        return self.clone(
+            ExtractTarball, fn_format=self.fn_format,
+            tarball=os.path.join(self.data_directory, "coverage.tar.gz"))
+
     def work(self):
-        copy(self.fn, self.output_directory)
         if not self.dont_load_data:
             db = get_connection(self.database)
             seqdb = get_connection("seqdb")
@@ -413,7 +435,7 @@ class LoadBinData(SGEJobTask):
                     pipeline_step_id=self.pipeline_step_id))
                 seqdb.commit()
                 statement = INSERT_BIN_STATEMENT.format(
-                    data_file=self.temp_fn, data_type=self.data_type,
+                    data_file=self.fn, data_type=self.data_type,
                     chromosome=self.chromosome, sample_id=self.sample_id)
                 cur.execute(statement)
                 db.commit()
@@ -430,10 +452,10 @@ class LoadBinData(SGEJobTask):
 
     def output(self):
         if self.dont_load_data:
-            return MultipleFilesTarget([[self.temp_fn]])
+            return MultipleFilesTarget([[self.fn]])
         else:
             return SQLTarget(
-                prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id)
+                pseudo_prepid=self.prep_id, pipeline_step_id=self.pipeline_step_id)
 
 class ImportSample(luigi.Task):
     """import a sample by requiring() a ParseVCF Task for each chromosome
@@ -456,6 +478,9 @@ class ImportSample(luigi.Task):
     output_directory = luigi.Parameter(
         default=None, description="the scratch directory for outputting files "
         "(doesn't need to be specified")
+    data_directory = luigi.Parameter(
+        default=None, description="the sample's data directory "
+        "(doesn't need to be specified)")
     run_locally = luigi.BoolParameter(
         description="run locally instead of on the cluster")
     level = luigi.ChoiceParameter(
@@ -465,14 +490,17 @@ class ImportSample(luigi.Task):
         significant=False,
         description="don't remove the tmp dir if there's a failure")
     database = luigi.ChoiceParameter(
-        choices=["waldb", "dragen", "waldb4", "waldb1"], default="waldb",
-        description="the database to load to")
+        choices=["waldb", "dragen", "waldb4", "waldb1", "waldb6"],
+        default="waldb6", description="the database to load to")
     min_dp_to_include = luigi.NumericalParameter(
         min_value=0, max_value=sys.maxsize, var_type=int,
         default=cfg.getint("pipeline", "min_dp_to_include"),
         description="ignore variant calls below this read depth")
     dont_load_data = luigi.BoolParameter(
         description="don't actually load any data, used for testing purposes")
+    override_directory_check = luigi.BoolParameter(
+        description="don't check for existence of sample directory "
+        "(will assume it exists and copy files; can be helpful if ls hangs)")
 
     def __init__(self, *args, **kwargs):
         super(ImportSample, self).__init__(*args, **kwargs)
@@ -499,18 +527,22 @@ class ImportSample(luigi.Task):
             seqscratch=self.seqscratch, sample_name=sample_name,
             prep_id=self.prep_id,
             sequencing_type=self.sequencing_type.upper())
-        self.data_directory = get_data_directory(sample_name, self.prep_id)
-        try:
-            cmd = "ls {} &> /dev/null".format(self.data_directory)
-            c = Command.Command(cmd)
-            c.run(5)
-        except Command.TimeoutException:
-            raise ValueError("the data directory {} is inaccessible".format(
-                self.data_directory))
-        if not os.path.isdir(self.data_directory):
-            raise ValueError(
-                "the data directory {} for the sample does not exist".format(
-                self.data_directory))
+        data_directory = get_data_directory(sample_name, self.prep_id)
+        kwargs["data_directory"] = data_directory
+        if not self.override_directory_check:
+            # this can optionally be disabled if ls hangs but copying files is
+            # still working
+            try:
+                cmd = "ls -d {} &> /dev/null".format(data_directory)
+                c = Command.Command(cmd)
+                c.run(5)
+            except Command.TimeoutException:
+                raise ValueError("the data directory {} is inaccessible".format(
+                    data_directory))
+            if not os.path.isdir(data_directory):
+                raise ValueError(
+                    "the data directory {} for the sample does not exist".format(
+                    data_directory))
         db = get_connection(self.database)
         seqdb = get_connection("seqdb")
         try:
@@ -536,7 +568,7 @@ class ImportSample(luigi.Task):
                 seqdb.close()
         if not self.vcf:
             kwargs["vcf"] = os.path.join(
-                self.data_directory, "{sample_name}.{prep_id}.analysisReady."
+                data_directory, "{sample_name}.{prep_id}.analysisReady."
                 "annotated.vcf.gz".format(
                     sample_name=sample_name, prep_id=self.prep_id))
         super(ImportSample, self).__init__(*args, **kwargs)
@@ -565,22 +597,8 @@ class ImportSample(luigi.Task):
             ParseVCF, chromosome=CHROM, 
             output_base=self.output_directory + CHROM)
             for CHROM in CHROMs.iterkeys()] +
-            [self.clone(
-                LoadBinData,
-                fn=os.path.join(
-                    self.data_directory, "gq_binned",
-                    "{sample_name}.{prep_id}_gq_binned_10000_chr{chromosome}.txt".format(
-                        sample_name=self.sample_name, prep_id=self.prep_id,
-                        chromosome=CHROM)), chromosome=CHROM, data_type="GQ")
-                for CHROM in CHROMs.iterkeys()] +
-            [self.clone(
-                LoadBinData,
-                fn=os.path.join(
-                    self.data_directory, "cvg_binned",
-                    "{sample_name}.{prep_id}_coverage_binned_1000_chr{chromosome}.txt".format(
-                        sample_name=self.sample_name, prep_id=self.prep_id,
-                        chromosome=CHROM)), chromosome=CHROM, data_type="DP")
-                for CHROM in CHROMs.iterkeys()])
+            [self.clone(LoadBinData, chromosome=CHROM, data_type="DP")
+             for CHROM in CHROMs.iterkeys()])
     
     def run(self):
         # verify that each VariantID annotated chromosome's VCF is present,
@@ -624,8 +642,9 @@ class ImportSample(luigi.Task):
         if not info_output:
             header.append(variant_id_header)
         header.append(line)
-        vcf_out = os.path.join(self.output_directory, self.sample_name +
-                               ".variant_id.vcf")
+        vcf_out = os.path.join(
+            self.output_directory,
+            "{}.{}.variant_id.vcf".format(self.sample_name, self.prep_id))
         with open(vcf_out, "w") as vcf_out_fh:
             for line in header:
                 vcf_out_fh.write(line)
@@ -685,7 +704,7 @@ class ImportSample(luigi.Task):
         else:
             # check final DB status
             return SQLTarget(
-                prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id)
+                pseudo_prepid=self.prep_id, pipeline_step_id=self.pipeline_step_id)
 
 if __name__ == "__main__":
-    luigi.run()
+    sys.exit(luigi.run())

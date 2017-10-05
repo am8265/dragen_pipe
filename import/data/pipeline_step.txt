@@ -7,8 +7,8 @@
 7	ContaminationCheck	Run VerifyBamID for contamination check
 8	AlignmentMetrics	Run Picard alignment metrics
 9	RunCvgMetrics	Run Picard coverage metrics
-10	CreateGenomeBed	Create a coverage pileup bed
-11	CvgBinning	Encode and bin coverage strings
+10	CoverageBinning	Perform DP coverage binning genome-wide with minimum quality thresholds
+11	SplitAndSubsetDPBins	Split genome-wide DP bins by chromosome and restrict to blocks of interest for non-genomes
 12	HaplotypeCaller	Create a gVCF with HaplotypeCaller
 13	GQBinning	Encode and bin GQ strings
 14	GenotypeGVCFs	Genotype the gVCF with GenotypeGVCFs

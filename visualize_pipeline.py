@@ -15,6 +15,8 @@ def build_graph(parent_class, task, graph, tasks, class_counter):
     for task_id, node_name in tasks:
         if task.task_id == task_id:
             task_exists = True
+            # N.B. if the task_id matches, we should use this node_name to add
+            # the edge
             break
     if not task_exists:
         class_name = task.__class__.__name__

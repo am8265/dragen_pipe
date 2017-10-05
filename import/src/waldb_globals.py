@@ -8,15 +8,20 @@ import argparse
 import sys
 import luigi
 from operator import lt, le
-from ConfigParser import RawConfigParser
+from ConfigParser import ConfigParser, RawConfigParser
 import logging
-from db_statements import GET_SAMPLE_DIRECTORY
+from db_statements import (
+    GET_SAMPLE_DIRECTORY, GET_TIMES_STEP_RUN, BEGIN_STEP,
+    FINISH_STEP, FAIL_STEP, GET_PIPELINE_STEP_ID, GET_STEP_STATUS,
+    GET_SAMPLE_METADATA, GET_CAPTURE_KIT_BED, INSERT_PIPELINE_STEP)
 from itertools import chain
 from collections import OrderedDict, Counter, defaultdict
 from functools import wraps
 import time
 import subprocess
-import shlex
+from luigi.contrib.sge import SGEJobTask
+from shlex import split as sxsplit
+from pprint import pprint
 
 cfg = RawConfigParser()
 cfg.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "waldb.cfg"))
@@ -25,7 +30,72 @@ LOGGING_LEVELS = {
     "WARNING":logging.WARNING, "INFO":logging.INFO, "DEBUG":logging.DEBUG}
 CHROMs = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
           "14", "15", "16", "17", "18", "19", "20", "21", "22", "X", "Y", "MT"]
-# exclude variant calls below this read depth
+GIT = "/nfs/goldstein/software/git-2.5.0/bin/git"
+
+class GitRepoError(Exception):
+    pass
+
+class UncommittedChangesInRepo(Exception):
+    pass
+
+class NotMasterBranch(Exception):
+    pass
+
+def get_pipeline_version():
+    version = subprocess.check_output(
+        [GIT, "describe", "--tags"]).strip()
+    if version:
+        return version
+    else:
+        raise GitRepoError("Could not get the version # of the pipeline; "
+                           "maybe run it from a directory in the repo?")
+
+def confirm_no_uncommitted_changes():
+    try:
+        if subprocess.check_output([GIT, "status", "--porcelain"]):
+            raise UncommittedChangesInRepo(
+                "There are uncommitted changes in the repository.  Pipeline will not run.")
+    except subprocess.CalledProcessError:
+        raise GitRepoError("Could not check for uncommitted changes in the pipeline; "
+                           "maybe run it from a directory in the repo?")
+
+def confirm_master_branch():
+    try:
+        branch_output = subprocess.check_output(["git", "branch"])
+        branch = [line.split()[1] for line in branch_output.splitlines() if
+                  line.startswith("*")]
+        if branch != ["master"]:
+            raise NotMasterBranch("Pipeline must be run with the master branch.")
+    except subprocess.CalledProcessError:
+        raise GitRepoError("Could not get the branch of the pipeline; "
+                           "maybe run it from a directory in the repo?")
+
+class SQLTarget(luigi.Target):
+    """ A luigi target class describing verification of the entries in the database
+    """
+    def __init__(self, pseudo_prepid, pipeline_step_id):
+        self.pseudo_prepid = pseudo_prepid
+        self.pipeline_step_id = pipeline_step_id
+
+    def exists(self):
+        db = get_connection("seqdb")
+        try:
+            cur = db.cursor()
+            cur.execute(GET_STEP_STATUS.format(
+                prep_id=self.pseudo_prepid,
+                pipeline_step_id=self.pipeline_step_id))
+            row = cur.fetchone()
+            if row:
+                return row[0] == "completed"
+            else:
+                cur.execute(INSERT_PIPELINE_STEP.format(
+                    prep_id=self.pseudo_prepid,
+                    pipeline_step_id=self.pipeline_step_id))
+                db.commit()
+                return False
+        finally:
+            if db.open:
+                db.close()
 
 class DereferenceKeyAction(argparse.Action):
     """Define a class for automatically converting the key specified from
@@ -325,7 +395,353 @@ def run_command(command, directory, task_name, print_command=True):
             open(base_name + ".err", "w") as err_fh:
         out_fh.write(command + "\n")
         out_fh.flush()
-        p = subprocess.Popen(shlex.split(command), stdout=out_fh, stderr=err_fh)
+        p = subprocess.Popen(sxsplit(command), stdout=out_fh, stderr=err_fh)
         p.wait()
     if p.returncode:
         raise subprocess.CalledProcessError(p.returncode, command)
+
+def file_handle(f, mode="w"):
+    """Return a file handle to f; if it's a file handle already, return it,
+    otherwise open it
+    """
+    if type(f) is str:
+        return open(f, mode)
+    if type(f) is file:
+        return f
+    if type(f) is int:
+        return f
+    raise TypeError("Wrong argument passed in for opening")
+
+def close_file_handles(file_handles):
+    """Close the file handles as appropriate
+    """
+    for file_handle in file_handles:
+        if (type(file_handle) is file and not file_handle.closed
+            and file_handle not in (sys.stdout, sys.stderr)):
+            file_handle.close()
+
+class PipelineTask(SGEJobTask):
+    """Abstract Task class for automatically updating pipeline step statuses
+    """
+    pseudo_prepid = luigi.IntParameter(
+        description="The pseudo_prepid for this sample; used for "
+        "obtaining/updating statuses")
+    print_init = luigi.BoolParameter(default=False)
+
+    def __init__(self, *args, **kwargs):
+        super(PipelineTask, self).__init__(*args, **kwargs)
+        confirm_no_uncommitted_changes()
+        confirm_master_branch()
+        self.pipeline_step_id = self._get_pipeline_step_id()
+        # these will be passed onto subprocess, overwrite in pre_shell_commands
+        # method if needed
+        self.shell_options = {"record_commands_fn":None, "stdout":os.devnull,
+                              "stderr":None, "shell":False}
+        self.commands = []
+        self.files = []
+        self.directories = []
+        if self.print_init:
+            print("Initializing {}".format(self.__class__.__name__))
+
+    def _get_pipeline_step_id(self):
+        """Set the pipeline_step_id for any class inheriting from this
+        """
+        seqdb = get_connection("seqdb")
+        try:
+            seq_cur = seqdb.cursor()
+            seq_cur.execute(GET_PIPELINE_STEP_ID.format(
+                step_name=self.__class__.__name__))
+            row = seq_cur.fetchone()
+            if row:
+                return row[0]
+            else:
+                raise ValueError("Could not find pipeline step of name {}!".
+                                 format(self.__class__.__name__))
+        finally:
+            if seqdb.open:
+                seqdb.close()
+
+    def _set_pipeline_version(self):
+        """Set the version of the pipeline being executed by checking the git
+        respository's version tag
+        """
+        self.version = get_pipeline_version()
+
+    def run(self):
+        """First create/update as needed the record in the pipeline step table,
+        set its start time, and increment its times_ran counter
+        """
+        self._set_pipeline_version()
+        self._update_step_start_time()
+        try:
+            super(PipelineTask, self).run()
+            self._update_step_success()
+            self._run_post_success()
+        except:
+            self._update_step_failure()
+            raise
+
+    def _update_step_start_time(self):
+        seqdb = get_connection("seqdb")
+        try:
+            seq_cur = seqdb.cursor()
+            seq_cur.execute(GET_TIMES_STEP_RUN.format(
+                prep_id=self.pseudo_prepid,
+                pipeline_step_id=self.pipeline_step_id))
+            row = seq_cur.fetchone()
+            times_ran = row[0] if row else 0
+            seq_cur.execute(BEGIN_STEP.format(
+                pseudo_prepid=self.pseudo_prepid,
+                pipeline_step_id=self.pipeline_step_id,
+                version=self.version, times_ran=times_ran + 1))
+            seqdb.commit()
+        finally:
+            if seqdb.open:
+                seqdb.close()
+
+    def _update_step_success(self):
+        seqdb = get_connection("seqdb")
+        try:
+            seq_cur = seqdb.cursor()
+            seq_cur.execute(FINISH_STEP.format(
+                pseudo_prepid=self.pseudo_prepid,
+                pipeline_step_id=self.pipeline_step_id))
+            seqdb.commit()
+        finally:
+            if seqdb.open:
+                seqdb.close()
+
+    def _run_post_success(self):
+        """Add anything here that should be performed only after successful
+        update of the database with the success of the task, e.g. deleting files
+        """
+        pass
+
+    def _update_step_failure(self):
+        seqdb = get_connection("seqdb")
+        try:
+            seq_cur = seqdb.cursor()
+            seq_cur.execute(FAIL_STEP.format(
+                pseudo_prepid=self.pseudo_prepid,
+                pipeline_step_id=self.pipeline_step_id))
+            seqdb.commit()
+        finally:
+            if seqdb.open:
+                seqdb.close()
+                 
+    def work(self):
+        """Always execute the following three steps in order:
+            1. pre-shell commands
+            2. shell commands
+            3. post-shell commands
+            4. updating relevant files/directories to group bioinfo and
+            permissions to 664 and 775 for files and directories, respectively
+        Don't overwrite this method, instead overwrite pre- and post-shell
+        command functions as needed
+        """
+        os.umask(0002)
+        self.pre_shell_commands()
+        self.run_shell_commands()
+        self.post_shell_commands()
+        self.update_permissions()
+
+    def pre_shell_commands(self):
+        """Overwrite to execute anything code that should run prior to running
+        shell comamnds
+        """
+        pass
+
+    def post_shell_commands(self):
+        """Overwrite to execute any code that should run after running shell
+        commands
+        """
+        pass
+
+    def run_shell_commands(self):
+        """Run an arbitrary list of commands and raise a CalledProcessError in
+        the event that any returns a non-zero error code
+        """
+        with open(self.shell_options.pop("record_commands_fn"), "w") as out:
+            out.write("#Pipeline version #:{version}\n".format(version=self.version))
+            out.write("\n".join(self.commands) + "\n")
+        if self.commands:
+            for command in self.commands:
+                if not command:
+                    continue
+                fhs = {"stdout":None, "stderr":None}
+                try:
+                    if not self.shell_options["shell"]:
+                        command = sxsplit(command)
+                    if not self.shell_options["stderr"]:
+                        fhs["stderr"] = file_handle(sys.stdout)
+                    fh_dict = {}
+                    for fh in ("stdout", "stderr"):
+                        f = self.shell_options.pop(fh)
+                        # store these in a temporary dict and add back later, as
+                        # subprocess will raise an exception if these are passed
+                        # in
+                        fh_dict[fh] = f
+                        if f:
+                            fhs[fh] = file_handle(f)
+                    p = subprocess.Popen(
+                        command, stdout=fhs["stdout"], stderr=fhs["stderr"],
+                        **self.shell_options)
+                    p.wait()
+                    if p.returncode:
+                        raise subprocess.CalledProcessError(
+                            p.returncode, command)
+                    self.shell_options.update(fh_dict)
+                finally:
+                    close_file_handles([fhs["stdout"], fhs["stderr"]])
+
+    def update_permissions(self):
+        for fn in self.files:
+            os.chmod(fn, 0664)
+        for d in self.directories:
+            os.chmod(d, 0775)
+
+    def output(self):
+        return SQLTarget(pseudo_prepid=self.pseudo_prepid,
+                         pipeline_step_id=self.pipeline_step_id)
+
+class DragenPipelineTask(PipelineTask):
+    """Add the parameters that are de facto in every gatk_pipe task to reduce
+    repetitiveness
+    """
+    sample_name = luigi.Parameter(
+        default=None, description="the sample identifier")
+    capture_kit = luigi.Parameter(
+        default=None, description="the capture kit used")
+    capture_kit_bed = luigi.InputFileParameter(
+        default=None,
+        description="the location of the BED file containing the capture kit regions")
+    sample_type = luigi.ChoiceParameter(
+        default=None, choices=["EXOME", "GENOME"],
+        description="The type of sequencing performed for this sample")
+    scratch = luigi.Parameter(
+        default=None,
+        description="The scratch space to use for the pipeline")
+
+    def __init__(self, *args, **kwargs):
+        super(DragenPipelineTask, self).__init__(*args, **kwargs)
+        if (not self.sample_name or not self.capture_kit_bed
+            or not self.sample_type or not self.scratch):
+            seqdb = get_connection("seqdb")
+            try:
+                seq_cur = seqdb.cursor()
+                seq_cur.execute(
+                    GET_SAMPLE_METADATA.format(prep_id=self.pseudo_prepid))
+                row = seq_cur.fetchone()
+                if row:
+                    sample_name, sample_type, capture_kit, scratch, _ = row
+                    if not self.sample_name:
+                        kwargs["sample_name"] = sample_name
+                    if not self.sample_type:
+                        kwargs["sample_type"] = sample_type.upper()
+                    if not self.scratch:
+                        kwargs["scratch"] = scratch
+                    if not self.capture_kit:
+                        kwargs["capture_kit"] = capture_kit
+                    if not self.capture_kit_bed:
+                        seq_cur.execute(GET_CAPTURE_KIT_BED.format(
+                            capture_kit="Roche"
+                            if kwargs["sample_type"] == "GENOME" else
+                            capture_kit))
+                        kwargs["capture_kit_bed"] = seq_cur.fetchone()[0]
+                else:
+                    raise ValueError("Couldn't find sample metadata for {}!".
+                                     format(self.pseudo_prepid))
+                super(DragenPipelineTask, self).__init__(*args, **kwargs)
+            finally:
+                if seqdb.open:
+                    seqdb.close()
+
+class GATKPipelineTask(DragenPipelineTask):
+    """Add implicit parameters that will always be found in specific paths for
+    data at various stages of the pipeline
+    """
+    def __init__(self, *args, **kwargs):
+        super(GATKPipelineTask, self).__init__(*args, **kwargs)
+        name_prep = "{}.{}".format(self.sample_name, self.pseudo_prepid)
+        self.name_prep = name_prep
+        self.scratch_dir = os.path.join(
+            "/nfs", self.scratch, "ALIGNMENT", "BUILD37", "DRAGEN",
+            self.sample_type, name_prep)
+        log_base = os.path.join(
+            self.scratch_dir, "logs", "{}.{}.{}".format(
+                self.pipeline_step_id, name_prep, self.__class__.__name__))
+        self.log_file = log_base + ".log"
+        self.err = log_base + ".err"
+        self.log_dir = os.path.join(self.scratch_dir, "logs")
+        self.script = os.path.join(
+            self.scratch_dir, "scripts", "{}.{}.{}.sh".format(
+                self.pipeline_step_id, name_prep, self.__class__.__name__))
+        self.interval_list = os.path.join(
+            self.scratch_dir, name_prep + ".interval_list")
+        self.scratch_bam = os.path.join(
+            self.scratch_dir, name_prep + ".bam")
+        self.realn_bam = os.path.join(
+            self.scratch_dir, name_prep + ".realn.bam")
+        self.recal_table = os.path.join(
+            self.scratch_dir, name_prep + ".recal_table")
+        self.recal_bam = os.path.join(
+            self.scratch_dir, name_prep + ".realn.recal.bam")
+        self.recal_bam_index = os.path.join(
+            self.scratch_dir, name_prep + ".realn.recal.bai")
+        self.gvcf = os.path.join(
+            self.scratch_dir, name_prep + ".g.vcf.gz")
+        self.gvcf_index = os.path.join(
+            self.scratch_dir, name_prep + ".g.vcf.gz.tbi")
+        self.vcf = os.path.join(
+            self.scratch_dir, name_prep + ".raw.vcf")
+        self.snp_vcf = os.path.join(
+            self.scratch_dir, name_prep + ".snp.vcf")
+        self.indel_vcf = os.path.join(
+            self.scratch_dir, name_prep + ".indel.vcf")
+        self.snp_recal = os.path.join(
+            self.scratch_dir, name_prep + ".snp.recal")
+        self.snp_rscript = os.path.join(
+            self.scratch_dir, name_prep + ".snp.rscript")
+        self.snp_tranches = os.path.join(
+            self.scratch_dir, name_prep + ".snp.tranches")
+        self.snp_filtered = os.path.join(
+            self.scratch_dir, name_prep + ".snp.filtered.vcf")
+        self.indel_recal = os.path.join(
+            self.scratch_dir, name_prep + ".indel.recal")
+        self.indel_rscript = os.path.join(
+            self.scratch_dir, name_prep + ".indel.rscript")
+        self.indel_tranches = os.path.join(
+            self.scratch_dir, name_prep + ".indel.tranches")
+        self.indel_filtered = os.path.join(
+            self.scratch_dir, name_prep + ".indel.filtered.vcf")
+        self.tmp_vcf = os.path.join(
+            self.scratch_dir, name_prep + ".tmp.vcf")
+        self.final_vcf = os.path.join(
+            self.scratch_dir, name_prep + ".analysisReady.vcf")
+        self.final_vcf_gz = self.final_vcf + ".gz"
+        self.annotated_vcf = os.path.join(
+            self.scratch_dir, name_prep + ".analysisReady.annotated.vcf")
+        self.annotated_vcf_gz = self.annotated_vcf + ".gz"
+        self.annotated_vcf_gz_index = self.annotated_vcf_gz + ".tbi"
+        self.phased_vcf = os.path.join(
+            self.scratch_dir, name_prep + ".analysisReady.phased.vcf")
+        self.phased_vcf_gz = self.phased_vcf + ".gz"
+        self.fixed_vcf = os.path.join(
+            self.scratch_dir, name_prep + ".analysisReady.fixed.vcf")
+        self.original_vcf_gz = os.path.join(
+            self.scratch_dir, name_prep +
+            ".analysisReady.annotated.original.vcf.gz")
+        self.original_vcf_gz_index = self.original_vcf_gz + ".tbi"
+        self.alignment_metrics = os.path.join(
+            self.scratch_dir, name_prep + ".alignment.metrics.txt")
+        self.genome_cov_bed = os.path.join(
+            self.scratch_dir, self.sample_name + ".genomecvg.bed")
+        self.cov_dir = os.path.join(self.scratch_dir, "cvg_binned")
+        self.gq_dir = os.path.join(self.scratch_dir, "gq_binned")
+        self.shell_options["record_commands_fn"] = self.script
+        self.shell_options["stdout"] = self.log_file
+        self.shell_options["stderr"] = self.err
+        for d in (os.path.join(self.scratch_dir, "logs"),
+                  os.path.join(self.scratch_dir, "scripts")):
+            if not os.path.isdir(d):
+                os.makedirs(d)
