@@ -65,7 +65,7 @@ def confirm_master_branch():
         branch = [line.split()[1] for line in branch_output.splitlines() if
                   line.startswith("*")]
         if branch != ["master"]:
-            raise NotMasterBranch("Pipeline must be run with the master branch")
+            raise NotMasterBranch("Pipeline must be run with the master branch.")
     except subprocess.CalledProcessError:
         raise GitRepoError("Could not get the branch of the pipeline; "
                            "maybe run it from a directory in the repo?")
