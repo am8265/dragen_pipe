@@ -130,7 +130,7 @@ def update_dragen_metadata(sample,debug):
 
 def get_pipeline_version():
     version = subprocess.check_output(
-        ["/nfs/goldstein/software/git-2.5.0/bin/git", "describe", "--always"]).strip()
+        ["git", "describe", "--tags"]).strip()
     if version:
         return version
     else:
