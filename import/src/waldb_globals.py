@@ -30,15 +30,45 @@ LOGGING_LEVELS = {
     "WARNING":logging.WARNING, "INFO":logging.INFO, "DEBUG":logging.DEBUG}
 CHROMs = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
           "14", "15", "16", "17", "18", "19", "20", "21", "22", "X", "Y", "MT"]
+GIT = "/nfs/goldstein/software/git-2.5.0/bin/git"
+
+class GitRepoError(Exception):
+    pass
+
+class UncommittedChangesInRepo(Exception):
+    pass
+
+class NotMasterBranch(Exception):
+    pass
 
 def get_pipeline_version():
     version = subprocess.check_output(
-        ["/nfs/goldstein/software/git-2.5.0/bin/git", "describe", "--tags"]).strip()
+        [GIT, "describe", "--tags"]).strip()
     if version:
         return version
     else:
-        raise ValueError("Could not get the version # of the pipeline; "
-                         "maybe run it from a directory in the repo?")
+        raise GitRepoError("Could not get the version # of the pipeline; "
+                           "maybe run it from a directory in the repo?")
+
+def confirm_no_uncommitted_changes():
+    try:
+        if subprocess.check_output([GIT, "status", "--porcelain"]):
+            raise UncommittedChangesInRepo(
+                "There are uncommitted changes in the repository.  Pipeline will not run.")
+    except subprocess.CalledProcessError:
+        raise GitRepoError("Could not check for uncommitted changes in the pipeline; "
+                           "maybe run it from a directory in the repo?")
+
+def confirm_master_branch():
+    try:
+        branch_output = subprocess.check_output(["git", "branch"])
+        branch = [line.split()[1] for line in branch_output.splitlines() if
+                  line.startswith("*")]
+        if branch != ["master"]:
+            raise NotMasterBranch("Pipeline must be run with the master branch")
+    except subprocess.CalledProcessError:
+        raise GitRepoError("Could not get the branch of the pipeline; "
+                           "maybe run it from a directory in the repo?")
 
 class SQLTarget(luigi.Target):
     """ A luigi target class describing verification of the entries in the database
