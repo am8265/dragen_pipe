@@ -76,10 +76,6 @@ SELECT step_status
 FROM dragen_pipeline_step
 WHERE pseudo_prepid = {prep_id} AND pipeline_step_id = {pipeline_step_id}
 """
-INSERT_PIPELINE_STEP = """
-INSERT INTO dragen_pipeline_step (pseudo_prepid, pipeline_step_id, version)
-VALUE ({prep_id}, {pipeline_step_id}, "")
-"""
 GET_TIMES_STEP_RUN = """
 SELECT times_ran
 FROM dragen_pipeline_step
