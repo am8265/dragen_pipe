@@ -426,6 +426,8 @@ class PipelineTask(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(PipelineTask, self).__init__(*args, **kwargs)
+        confirm_no_uncommitted_changes()
+        confirm_master_branch()
         self.pipeline_step_id = self._get_pipeline_step_id()
         # these will be passed onto subprocess, overwrite in pre_shell_commands
         # method if needed
