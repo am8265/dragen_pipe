@@ -13,7 +13,7 @@ import logging
 from db_statements import (
     GET_SAMPLE_DIRECTORY, GET_TIMES_STEP_RUN, BEGIN_STEP,
     FINISH_STEP, FAIL_STEP, GET_PIPELINE_STEP_ID, GET_STEP_STATUS,
-    GET_SAMPLE_METADATA, GET_CAPTURE_KIT_BED, INSERT_PIPELINE_STEP)
+    GET_SAMPLE_METADATA, GET_CAPTURE_KIT_BED)
 from itertools import chain
 from collections import OrderedDict, Counter, defaultdict
 from functools import wraps
@@ -88,10 +88,6 @@ class SQLTarget(luigi.Target):
             if row:
                 return row[0] == "completed"
             else:
-                cur.execute(INSERT_PIPELINE_STEP.format(
-                    prep_id=self.pseudo_prepid,
-                    pipeline_step_id=self.pipeline_step_id))
-                db.commit()
                 return False
         finally:
             if db.open:
