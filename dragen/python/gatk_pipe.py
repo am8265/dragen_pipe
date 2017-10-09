@@ -164,6 +164,13 @@ class GATKFPipelineTask(GATKPipelineTask):
     poll_time = luigi.IntParameter(
         default=120,
         description="the number of seconds to wait before rerunning qstat for a task")
+    subdirectory = luigi.Parameter(
+        significant=False, default="{sample_name}.{pseudo_prepid}",
+        description="output to this (relative) path instead of a randomly generated directory name")
+    dont_remove_tmp_dir = True
+    # don't delete temp dirs ever for any Task other than ArchiveSample,
+    # as the directories are shared across Tasks
+
     def __init__(self, *args, **kwargs):
         self.config_parameters = {}
         for cls in (programs, locations, pipeline_files, gatk_resources, variables,
@@ -663,6 +670,8 @@ class SubsetVCF(GATKFPipelineTask):
 class ArchiveSample(GATKFPipelineTask):
     """ Archive samples on Amplidata """
     n_cpu = 7
+    dont_remove_tmp_dir = False # remove the temporary directory iff this task succeeds
+    dont_remove_tmp_dir_if_failure = True # don't remove if it fails
     def pre_shell_commands(self):
         # wait for Avere to cooperate before loading
         while True:
@@ -1052,7 +1061,7 @@ class DuplicateMetrics(GATKFPipelineTask):
         self.duplicates_file = os.path.join(
             self.scratch_dir, self.name_prep + ".duplicates.txt")
         if not os.path.isfile(self.dragen_log):
-            raise Exception("The dragen log file could not be found!")
+            raise Exception("The dragen log file, '%s',  could not be found!" % self.dragen_log)
         perc_duplicates = None
         with open(self.dragen_log) as d:
             for line in d:
