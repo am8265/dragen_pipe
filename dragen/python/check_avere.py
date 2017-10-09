@@ -77,7 +77,7 @@ def check_avere(script_fn=SCRIPT, max_load_any_node=MAX_LOAD_ANY_NODE,
             seconds = int(m.group(1))
             if seconds > MAX_SECONDS_FOR_UPDATE:
                 logger.warning("Max update time exceeded: {}".format(seconds))
-                return False
+                return False, out
     if not found:
         raise ValueError("Didn't find update time")
     logger.debug("Last update was {} seconds ago".format(seconds))
@@ -93,7 +93,7 @@ def check_avere(script_fn=SCRIPT, max_load_any_node=MAX_LOAD_ANY_NODE,
             break
     if not found:
         # dsth: temporary hack
-        return False
+        return False, out
         # raise ValueError("Didn't find load data")
     logger.debug("Load is {}".format(load))
     clients_found = [False, False, False]
@@ -114,14 +114,14 @@ def check_avere(script_fn=SCRIPT, max_load_any_node=MAX_LOAD_ANY_NODE,
             logger.warning("Node {} is down".format(node))
     if len(nodes_down) > max_nodes_down:
         logger.warning("Max # nodes down exceeded: {}".format(len(nodes_down)))
-        return False
+        return False, out
     if any([value >= max_load_any_node for value in load]):
         logger.info("Max load exceeded for one node")
-        return False
+        return False, out
     if all([value >= max_load_all_nodes for value in load]):
         logger.info("Max load exceeded across all nodes")
-        return False
-    return True
+        return False, out
+    return True, out
 
 if __name__ == "__main__":
     import argparse
@@ -160,7 +160,9 @@ if __name__ == "__main__":
                         action=DereferenceKeyAction, choices=LOGGING_LEVELS,
                         help="the logging level to use")
     args = parser.parse_args()
-    avere_ok = check_avere(
+    avere_ok, output = check_avere(
         args.script, args.max_load_any_node, args.max_load_all_nodes,
         args.max_nodes_down, args.level)
-    sys.exit(0 if avere_ok else 1)
+    if not avere_ok:
+        logger.warning("Output from avere-load\n" + "\n".join(output) + "\n")
+        sys.exit(1)
