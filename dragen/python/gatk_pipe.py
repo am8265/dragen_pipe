@@ -106,12 +106,8 @@ class gatk_resources(luigi.Config):
     contam1000g_vcf = luigi.InputFileParameter()
     ref_genome = luigi.InputFileParameter()
     seqdict_file = luigi.InputFileParameter()
-    if "DEBUG_INTERVALS" in os.environ: 
-        interval=os.getenv("DEBUG_INTERVALS")
-        silly_arg=' -L '+interval
-    else:
-        interval=luigi.InputFileParameter()
-        silly_arg=''
+    interval = luigi.InputFileParameter()
+    silly_arg = luigi.Parameter(default="")
     g1000 = luigi.InputFileParameter()
     hapmap = luigi.InputFileParameter()
     Mills1000g = luigi.InputFileParameter()
@@ -119,14 +115,14 @@ class gatk_resources(luigi.Config):
     dbSNP = luigi.InputFileParameter()
     annotatedbSNP = luigi.InputFileParameter()
     exac = luigi.Parameter()
+    def __init__(self, *args, **kwargs):
+        if "DEBUG_INTERVALS" in os.environ:
+            kwargs["interval"] = os.getenv("DEBUG_INTERVALS")
+            kwargs["silly_arg"] = " -L " + kwargs["interval"]
+        super(gatk_resources, self).__init__(*args, **kwargs)
 
 class variables(luigi.Config):
-    create_targetfile = luigi.BooleanParameter()
     max_mem = luigi.IntParameter()
-    cnv_target_padding = luigi.IntParameter(
-        description="Num. of bp to pad each target during "
-        "GATK's CalculateTargetCoverage CNV task")
-    block_size = luigi.IntParameter(description='The block size over which to do the binning')
 
 class qc_metrics(luigi.Config):
     """ Parse in database field names for qc metrics
