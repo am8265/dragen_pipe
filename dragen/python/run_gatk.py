@@ -93,8 +93,8 @@ class RunGATK(ProcessSamples):
         specified in luigi_args
         """
         return ("luigi --module gatk_pipe ArchiveSample --logging-conf-file "
-                "logging.conf --dont-remove-tmp-dir-if-failure --pseudo-prepid "
-                "{pseudo_prepid} --workers {workers}{luigi_args}".format(
+                "logging.conf --pseudo-prepid {pseudo_prepid} --workers {workers}"
+                "{luigi_args}".format(
                     pseudo_prepid=pseudo_prepid, workers=self.workers,
                     luigi_args=self.luigi_args), None)
 
