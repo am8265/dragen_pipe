@@ -108,8 +108,10 @@ class gatk_resources(luigi.Config):
     seqdict_file = luigi.InputFileParameter()
     if "DEBUG_INTERVALS" in os.environ: 
         interval=os.getenv("DEBUG_INTERVALS")
+        silly_arg=' -L '+interval
     else:
         interval=luigi.InputFileParameter()
+        silly_arg=''
     g1000 = luigi.InputFileParameter()
     hapmap = luigi.InputFileParameter()
     Mills1000g = luigi.InputFileParameter()
@@ -228,7 +230,7 @@ class RealignerTargetCreator(GATKFPipelineTask):
         self.commands = [self.format_string(
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T RealignerTargetCreator "
             "-I {scratch_bam} -o {interval_list} -known {Mills1000g} "
-            "-known {dbSNP} -nt {n_cpu}")]
+            "-known {dbSNP} -nt {n_cpu} {silly_arg}")]
 
     def requires(self):
         return ValidateBAM(bam=self.scratch_bam)
@@ -239,7 +241,7 @@ class IndelRealigner(GATKFPipelineTask):
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T IndelRealigner "
             "-I {scratch_bam} -o {realn_bam} -targetIntervals {interval_list} "
             "-maxReads 10000000 -maxInMemory 450000 -known {Mills1000g} "
-            "-known {dbSNP}")]
+            "-known {dbSNP} {silly_arg}")]
 
     #def _run_post_success(self):
     #    os.remove(self.scratch_bam)
@@ -254,7 +256,7 @@ class BaseRecalibrator(GATKFPipelineTask):
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} "
             "-T BaseRecalibrator -I {realn_bam} "
             "-o {recal_table} -knownSites {Mills1000g} "
-            "-knownSites {dbSNP} -nct {n_cpu}")]
+            "-knownSites {dbSNP} -nct {n_cpu} {silly_arg}")]
 
     def requires(self):
         return self.clone(IndelRealigner)
@@ -266,7 +268,7 @@ class PrintReads(GATKFPipelineTask):
         self.commands = [self.format_string(
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T PrintReads "
             "-I {realn_bam} --disable_indel_quals "
-            "-BQSR {recal_table} -o {recal_bam} -nct {n_cpu}")]
+            "-BQSR {recal_table} -o {recal_bam} -nct {n_cpu} {silly_arg}")]
 
     def _run_post_success(self):
         os.remove(self.realn_bam)
