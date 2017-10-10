@@ -72,35 +72,25 @@ def getCaptureKit(pseudo_prepid):
 class programs(luigi.Config):
     """ Configuration class for instantiating parameters for this pipeline
     the values are read from luigi.cfg in the current folder """
-    bedtools = luigi.InputFileParameter()
     bgzip = luigi.InputFileParameter()
     gatk = luigi.InputFileParameter()
-    gatk4 = luigi.InputFileParameter()
     java = luigi.InputFileParameter()
     picard = luigi.InputFileParameter()
     pypy = luigi.InputFileParameter()
-    snpEff = luigi.InputFileParameter()
-    snpSift = luigi.InputFileParameter()
     tabix = luigi.InputFileParameter()
     verifybamid = luigi.InputFileParameter()
-    vcffilter = luigi.InputFileParameter()
     clineff = luigi.InputFileParameter()
-    python_path = luigi.InputFileParameter()
 
 class locations(luigi.Config):
     base = luigi.Parameter()
 
 class pipeline_files(luigi.Config):
-    ccds_bed_file = luigi.InputFileParameter()
-    coverage_binner = luigi.InputFileParameter()
     gq_binner = luigi.InputFileParameter()
-    snpEff_cfg = luigi.InputFileParameter()
     clineff_cfg = luigi.InputFileParameter()
     target_file = luigi.InputFileParameter()
     target_file_X = luigi.InputFileParameter()
     target_file_Y = luigi.InputFileParameter()
     transpose_awk = luigi.InputFileParameter()
-    subset_vcf_awk = luigi.InputFileParameter()
 
 class gatk_resources(luigi.Config):
     contam1000g_vcf = luigi.InputFileParameter()
