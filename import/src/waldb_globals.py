@@ -53,9 +53,8 @@ def get_pipeline_version():
 def confirm_no_uncommitted_changes():
     try:
         if subprocess.check_output([GIT, "status", "--porcelain"]):
-            print("There are uncommitted changes in the repository.  Pipeline will not run.")
-            # raise UncommittedChangesInRepo(
-            #     "There are uncommitted changes in the repository.  Pipeline will not run.")
+            raise UncommittedChangesInRepo(
+                "There are uncommitted changes in the repository.  Pipeline will not run.")
     except subprocess.CalledProcessError:
         raise GitRepoError("Could not check for uncommitted changes in the pipeline; "
                            "maybe run it from a directory in the repo?")
