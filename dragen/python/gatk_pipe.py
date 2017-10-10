@@ -922,10 +922,10 @@ class RunCvgMetrics(GATKFPipelineTask):
             self.scratch_dir, self.sample_name + ".cvg.metrics.cs.raw")
         self.output_file_cs = os.path.join(
             self.scratch_dir, self.name_prep + ".cvg.metrics.cs.txt")
-        _, self.prepID = getDBIDMaxPrepID(self.pseudo_prepid)
-        if not self.prepID:
-            raise ValueError("Couldn't get prepID from {sample_name}:{pseudo_prepid}!".
-                             format(sample_name=self.sample_name, pseudo_prepid=self.pseudo_prepid))
+        # _, self.prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+        # if not self.prepID:
+        #    raise ValueError("Couldn't get prepID from {sample_name}:{pseudo_prepid}!".
+        #                     format(sample_name=self.sample_name, pseudo_prepid=self.pseudo_prepid))
         ## An intermediate parsed file is created for extracting info for db update later, this remains the same for exomes and genomes
         if self.sample_type == "GENOME":
             ## Define shell commands to be run
@@ -954,8 +954,8 @@ class RunCvgMetrics(GATKFPipelineTask):
             try:
                 cur = db.cursor()
                 query = ("SELECT region_file_lsrc FROM captureKit "
-                         "INNER JOIN prepT ON prepT_name=prepT.exomeKit "
-                         "WHERE prepID = {0} AND chr = 'X'".format(self.prepID))
+                         "INNER JOIN dragen_sample_metadata ON prepT_name=dragen_sample_metadata.capture_kit "
+                         "WHERE pseudo_prepid = {0} AND chr = 'X'".format(self.pseudo_prepid))
                 cur.execute(query)
                 row = cur.fetchone()
                 if row:
@@ -967,8 +967,8 @@ class RunCvgMetrics(GATKFPipelineTask):
                     raise ValueError("Couldn't find BED file for coverage on "
                                     "X chromosome")
                 query = ("SELECT region_file_lsrc FROM captureKit "
-                         "INNER JOIN prepT ON prepT_name=prepT.exomeKit "
-                         "WHERE prepID = {0} AND chr = 'Y'".format(self.prepID))
+                         "INNER JOIN dragen_sample_metadata ON prepT_name=dragen_sample_metadata.capture_kit "
+                         "WHERE pseudo_prepid = {0} AND chr = 'Y'".format(self.pseudo_prepid))
                 cur.execute(query)
                 row = cur.fetchone()
                 if row:
@@ -1166,7 +1166,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         self.qc_table = "dragen_qc_metrics"
         ## The new lean equivalent of seqdbClone 
         self.master_table = "seqdbClone"
-        _, self.prepID = getDBIDMaxPrepID(self.pseudo_prepid)
+        # _, self.prepID = getDBIDMaxPrepID(self.pseudo_prepid)
         self.cvg_parse = {"EXOME":{
             "all":{"mean":qc_metrics().mean_cvg, "granular_median":qc_metrics().median_cvg,
                    "%_bases_above_5":qc_metrics().pct_bases5X, "%_bases_above_10":qc_metrics().pct_bases10X,
@@ -1366,8 +1366,14 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         indel_homhet_ratio = float(self.all_indel_hom) / self.all_indel_het
         self.update_database(self.qc_table, qc_metrics().indel_homhet_ratio, indel_homhet_ratio)
 
-        x_homhet_ratio = (float(self.X_snv_hom + self.X_indel_hom) /
-                          (self.X_snv_het + self.X_indel_het))
+        x_homhet_ratio = 0.0
+        if self.X_snv_het==0 and self.X_indel_het==0:
+            if self.X_snv_hom>0 or self.X_indel_hom>0:
+                x_homhet_ratio = 1.0
+        else:
+            x_homhet_ratio=(float(self.X_snv_hom + self.X_indel_hom) / (self.X_snv_het + self.X_indel_het))
+                
+
         self.update_database(self.qc_table, qc_metrics().x_homhet_ratio, x_homhet_ratio)
 
     def update_contamination_metrics(self):
