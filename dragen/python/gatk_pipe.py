@@ -106,7 +106,10 @@ class gatk_resources(luigi.Config):
     contam1000g_vcf = luigi.InputFileParameter()
     ref_genome = luigi.InputFileParameter()
     seqdict_file = luigi.InputFileParameter()
-    interval = luigi.InputFileParameter()
+    if "DEBUG_INTERVALS" in os.environ: 
+        interval=os.getenv("DEBUG_INTERVALS")
+    else:
+        interval=luigi.InputFileParameter()
     g1000 = luigi.InputFileParameter()
     hapmap = luigi.InputFileParameter()
     Mills1000g = luigi.InputFileParameter()
