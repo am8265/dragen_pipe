@@ -34,25 +34,6 @@ def owner(fn):
     else:
         raise OSError("{fn} does not exist!".format(fn=fn))
 
-def getDBIDMaxPrepID(pseudo_prepid):
-    """ Function to get max prepid for a given pseudo_prepid
-    from the database table pseudo_prepid
-
-    pseudo_prepid : str : the pseudo_prepid value """
-
-    db = get_connection("seqdb")
-    try:
-        cur = db.cursor()
-        cur.execute(GET_DBID_MAX_PREPID.format(
-            pseudo_prepid=pseudo_prepid))
-        results = cur.fetchone()
-        dbid,prepid = results
-    finally:
-        if db.open:
-            db.close()
-
-    return dbid,prepid
-
 def getCaptureKit(pseudo_prepid):
     """ Get the capturekit for a given pseudo_prepid
 
@@ -91,6 +72,10 @@ class pipeline_files(luigi.Config):
     target_file_X = luigi.InputFileParameter()
     target_file_Y = luigi.InputFileParameter()
     transpose_awk = luigi.InputFileParameter()
+    def __init__(self, *args, **kwargs):
+        if "DEBUG_INTERVALS" in os.environ:
+            kwargs["target_file"] = os.getenv("DEBUG_INTERVALS")
+        super(pipeline_files, self).__init__(*args, **kwargs)
 
 class gatk_resources(luigi.Config):
     contam1000g_vcf = luigi.InputFileParameter()
@@ -104,11 +89,13 @@ class gatk_resources(luigi.Config):
     omni = luigi.InputFileParameter()
     dbSNP = luigi.InputFileParameter()
     annotatedbSNP = luigi.InputFileParameter()
-    exac = luigi.Parameter()
+    exac = luigi.InputFileParameter()
     def __init__(self, *args, **kwargs):
         if "DEBUG_INTERVALS" in os.environ:
             kwargs["interval"] = os.getenv("DEBUG_INTERVALS")
             kwargs["silly_arg"] = " -L " + kwargs["interval"]
+            if "DEBUG_DBSNP" in os.environ:
+                kwargs["dbSNP"] = os.getenv("DEBUG_DBSNP")
         super(gatk_resources, self).__init__(*args, **kwargs)
 
 class variables(luigi.Config):
@@ -169,6 +156,8 @@ class GATKFPipelineTask(GATKPipelineTask):
             self.config_parameters.update(cls().__dict__)
         if "DEBUG_INTERVALS" in os.environ:
             kwargs["poll_time"] = 10 # use a shorter qstat poll time if running debug mode
+            if "DEBUG_BED" in os.environ:
+                kwargs["capture_kit_bed"] = os.getenv("DEBUG_BED")
         super(GATKFPipelineTask, self).__init__(*args, **kwargs)
         self.config_parameters.update(self.__dict__)
 
@@ -197,8 +186,16 @@ class ValidateBAM(SGEJobTask):
 
     def work(self):
         with open(os.devnull, "w") as devnull:
-            if subprocess.call(
-                ["samtools", "view", self.bam], stdout=devnull, stderr=devnull):
+            # dsth : oct, 11
+            # so this is a bit pointless as is - i.e. it's just decompressing without checking so all 
+            # it really does it check the for EOF block - which samtools will do even when only checking 
+            # the header - but it makes quick tests run slowly without truncating the bam so for now
+            # it whould either use -H or MT alone...
+            # MT check doesn't work properly, just check for 'EOF marker is # absent' message
+            p = subprocess.Popen(["samtools", "view", "-H", self.bam],
+                                 stdout=devnull, stderr=subprocess.PIPE)
+            _, err = p.communicate()
+            if p.returncode or "EOF marker is absent" in err:
                 with open(self.bam + ".corrupted", "w"): pass
                 raise Exception("Corrupt BAM!")
             else:
@@ -692,6 +689,10 @@ class ArchiveSample(GATKFPipelineTask):
             self.scratch_dir, "{}.coverage_bins".format(self.name_prep))
         if not os.path.isdir(self.base_dir):
             os.makedirs(self.base_dir)
+        else:
+            raise Exception("the archive location, '%s', already exists" % self.base_dir)
+            # os.path.isfile(self.pipeline_tarball) 
+
         with tarfile.open(self.pipeline_tarball, "w:gz") as tar:
             for d in (self.script_dir, self.log_dir):
                 tar.add(d, arcname=os.path.basename(d))
@@ -915,10 +916,6 @@ class RunCvgMetrics(GATKFPipelineTask):
             self.scratch_dir, self.sample_name + ".cvg.metrics.cs.raw")
         self.output_file_cs = os.path.join(
             self.scratch_dir, self.name_prep + ".cvg.metrics.cs.txt")
-        # _, self.prepID = getDBIDMaxPrepID(self.pseudo_prepid)
-        # if not self.prepID:
-        #    raise ValueError("Couldn't get prepID from {sample_name}:{pseudo_prepid}!".
-        #                     format(sample_name=self.sample_name, pseudo_prepid=self.pseudo_prepid))
         ## An intermediate parsed file is created for extracting info for db update later, this remains the same for exomes and genomes
         if self.sample_type == "GENOME":
             ## Define shell commands to be run
@@ -1159,7 +1156,6 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         self.qc_table = "dragen_qc_metrics"
         ## The new lean equivalent of seqdbClone 
         self.master_table = "seqdbClone"
-        # _, self.prepID = getDBIDMaxPrepID(self.pseudo_prepid)
         self.cvg_parse = {"EXOME":{
             "all":{"mean":qc_metrics().mean_cvg, "granular_median":qc_metrics().median_cvg,
                    "%_bases_above_5":qc_metrics().pct_bases5X, "%_bases_above_10":qc_metrics().pct_bases10X,
