@@ -21,12 +21,15 @@ cfg = get_cfg()
 
 class RunGATK(ProcessSamples):
     def __init__(self, max_samples_concurrently, ignore_priority, workers,
-                 additional_sample_requirements, no_retry, luigi_args):
+                 additional_sample_requirements, no_retry, sample_types, luigi_args):
         super(RunGATK, self).__init__(max_samples_concurrently, ignore_priority)
         self.workers = workers
         query = GET_SAMPLES
-        self.query = (query + additional_sample_requirements if
-                      additional_sample_requirements else query)
+        query = (query + additional_sample_requirements
+                 if additional_sample_requirements else query)
+        self.query = query.format(
+            sample_type_clause=' AND m.sample_type IN ("' + '", "'.join(
+                sample_types) + '")' if sample_types else "")
         self.luigi_args = " " + " ".join(luigi_args) if luigi_args else ""
         self.no_retry = no_retry
         self.last_query_time = None
@@ -99,7 +102,7 @@ class RunGATK(ProcessSamples):
                     luigi_args=self.luigi_args), None)
 
 def run_gatk(max_samples_concurrently, workers, additional_sample_requirements,
-             no_retry, ignore_priority, debug_level, luigi_args):
+             no_retry, ignore_priority, sample_types, debug_level, luigi_args):
     """Run the gatk_pipe.py code with the parameters specified
     @max_samples - the max number of samples to process simultaneously
     @workers - the number of workers each gatk_pipe run should have
@@ -126,11 +129,11 @@ def run_gatk(max_samples_concurrently, workers, additional_sample_requirements,
 
     gatk = RunGATK(
         max_samples_concurrently, ignore_priority, workers,
-        additional_sample_requirements, no_retry, luigi_args)
+        additional_sample_requirements, no_retry, sample_types, luigi_args)
     gatk.process_samples()
 
 if __name__ == "__main__":
-    confirm_no_uncommitted_changes()
+    #confirm_no_uncommitted_changes()
     confirm_master_branch()
     parser = argparse.ArgumentParser(
         formatter_class=CustomFormatter, description=__doc__)
@@ -146,10 +149,13 @@ if __name__ == "__main__":
     parser.add_argument("-i", "--ignore_priority", default=False,
                         action="store_true",
                         help="ignore the priority field of samples to process")
+    parser.add_argument("-s", "--sample_type", action="append",
+                        choices=["EXOME", "GENOME", "CUSTOM_CAPTURE"],
+                        help="restrict to one or more sequecing types")
     parser.add_argument("--level", default="INFO", choices=LOGGING_LEVELS,
                         action=DereferenceKeyAction,
                         help="specify the logging level to use")
     args, luigi_args = parser.parse_known_args()
     run_gatk(args.max_samples_concurrently, args.workers,
-             args.additional_sample_requirements,
-             args.no_retry, args.ignore_priority, args.level, luigi_args)
+             args.additional_sample_requirements, args.no_retry,
+             args.ignore_priority, args.sample_type, args.level, luigi_args)
