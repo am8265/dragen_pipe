@@ -71,7 +71,10 @@ class ImportSamples(ProcessSamples.ProcessSamples):
                    run_locally=" --run-locally" if self.run_locally else "",
                    local_scheduler=" --local-scheduler" if self.local_scheduler
                    else ""))
-        return cmd, self.timeout[sample_type]
+        #return cmd, self.timeout[sample_type]
+        return cmd, None # we have to be very careful to not ever load multiple
+                         # samples, or multiple variants can be assigned the same
+                         # variant_id
 
 def main(database, seqscratch, force_failed_samples, sample_names,
          run_locally, workers, local_scheduler, debug_level,
