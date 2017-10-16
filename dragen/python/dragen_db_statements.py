@@ -1,8 +1,3 @@
-GET_DBID_MAX_PREPID = """
-SELECT DBID,MAX(p.prepID)
-FROM prepT p JOIN pseudo_prepid pp ON p.prepID=pp.prepID WHERE
-pseudo_prepID = {pseudo_prepid}
-"""
 GET_CAPTURE_KIT = """
 SELECT name
 FROM captureKit ck
@@ -14,7 +9,9 @@ GET_SAMPLES = """
 SELECT m.pseudo_prepid, m.sample_name, m.priority, m.sample_type, m.capture_kit
 FROM dragen_sample_metadata m
 INNER JOIN dragen_pipeline_step p1 ON m.pseudo_prepid = p1.pseudo_prepid
-WHERE p1.pipeline_step_id = 1 AND p1.step_status = "completed" AND NOT EXISTS (
+WHERE p1.pipeline_step_id = 1 AND p1.step_status = "completed"
+    AND p1.pseudo_prepid < 8388600{sample_type_clause}
+    AND NOT EXISTS (
     SELECT 1
     FROM dragen_pipeline_step p2
     WHERE p1.pseudo_prepid = p2.pseudo_prepid AND p2.pipeline_step_id = 31
