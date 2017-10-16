@@ -24,7 +24,6 @@ from dragen_db_statements import *
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.realpath(__file__)))), "import", "src"))
 from waldb_globals import *
-from check_avere import check_avere
 
 def owner(fn):
     """Return the user name of the owner of the specified file
@@ -183,6 +182,8 @@ class DragenBAMExists(luigi.ExternalTask):
 
 class ValidateBAM(SGEJobTask):
     bam = luigi.Parameter(description="the expected path to the BAM to check")
+    dont_remove_tmp_dir = False # remove the temporary directory iff this task succeeds
+    dont_remove_tmp_dir_if_failure = True # don't remove if it fails
 
     def work(self):
         with open(os.devnull, "w") as devnull:
@@ -221,6 +222,7 @@ class RealignerTargetCreator(GATKFPipelineTask):
         return ValidateBAM(bam=self.scratch_bam)
 
 class IndelRealigner(GATKFPipelineTask):
+    n_cpu = 4
     def pre_shell_commands(self):
         self.commands = [self.format_string(
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T IndelRealigner "
@@ -625,7 +627,11 @@ class AnnotateVCF(GATKFPipelineTask):
             "-XX:ParallelGCThreads=1 -Xmx6g -jar {clineff} "
             "-c {clineff_cfg} -v -db {annotatedbSNP} GRCh37.87 {fixed_vcf} "
             "> {annotated_vcf}"),
-            self.format_string("{bgzip} -f {annotated_vcf}"),
+            # bc, 10/11/17: ClinEff has been observed to silently fail, i.e.
+            # produce an emtpy VCF, so check for that
+            self.format_string("if [ -s {annotated_vcf} ]; then {bgzip} -f {annotated_vcf}; "
+                               "else echo 1>&2 {annotated_vcf} is empty!; exit 1; fi"),
+            #self.format_string("{bgzip} -f {annotated_vcf}"),
             self.format_string("{tabix} -f {annotated_vcf_gz}")]
 
     def requires(self):
@@ -663,12 +669,6 @@ class ArchiveSample(GATKFPipelineTask):
     dont_remove_tmp_dir = False # remove the temporary directory iff this task succeeds
     dont_remove_tmp_dir_if_failure = True # don't remove if it fails
     def pre_shell_commands(self):
-        # wait for Avere to cooperate before loading
-        while True:
-            if check_avere():
-                break
-            else:
-                sleep(25 + 10 * random())
         if (self.sample_name.upper().startswith('PGMCLIN') or
             self.sample_name.upper().startswith('PGMVIP')):
             self.base_dir = os.path.join(
