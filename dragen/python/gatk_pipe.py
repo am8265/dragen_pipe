@@ -173,12 +173,12 @@ class GATKFPipelineTask(GATKPipelineTask):
         self.config_parameters.update(kwargs)
         return s.format(**self.config_parameters)
 
-class DragenBAMExists(luigi.ExternalTask):
-    bam = luigi.Parameter(
+class FileExists(luigi.ExternalTask):
+    fn = luigi.Parameter(
         description="the expected path to the DRAGEN aligned BAM")
 
     def output(self):
-        return luigi.LocalTarget(self.bam)
+        return luigi.LocalTarget(self.fn)
 
 class ValidateBAM(SGEJobTask):
     bam = luigi.Parameter(description="the expected path to the BAM to check")
@@ -203,7 +203,7 @@ class ValidateBAM(SGEJobTask):
                 with self.output().open("w"): pass
 
     def requires(self):
-        return DragenBAMExists(self.bam)
+        return FileExists(self.bam)
 
     def output(self):
         return luigi.LocalTarget(self.bam + ".validated")
@@ -1045,11 +1045,14 @@ class RunCvgMetrics(GATKFPipelineTask):
 
 class DuplicateMetrics(GATKFPipelineTask):
     """ Parse Duplicate Metrics from dragen logs """
-    def pre_shell_commands(self):
+    def __init__(self, *args, **kwargs):
+        super(DuplicateMetrics, self).__init__(*args, **kwargs)
         self.dragen_log = os.path.join(
             self.log_dir, self.name_prep + ".dragen.out")
         self.duplicates_file = os.path.join(
             self.scratch_dir, self.name_prep + ".duplicates.txt")
+
+    def pre_shell_commands(self):
         if not os.path.isfile(self.dragen_log):
             raise Exception("The dragen log file, '%s',  could not be found!" % self.dragen_log)
         perc_duplicates = None
@@ -1073,7 +1076,7 @@ class DuplicateMetrics(GATKFPipelineTask):
             raise ValueError("Could not find duplicate metrics in dragen log!")
 
     def requires(self):
-        return ValidateBAM(bam=self.scratch_bam)
+        return ValidateBAM(bam=self.scratch_bam), FileExists(self.dragen_log)
 
 class VariantCallingMetrics(GATKFPipelineTask):
     def pre_shell_commands(self):
