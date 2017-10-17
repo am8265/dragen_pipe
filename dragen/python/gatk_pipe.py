@@ -211,7 +211,7 @@ class ValidateBAM(SGEJobTask):
 
 class RealignerTargetCreator(GATKFPipelineTask):
     priority = 1 # run before other competing steps with no requirement
-    n_cpu = 4
+    n_cpu = os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS" in os.environ else 4
     def pre_shell_commands(self):
         self.commands = [self.format_string(
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T RealignerTargetCreator "
@@ -222,7 +222,7 @@ class RealignerTargetCreator(GATKFPipelineTask):
         return ValidateBAM(bam=self.scratch_bam)
 
 class IndelRealigner(GATKFPipelineTask):
-    n_cpu = 4
+    n_cpu = os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS" in os.environ else 4
     def pre_shell_commands(self):
         self.commands = [self.format_string(
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T IndelRealigner "
@@ -237,7 +237,7 @@ class IndelRealigner(GATKFPipelineTask):
         return self.clone(RealignerTargetCreator)
 
 class BaseRecalibrator(GATKFPipelineTask):
-    n_cpu = 4
+    n_cpu = os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS" in os.environ else 4
     def pre_shell_commands(self):
         self.commands = [self.format_string(
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} "
@@ -249,7 +249,7 @@ class BaseRecalibrator(GATKFPipelineTask):
         return self.clone(IndelRealigner)
 
 class PrintReads(GATKFPipelineTask):
-    n_cpu = 4
+    n_cpu = os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS" in os.environ else 4
     def pre_shell_commands(self):
         # --disable_indel_quals are necessary to remove BI and BD tags in the bam file
         self.commands = [self.format_string(
@@ -265,7 +265,7 @@ class PrintReads(GATKFPipelineTask):
 
 class HaplotypeCaller(GATKFPipelineTask):
     priority = 1 # run before other steps needing the recalibrated BAM
-    n_cpu = 6
+    n_cpu = os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS" in os.environ else 6
     def pre_shell_commands(self):
         self.commands = [self.format_string(
             "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T HaplotypeCaller "
@@ -665,7 +665,7 @@ class SubsetVCF(GATKFPipelineTask):
 
 class ArchiveSample(GATKFPipelineTask):
     """ Archive samples on Amplidata """
-    n_cpu = 7
+    n_cpu = os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS" in os.environ else 7
     dont_remove_tmp_dir = False # remove the temporary directory iff this task succeeds
     dont_remove_tmp_dir_if_failure = True # don't remove if it fails
     def pre_shell_commands(self):
