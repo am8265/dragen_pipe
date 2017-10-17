@@ -29,7 +29,7 @@ def get_priority(curs,sample):
             "JOIN SeqType st ON st.prepid=p.prepid "
             "WHERE p.CHGVID='{sample_name}' "
             "AND st.seqtype='{sample_type}' "
-            "AND exomekit='{capture_kit}' "
+            "AND p.exomekit='{capture_kit}' "
             "ORDER BY priority ASC "
             "LIMIT 1"
             ).format(sample_name=sample['sample_name'],
@@ -96,7 +96,12 @@ def get_fastq_loc(curs, sample):
             #for externally submitted samples
             if seqsatalocs[0][1][0] == 'X':
                 print "Looking for external sample..."
-                if 'SRR' in sample['sample_name']: #specifically for SRR samples
+                if 'sudc' in sample['sample_name']: #specifically for SRR samples
+                    fastq_loc = glob(('/nfs/seqscratch09/tx_temp/tx_2767/{}/1'
+                                ).format(sample['sample_name']))
+                    for flowcell in fastq_loc:
+                        locs.append(os.path.realpath(flowcell))
+                elif 'SRR' in sample['sample_name']: #specifically for SRR samples
                     fastq_loc = glob(('/nfs/seqscratch10/SRA/{}/1'
                                 ).format(sample['sample_name']))
                     for flowcell in fastq_loc:
