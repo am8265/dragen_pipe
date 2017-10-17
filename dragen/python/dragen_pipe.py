@@ -30,7 +30,7 @@ def main(samples, debug, dontexecute, seqscratch_drive):
     sample_name, sample_type, pseudo_prepid, capture_kit, dragen_id = get_next_sample(debug)
 
     while sample_name is not None:
-        sample = dragen_sample(sample_name,sample_type,pseudo_prepid,capture_kit,get_curs())
+        sample = dragen_sample(sample_name,sample_type,pseudo_prepid,capture_kit,get_curs()[0])
         sample.metadata['output_dir'] = ('/nfs/{}/ALIGNMENT/BUILD37/DRAGEN/{}/{}.{}/'
                                         ).format(seqscratch_drive,sample_type.upper(),
                                                  sample_name,pseudo_prepid)
@@ -47,10 +47,10 @@ def get_curs():
     db = MySQLdb.connect(db=database, read_default_group="clientsequencedb",
         read_default_file=parameters["DB_CONFIG_FILE"])
     curs = db.cursor()
-    return curs
+    return curs,db
 
 def run_query(query):
-    curs = get_curs()
+    curs,db = get_curs()
     curs.execute(query)
     results = curs.fetchall()
     db.commit()
@@ -129,8 +129,7 @@ def update_dragen_metadata(sample,debug):
         run_query(insertQuery)
 
 def get_pipeline_version():
-    version = subprocess.check_output(
-        ["git", "describe", "--tags"]).strip()
+    version = subprocess.check_output(["/nfs/goldstein/software/git-2.5.0/bin/git", "describe", "--tags"]).strip()
     if version:
         return version
     else:
