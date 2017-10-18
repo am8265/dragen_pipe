@@ -95,9 +95,9 @@ class RunGATK(ProcessSamples):
         """pass on a minimal set of parameters, but any additional arbitrary ones
         specified in luigi_args
         """
-        return ("luigi --module gatk_pipe ArchiveSample --logging-conf-file "
-                "logging.conf --pseudo-prepid {pseudo_prepid} --workers {workers}"
-                "{luigi_args}".format(
+        return ("/nfs/goldstein/software/python2.7.7/bin/luigi --module gatk_pipe "
+                "ArchiveSample --logging-conf-file logging.conf --pseudo-prepid "
+                "{pseudo_prepid} --workers {workers}{luigi_args}".format(
                     pseudo_prepid=pseudo_prepid, workers=self.workers,
                     luigi_args=self.luigi_args), None)
 
