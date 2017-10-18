@@ -13,10 +13,8 @@ import re
 import os
 import subprocess
 import logging
+import signal
 
-#def preexec_function():
-#    # ignore SIGINT by setting to SIG_IGN
-#    signal.signal(signal.SIGINT, signal.SIG_IGN)
 logger = logging.getLogger(__name__)
 
 class ProcessSamples(object):
@@ -41,8 +39,25 @@ class ProcessSamples(object):
         self.ignore_priority = ignore_priority
         self.samples_queue = Queue() if ignore_priority else PriorityQueue()
         self.all_threads = []
+        # if we reach the interrupt threshold and we're deleting 
+        self.commands = set()
+        self._original_handler = signal.getsignal(signal.SIGINT)
+        signal.signal(signal.SIGINT, self._cleanup_processes)
         self.bh = BreakHandler()
         self.bh.enable()
+
+    def _cleanup_processes(self, signum, frame):
+        signal.signal(signal.SIGINT, self._original_handler)
+        self.bh.enable()
+        commands = set(self.commands)
+        ps_check = subprocess.check_output(
+            "ps ux | tail -n +2 | awk '{printf $2\"\\t\"; printf $11; "
+            "for(i=12; i<=NF; i++) {printf \" \"$i;} printf \"\\n\"}'", shell=True)
+        for p, COMMAND in [line.split("\t") for line in ps_check.splitlines()]:
+            for command in commands:
+                if command in COMMAND:
+                    subprocess.call(["kill", p])
+        sys.exit(1)
 
     def _delete_finished_threads(self):
         to_delete = []
@@ -102,7 +117,10 @@ class ProcessSamples(object):
         command = Command.Command(
             cmd, preexec_fn=os.setpgrp, stdout=stdout, stderr=stderr)
         try:
-            exit_code = command.run(timeout=timeout)
+            command.start()
+            self.commands.add(cmd)
+            exit_code = command.join(timeout=timeout)
+            self.commands.remove(cmd)
         except Command.TimeoutException:
             if self.qdel_jobs:
                 for sge_job in self.get_sge_job_ids(

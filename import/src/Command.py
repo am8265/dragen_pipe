@@ -1,5 +1,6 @@
 import subprocess
 import threading
+from shlex import split as sxsplit
 
 class TimeoutException(Exception):
     """This exception is to be raised when the timeout is reached for a command
@@ -16,20 +17,22 @@ class Command():
         self.process = None
         self.kwargs = kwargs
 
-    def run(self, timeout):
+    def start(self):
         """run the previously defined command for at most timeout seconds
         """
         def target():
-            self.process = subprocess.Popen(self.cmd, shell=True, **self.kwargs)
+            self.process = subprocess.Popen(sxsplit(self.cmd), **self.kwargs)
             self.process.communicate()
 
-        thread = threading.Thread(target=target)
-        thread.start()
-        thread.join(timeout)
+        self.thread = threading.Thread(target=target)
+        self.thread.start()
 
-        if thread.is_alive():
+    def join(self, timeout):
+        self.thread.join(timeout)
+
+        if self.thread.is_alive():
             # timeout reached
             self.process.terminate()
-            thread.join()
+            self.thread.join()
             raise TimeoutException
         return self.process.returncode
