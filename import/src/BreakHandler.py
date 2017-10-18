@@ -6,6 +6,9 @@ Trap keyboard interrupts.  No rights reserved; use at your own risk.
 @author: Stacy Prowell (http://stacyprowell.com)
 '''
 import signal
+import logging
+
+logger = logging.getLogger(__name__)
    
 class BreakHandler:
     '''
@@ -31,7 +34,7 @@ class BreakHandler:
     # Back to usual operation...
     '''
     
-    def __init__(self, emphatic=9):
+    def __init__(self, emphatic=4):
         '''
         Create a new break handler.
         
@@ -76,6 +79,7 @@ class BreakHandler:
         was trapped using the count and trapped properties.
         '''
         if self._enabled:
+            logger.info("Disabling SIGINT handler")
             self._enabled = False
             signal.signal(signal.SIGINT, self._original_handler)
             self._oldhandler = None

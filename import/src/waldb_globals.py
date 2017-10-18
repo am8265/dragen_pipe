@@ -38,7 +38,7 @@ class GitRepoError(Exception):
 class UncommittedChangesInRepo(Exception):
     pass
 
-class NotMasterBranch(Exception):
+class IncorrectBranch(Exception):
     pass
 
 def get_pipeline_version():
@@ -59,13 +59,19 @@ def confirm_no_uncommitted_changes():
         raise GitRepoError("Could not check for uncommitted changes in the pipeline; "
                            "maybe run it from a directory in the repo?")
 
-def confirm_master_branch():
+def confirm_proper_branch():
     try:
         branch_output = subprocess.check_output(["git", "branch"])
-        branch = [line.split()[1] for line in branch_output.splitlines() if
-                  line.startswith("*")]
-        if branch != ["master"]:
-            raise NotMasterBranch("Pipeline must be run with the master branch.")
+        branch_name = [line.split()[1] for line in branch_output.splitlines() if
+                       line.startswith("*")][0]
+        # this is the directory name of the repo
+        parent_name = os.path.basename(os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.realpath(__file__)))))
+        if branch_name != parent_name:
+            raise IncorrectBranch(
+                "Expected pipeline branch: {parent_name}; found branch: "
+                "{branch_name}.".format(parent_name=parent_name,
+                                        branch_name=branch_name))
     except subprocess.CalledProcessError:
         raise GitRepoError("Could not get the branch of the pipeline; "
                            "maybe run it from a directory in the repo?")
@@ -427,7 +433,7 @@ class PipelineTask(SGEJobTask):
     def __init__(self, *args, **kwargs):
         super(PipelineTask, self).__init__(*args, **kwargs)
         confirm_no_uncommitted_changes()
-        confirm_master_branch()
+        confirm_proper_branch()
         self.pipeline_step_id = self._get_pipeline_step_id()
         # these will be passed onto subprocess, overwrite in pre_shell_commands
         # method if needed
