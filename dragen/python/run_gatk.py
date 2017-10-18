@@ -134,7 +134,7 @@ def run_gatk(max_samples_concurrently, workers, additional_sample_requirements,
 
 if __name__ == "__main__":
     #confirm_no_uncommitted_changes()
-    confirm_master_branch()
+    confirm_proper_branch()
     parser = argparse.ArgumentParser(
         formatter_class=CustomFormatter, description=__doc__)
     parser.add_argument("-m", "--max_samples_concurrently", type=int, default=50,
