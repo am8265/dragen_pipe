@@ -687,11 +687,8 @@ class ArchiveSample(GATKFPipelineTask):
             "{gq_dir}/gq.tar.gz".format(gq_dir=self.gq_dir))
         self.raw_coverage = os.path.join(
             self.scratch_dir, "{}.coverage_bins".format(self.name_prep))
-        if not os.path.isdir(self.base_dir):
-            os.makedirs(self.base_dir)
-        else:
+        if os.path.isdir(self.base_dir):
             raise Exception("the archive location, '%s', already exists" % self.base_dir)
-            # os.path.isfile(self.pipeline_tarball) 
 
         with tarfile.open(self.pipeline_tarball, "w:gz") as tar:
             for d in (self.script_dir, self.log_dir):
@@ -706,6 +703,8 @@ class ArchiveSample(GATKFPipelineTask):
             for gq_file in glob(
                 "{gq_dir}/*.txt".format(gq_dir=self.gq_dir)):
                 tar.add(gq_file, arcname=os.path.basename(gq_file))
+        if not os.path.isdir(self.base_dir):
+            os.makedirs(self.base_dir)
 
         data_to_copy = [
             "{pipeline_tarball}", "{recal_bam}", "{recal_bam_index}",
