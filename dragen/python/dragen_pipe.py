@@ -15,7 +15,7 @@ from datetime import datetime
 from dragen_sample import dragen_sample
 from glob import glob
 
-CNF = "/nfs/goldstein/software/dragen/dragen.cnf" # defaults file for pipeline
+CNF = "/nfs/goldstein/software/dragen_pipe/resources/dragen.cnf" # defaults file for pipeline
 config_parser = SafeConfigParser()
 config_parser.read(CNF)
 parameters = {}
