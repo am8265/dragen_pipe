@@ -114,7 +114,7 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--priority", default=4)
     args=parser.parse_args()
 
-    CNF = "/nfs/goldstein/software/dragen/dragen.cnf" # defaults file for pipeline
+    CNF = "/nfs/goldstein/software/dragen_pipe/resources/dragen.cnf" # defaults file for pipeline
     config_parser = SafeConfigParser()
     config_parser.read(CNF)
     parameters = {}
