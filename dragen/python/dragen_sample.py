@@ -106,6 +106,11 @@ def get_fastq_loc(curs, sample):
                                 ).format(sample['sample_name']))
                     for flowcell in fastq_loc:
                         locs.append(os.path.realpath(flowcell))
+                elif 'IGMcg122' in sample['sample_name']: #specifically for PROFLOW samples
+                    fastq_loc = glob(('/nfs/seqscratch_ssd/AZ_PROFLOW/PJ-01024/{}/1'
+                                ).format(sample['sample_name']))
+                    for flowcell in fastq_loc:
+                        locs.append(os.path.realpath(flowcell))
                 elif 'CGNDHDA' in sample['sample_name'] or 'FA000000' in sample['sample_name'] or 'NEU' in sample['sample_name']:
                     fastq_loc = glob(('/nfs/seqscratch09/tx_temp/tx_2390/CGND_11418-fastq/Project_CGND_11418_B01_GRM_WGS.2016-03-30/{}/1'
                                 ).format(sample['sample_name']))
