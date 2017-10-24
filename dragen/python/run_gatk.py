@@ -21,7 +21,8 @@ cfg = get_cfg()
 
 class RunGATK(ProcessSamples):
     def __init__(self, max_samples_concurrently, ignore_priority, workers,
-                 additional_sample_requirements, no_retry, sample_types, luigi_args):
+                 additional_sample_requirements, no_retry, sample_types,
+                 local_scheduler, luigi_args):
         super(RunGATK, self).__init__(max_samples_concurrently, ignore_priority)
         self.workers = workers
         query = GET_SAMPLES
@@ -35,6 +36,7 @@ class RunGATK(ProcessSamples):
         self.last_query_time = None
         self.time_between_queries = 60
         self.get_sample_directory_query = GET_SAMPLE_DIRECTORY
+        self.local_scheduler = local_scheduler
         seqdb = get_connection("seqdb")
         try:
             seq_cur = seqdb.cursor()
@@ -97,12 +99,14 @@ class RunGATK(ProcessSamples):
         """
         return ("/nfs/goldstein/software/python2.7.7/bin/luigi --module gatk_pipe "
                 "ArchiveSample --logging-conf-file logging.conf --pseudo-prepid "
-                "{pseudo_prepid} --workers {workers}{luigi_args}".format(
+                "{pseudo_prepid} --workers {workers}{local_scheduler}{luigi_args}".format(
                     pseudo_prepid=pseudo_prepid, workers=self.workers,
+                    local_scheduler=" --local-scheduler" if self.local_scheduler else "",
                     luigi_args=self.luigi_args), None)
 
 def run_gatk(max_samples_concurrently, workers, additional_sample_requirements,
-             no_retry, ignore_priority, sample_types, debug_level, luigi_args):
+             no_retry, ignore_priority, sample_types, debug_level,
+             local_scheduler, luigi_args):
     """Run the gatk_pipe.py code with the parameters specified
     @max_samples - the max number of samples to process simultaneously
     @workers - the number of workers each gatk_pipe run should have
@@ -129,7 +133,8 @@ def run_gatk(max_samples_concurrently, workers, additional_sample_requirements,
 
     gatk = RunGATK(
         max_samples_concurrently, ignore_priority, workers,
-        additional_sample_requirements, no_retry, sample_types, luigi_args)
+        additional_sample_requirements, no_retry, sample_types,
+        local_scheduler, luigi_args)
     gatk.process_samples()
 
 if __name__ == "__main__":
@@ -155,7 +160,10 @@ if __name__ == "__main__":
     parser.add_argument("--level", default="INFO", choices=LOGGING_LEVELS,
                         action=DereferenceKeyAction,
                         help="specify the logging level to use")
+    parser.add_argument("--local_scheduler", default=False, action="store_true",
+                        help="use a scheduler for each job independently")
     args, luigi_args = parser.parse_known_args()
     run_gatk(args.max_samples_concurrently, args.workers,
              args.additional_sample_requirements, args.no_retry,
-             args.ignore_priority, args.sample_type, args.level, luigi_args)
+             args.ignore_priority, args.sample_type, args.level,
+             args.local_scheduler, luigi_args)
