@@ -57,7 +57,7 @@ def getPrepID(sample,debug):
             "JOIN SeqType st ON p.prepid=st.prepid "
             "WHERE CHGVID='{}' "
             "AND seqtype = '{}' "
-            "AND exomekit = '{}' "
+            "AND p.exomekit = '{}' "
             "AND failedprep = 0"
             ).format(sample_name,sample_type,capture_kit)
 
