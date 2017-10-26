@@ -193,7 +193,9 @@ class ValidateBAM(SGEJobTask):
             # the header - but it makes quick tests run slowly without truncating the bam so for now
             # it whould either use -H or MT alone...
             # MT check doesn't work properly, just check for 'EOF marker is # absent' message
-            p = subprocess.Popen(["samtools", "view", "-H", self.bam],
+            #p = subprocess.Popen(["samtools", "view", "-H", self.bam],
+            #                     stdout=devnull, stderr=subprocess.PIPE)
+            p = subprocess.Popen(["samtools", "view", self.bam],
                                  stdout=devnull, stderr=subprocess.PIPE)
             _, err = p.communicate()
             if p.returncode or "EOF marker is absent" in err:
