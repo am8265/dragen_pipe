@@ -147,8 +147,7 @@ class GATKFPipelineTask(GATKPipelineTask):
 
     def __init__(self, *args, **kwargs):
         self.config_parameters = {}
-        for cls in (programs, locations, pipeline_files, gatk_resources, variables,
-                    qc_metrics):
+        for cls in (programs, locations, pipeline_files, gatk_resources, qc_metrics):
             self.config_parameters.update(cls().__dict__)
         if "DEBUG_INTERVALS" in os.environ:
             kwargs["poll_time"] = 10 # use a shorter qstat poll time if running debug mode
