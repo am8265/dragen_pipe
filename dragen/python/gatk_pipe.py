@@ -220,7 +220,7 @@ class ValidateBAM(SGEJobTask):
 
 class RealignerTargetCreator(JavaPipelineTask):
     priority = 1 # run before other competing steps with no requirement
-    n_cpu = int(os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS") in os.environ else 6
+    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
     max_mem = 24
     def pre_shell_commands(self):
         self.commands = [self.format_string(
@@ -232,7 +232,7 @@ class RealignerTargetCreator(JavaPipelineTask):
         return ValidateBAM(bam=self.scratch_bam)
 
 class IndelRealigner(JavaPipelineTask):
-    n_cpu = int(os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS") in os.environ else 6
+    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
     max_mem = 24
     def pre_shell_commands(self):
         self.commands = [self.format_string(
@@ -245,7 +245,7 @@ class IndelRealigner(JavaPipelineTask):
         return self.clone(RealignerTargetCreator)
 
 class BaseRecalibrator(JavaPipelineTask):
-    n_cpu = int(os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS") in os.environ else 6
+    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
     max_mem = 24
     def pre_shell_commands(self):
         self.commands = [self.format_string(
@@ -258,7 +258,7 @@ class BaseRecalibrator(JavaPipelineTask):
         return self.clone(IndelRealigner)
 
 class PrintReads(JavaPipelineTask):
-    n_cpu = int(os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS") in os.environ else 6
+    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
     max_mem = 24
     def pre_shell_commands(self):
         # --disable_indel_quals are necessary to remove BI and BD tags in the bam file
@@ -275,7 +275,7 @@ class PrintReads(JavaPipelineTask):
 
 class HaplotypeCaller(JavaPipelineTask):
     priority = 1 # run before other steps needing the recalibrated BAM
-    n_cpu = int(os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS") in os.environ else 6
+    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
     max_mem = 24
     def pre_shell_commands(self):
         self.commands = [self.format_string(
@@ -672,7 +672,7 @@ class SubsetVCF(GATKFPipelineTask):
 
 class ArchiveSample(GATKFPipelineTask):
     """ Archive samples on Amplidata """
-    n_cpu = int(os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS") in os.environ else 7
+    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 7
     dont_remove_tmp_dir = False # remove the temporary directory iff this task succeeds
     dont_remove_tmp_dir_if_failure = True # don't remove if it fails
     def pre_shell_commands(self):
