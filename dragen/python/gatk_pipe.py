@@ -20,6 +20,7 @@ from getpass import getuser
 from pwd import getpwuid
 from gzip import open as gopen
 from string import Formatter
+from math import ceil
 from dragen_db_statements import *
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.realpath(__file__)))), "import", "src"))
@@ -97,9 +98,6 @@ class gatk_resources(luigi.Config):
                 kwargs["dbSNP"] = os.getenv("DEBUG_DBSNP")
         super(gatk_resources, self).__init__(*args, **kwargs)
 
-class variables(luigi.Config):
-    max_mem = luigi.IntParameter()
-
 class qc_metrics(luigi.Config):
     """ Parse in database field names for qc metrics
     from the qc_metrics section of the config file """
@@ -150,8 +148,7 @@ class GATKFPipelineTask(GATKPipelineTask):
 
     def __init__(self, *args, **kwargs):
         self.config_parameters = {}
-        for cls in (programs, locations, pipeline_files, gatk_resources, variables,
-                    qc_metrics):
+        for cls in (programs, locations, pipeline_files, gatk_resources, qc_metrics):
             self.config_parameters.update(cls().__dict__)
         if "DEBUG_INTERVALS" in os.environ:
             kwargs["poll_time"] = 10 # use a shorter qstat poll time if running debug mode
@@ -172,6 +169,15 @@ class GATKFPipelineTask(GATKPipelineTask):
                 self.config_parameters[field_name] = getattr(self, field_name)
         self.config_parameters.update(kwargs)
         return s.format(**self.config_parameters)
+
+class JavaPipelineTask(GATKFPipelineTask):
+    """Handle java's potentially large memory requirements by for example
+    specifying that if one slot is requested, we get 24 GB memory/slot, or if 4
+    are requested, we get 6/slot
+    """
+    def __init__(self, *args, **kwargs):
+        super(JavaPipelineTask, self).__init__(*args, **kwargs)
+        self.mem = int(ceil(self.max_mem / self.n_cpu))
 
 class FileExists(luigi.ExternalTask):
     fn = luigi.Parameter(
@@ -211,38 +217,38 @@ class ValidateBAM(SGEJobTask):
         return luigi.LocalTarget(self.bam + ".validated")
 
 
-class RealignerTargetCreator(GATKFPipelineTask):
+class RealignerTargetCreator(JavaPipelineTask):
     priority = 1 # run before other competing steps with no requirement
-    n_cpu = os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS" in os.environ else 4
+    n_cpu = os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS" in os.environ else 6
+    max_mem = 24
     def pre_shell_commands(self):
         self.commands = [self.format_string(
-            "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T RealignerTargetCreator "
+            "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T RealignerTargetCreator "
             "-I {scratch_bam} -o {interval_list} -known {Mills1000g} "
             "-known {dbSNP} -nt {n_cpu} {silly_arg}")]
 
     def requires(self):
         return ValidateBAM(bam=self.scratch_bam)
 
-class IndelRealigner(GATKFPipelineTask):
-    n_cpu = os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS" in os.environ else 4
+class IndelRealigner(JavaPipelineTask):
+    n_cpu = os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS" in os.environ else 6
+    max_mem = 24
     def pre_shell_commands(self):
         self.commands = [self.format_string(
-            "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T IndelRealigner "
+            "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T IndelRealigner "
             "-I {scratch_bam} -o {realn_bam} -targetIntervals {interval_list} "
             "-maxReads 10000000 -maxInMemory 450000 -known {Mills1000g} "
             "-known {dbSNP} {silly_arg}")]
 
-    #def _run_post_success(self):
-    #    os.remove(self.scratch_bam)
-
     def requires(self):
         return self.clone(RealignerTargetCreator)
 
-class BaseRecalibrator(GATKFPipelineTask):
-    n_cpu = os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS" in os.environ else 4
+class BaseRecalibrator(JavaPipelineTask):
+    n_cpu = os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS" in os.environ else 6
+    max_mem = 24
     def pre_shell_commands(self):
         self.commands = [self.format_string(
-            "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} "
+            "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} "
             "-T BaseRecalibrator -I {realn_bam} "
             "-o {recal_table} -knownSites {Mills1000g} "
             "-knownSites {dbSNP} -nct {n_cpu} {silly_arg}")]
@@ -250,12 +256,13 @@ class BaseRecalibrator(GATKFPipelineTask):
     def requires(self):
         return self.clone(IndelRealigner)
 
-class PrintReads(GATKFPipelineTask):
-    n_cpu = os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS" in os.environ else 4
+class PrintReads(JavaPipelineTask):
+    n_cpu = os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS" in os.environ else 6
+    max_mem = 24
     def pre_shell_commands(self):
         # --disable_indel_quals are necessary to remove BI and BD tags in the bam file
         self.commands = [self.format_string(
-            "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T PrintReads "
+            "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T PrintReads "
             "-I {realn_bam} --disable_indel_quals "
             "-BQSR {recal_table} -o {recal_bam} -nct {n_cpu} {silly_arg}")]
 
@@ -265,12 +272,13 @@ class PrintReads(GATKFPipelineTask):
     def requires(self):
         return self.clone(BaseRecalibrator)
 
-class HaplotypeCaller(GATKFPipelineTask):
+class HaplotypeCaller(JavaPipelineTask):
     priority = 1 # run before other steps needing the recalibrated BAM
     n_cpu = os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS" in os.environ else 6
+    max_mem = 24
     def pre_shell_commands(self):
         self.commands = [self.format_string(
-            "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T HaplotypeCaller "
+            "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T HaplotypeCaller "
             # dsth: making this sensible to avoid the bounds condition in 3.6...
             # dsth: updated gatk 3.6 to 2016-08-27-g667f78b
             # "-maxAltAlleles 3 "
@@ -286,7 +294,7 @@ class GenotypeGVCFs(GATKFPipelineTask):
     priority = 1
     def pre_shell_commands(self):
         self.commands = [self.format_string(
-            "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T GenotypeGVCFs "
+            "{java} -jar {gatk} -R {ref_genome} -T GenotypeGVCFs "
             "-L {interval} -o {vcf} -stand_call_conf 20 -stand_emit_conf 20 -V {gvcf}")]
 
     def requires(self):
@@ -296,7 +304,7 @@ class SelectVariantsSNP(GATKFPipelineTask):
     priority = 1
     def pre_shell_commands(self):
         self.commands = [self.format_string(
-            "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T SelectVariants "
+            "{java} -jar {gatk} -R {ref_genome} -T SelectVariants "
             "-L {interval} -V {vcf}  -selectType SNP -o {snp_vcf}")]
 
     def requires(self):
@@ -305,13 +313,14 @@ class SelectVariantsSNP(GATKFPipelineTask):
 class SelectVariantsINDEL(GATKFPipelineTask):
     def pre_shell_commands(self):
         self.commands = [self.format_string(
-            "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T SelectVariants "
+            "{java} -jar {gatk} -R {ref_genome} -T SelectVariants "
             "-L {interval} -V {vcf}  -selectType INDEL -o {indel_vcf}")]
 
     def requires(self):
         return self.clone(GenotypeGVCFs)
 
-class VariantRecalibratorSNP(GATKFPipelineTask):
+class VariantRecalibratorSNP(JavaPipelineTask):
+    max_mem = 16
     def pre_shell_commands(self):
         ## Running both Exomes and Genomes the same way, i.e. we will exlcude DP, omni is set to be a truth set, also added in ExAC SNPs as a training
         ## set which can contain both TP and FP with the same prior likelihood as the 1000G training set. 
@@ -321,7 +330,7 @@ class VariantRecalibratorSNP(GATKFPipelineTask):
         ## For genomes : 
         ## https://software.broadinstitute.org/gatk/guide/article?id=1259
         self.commands = [self.format_string(
-            "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T VariantRecalibrator "
+            "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T VariantRecalibrator "
             "-L {interval}  --input {snp_vcf} -an QD -an FS -an SOR -an MQ "
             "-an MQRankSum -an ReadPosRankSum "
             "-mode SNP --maxGaussians 4 -tranche 100.0 -tranche 99.9 "
@@ -339,7 +348,7 @@ class VariantRecalibratorSNP(GATKFPipelineTask):
 class VariantFiltrationSNP(GATKFPipelineTask):
     def pre_shell_commands(self):
         self.commands = [self.format_string(
-            '{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T VariantFiltration '
+            '{java} -jar {gatk} -R {ref_genome} -T VariantFiltration '
             '-L {interval} -V {snp_vcf} --filterExpression '
             '"QD < 2.0 || FS > 60.0 || MQ < 40.0 || MQRankSum < -12.5 || '
             'ReadPosRankSum < -8.0" --filterName "SNP_filter" -o {snp_filtered}')]
@@ -347,10 +356,11 @@ class VariantFiltrationSNP(GATKFPipelineTask):
     def requires(self):
         return self.clone(SelectVariantsSNP)
 
-class VariantRecalibratorINDEL(GATKFPipelineTask):
+class VariantRecalibratorINDEL(JavaPipelineTask):
+    max_mem = 16
     def pre_shell_commands(self):
         self.commands = [self.format_string(
-            "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} "
+            "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} "
             "-T VariantRecalibrator -L {interval} "
             "--input {indel_vcf} -an QD -an FS -an SOR -an MQRankSum "
             "-an ReadPosRankSum -mode INDEL --maxGaussians 4 "
@@ -364,7 +374,7 @@ class VariantRecalibratorINDEL(GATKFPipelineTask):
 class ApplyRecalibrationSNP(GATKFPipelineTask):
     def pre_shell_commands(self):
         self.commands = [self.format_string(
-            "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T ApplyRecalibration "
+            "{java} -jar {gatk} -R {ref_genome} -T ApplyRecalibration "
             "-L {interval}  -input {snp_vcf} "
             "-tranchesFile {snp_tranches} -recalFile {snp_recal} "
             "-o {snp_filtered} --ts_filter_level 90.0 -mode SNP")]
@@ -375,7 +385,7 @@ class ApplyRecalibrationSNP(GATKFPipelineTask):
 class ApplyRecalibrationINDEL(GATKFPipelineTask):
     def pre_shell_commands(self):
         self.commands = [self.format_string(
-            "{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T ApplyRecalibration "
+            "{java} -jar {gatk} -R {ref_genome} -T ApplyRecalibration "
             "-L {interval}  -input {indel_vcf} "
             "-tranchesFile {indel_tranches} -recalFile {indel_recal} "
             "-o {indel_filtered} --ts_filter_level 90.0 -mode INDEL")]
@@ -386,7 +396,7 @@ class ApplyRecalibrationINDEL(GATKFPipelineTask):
 class VariantFiltrationINDEL(GATKFPipelineTask):
     def pre_shell_commands(self):
         self.commands = [self.format_string(
-            '{java} -Xmx{max_mem}g -jar {gatk} -R {ref_genome} -T VariantFiltration '
+            '{java} -jar {gatk} -R {ref_genome} -T VariantFiltration '
             '-L {interval} -V {indel_vcf} --filterExpression '
             '"QD < 2.0 || FS > 200.0 || ReadPosRankSum < -20.0" --filterName '
             '"INDEL_filter"  -o {indel_filtered}')]
@@ -395,7 +405,6 @@ class VariantFiltrationINDEL(GATKFPipelineTask):
       return self.clone(SelectVariantsINDEL)
 
 class CombineVariants(GATKFPipelineTask):
-
     def pre_shell_commands(self):
         """Merges SNP and INDEL vcfs.  Using the filtered SNP vcf header as a
         base, variant type/sample type specific ##FILTERs are added to the header.
@@ -407,16 +416,11 @@ class CombineVariants(GATKFPipelineTask):
         info_encountered = False
         
         with open(self.tmp_vcf, "w") as vcf_out:
-
             for line in open(self.snp_filtered).readlines():
-
                 if line.startswith("#"):
-
                     if line.startswith("##FILTER") and not filter_encountered:
                         filter_encountered = True
-
                         with open(self.indel_filtered) as indel_header:
-
                             prefix = ("##FILTER=<ID=VQSRTrancheINDEL" if self.sample_type == "GENOME" else "##FILTER=<ID=INDEL_filter,")
                             indel_lines = []
 
@@ -920,7 +924,7 @@ class RunCvgMetrics(GATKFPipelineTask):
         ## An intermediate parsed file is created for extracting info for db update later, this remains the same for exomes and genomes
         if self.sample_type == "GENOME":
             ## Define shell commands to be run
-            cvg_cmd = ("{java} -XX:ParallelGCThreads=1 -Xmx{max_mem}g -jar "
+            cvg_cmd = ("{java} -XX:ParallelGCThreads=1 -jar "
                        "{picard} CollectWgsMetrics VALIDATION_STRINGENCY=LENIENT "
                        "R={ref_genome} I={recal_bam} INTERVALS={file_target} "
                        "O={raw_output_file} MQ=20 Q=10 >> {log_file} 2>&1")
@@ -930,7 +934,7 @@ class RunCvgMetrics(GATKFPipelineTask):
                 file_target=self.config_parameters["target_file"])
             ## Run across the genome
             cvg_cmd2 = self.format_string(
-                "{java} -XX:ParallelGCThreads=1 -Xmx{max_mem}g -jar "
+                "{java} -XX:ParallelGCThreads=1 -jar "
                 "{picard} CollectWgsMetrics R={ref_genome} I={recal_bam} "
                 "O={raw_output_file} MQ=20 Q=10 >> {log_file} 2>&1")
             ## Run on X and Y Chromosomes only (across all regions there not just ccds)
@@ -974,7 +978,7 @@ class RunCvgMetrics(GATKFPipelineTask):
                     db.close()
 
             self.calc_capture_specificity = 1 ## We need to run an additional picard module for calculating capture specificity
-            cvg_cmd = ("{java} -XX:ParallelGCThreads=1 -Xmx{max_mem}g -jar "
+            cvg_cmd = ("{java} -XX:ParallelGCThreads=1 -jar "
                        "{gatk} -T DepthOfCoverage -mbq 10 -mmq 20 "
                        "--omitIntervalStatistics --omitDepthOutputAtEachBase "
                        "--omitLocusTable -R {ref_genome} -I {recal_bam} "
@@ -1004,7 +1008,7 @@ class RunCvgMetrics(GATKFPipelineTask):
             ## Run PicardHsMetrics for Capture Specificity
             self.output_bait_file = os.path.join(self.scratch_dir, "targets.interval")
             cvg_cmd5 = self.format_string(
-                "{java} -XX:ParallelGCThreads=1 -Xmx{max_mem}g -jar {picard} "
+                "{java} -XX:ParallelGCThreads=1 -jar {picard} "
                 "CollectHsMetrics BI={output_bait_file} TI={output_bait_file} "
                 "VALIDATION_STRINGENCY=SILENT "
                 "METRIC_ACCUMULATION_LEVEL=ALL_READS "
