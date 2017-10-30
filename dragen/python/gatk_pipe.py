@@ -175,7 +175,7 @@ class JavaPipelineTask(GATKFPipelineTask):
     specifying that if one slot is requested, we get 24 GB memory/slot, or if 4
     are requested, we get 6/slot
     """
-    java = True
+    javajob = True
     def __init__(self, *args, **kwargs):
         super(JavaPipelineTask, self).__init__(*args, **kwargs)
         self.mem = int(ceil(self.max_mem / self.n_cpu))
