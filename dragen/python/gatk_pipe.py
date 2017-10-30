@@ -20,6 +20,7 @@ from getpass import getuser
 from pwd import getpwuid
 from gzip import open as gopen
 from string import Formatter
+from math import ceil
 from dragen_db_statements import *
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.realpath(__file__)))), "import", "src"))
@@ -169,6 +170,15 @@ class GATKFPipelineTask(GATKPipelineTask):
         self.config_parameters.update(kwargs)
         return s.format(**self.config_parameters)
 
+class JavaPipelineTask(GATKFPipelineTask):
+    """Handle java's potentially large memory requirements by for example
+    specifying that if one slot is requested, we get 24 GB memory/slot, or if 4
+    are requested, we get 6/slot
+    """
+    def __init__(self, *args, **kwargs):
+        super(JavaPipelineTask, self).__init__(*args, **kwargs)
+        self.mem = int(ceil(self.max_mem / self.n_cpu))
+
 class FileExists(luigi.ExternalTask):
     fn = luigi.Parameter(
         description="the expected path to the DRAGEN aligned BAM")
@@ -207,10 +217,10 @@ class ValidateBAM(SGEJobTask):
         return luigi.LocalTarget(self.bam + ".validated")
 
 
-class RealignerTargetCreator(GATKFPipelineTask):
+class RealignerTargetCreator(JavaPipelineTask):
     priority = 1 # run before other competing steps with no requirement
     n_cpu = os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS" in os.environ else 6
-    mem = 24
+    max_mem = 24
     def pre_shell_commands(self):
         self.commands = [self.format_string(
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T RealignerTargetCreator "
@@ -220,9 +230,9 @@ class RealignerTargetCreator(GATKFPipelineTask):
     def requires(self):
         return ValidateBAM(bam=self.scratch_bam)
 
-class IndelRealigner(GATKFPipelineTask):
+class IndelRealigner(JavaPipelineTask):
     n_cpu = os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS" in os.environ else 6
-    mem = 24
+    max_mem = 24
     def pre_shell_commands(self):
         self.commands = [self.format_string(
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T IndelRealigner "
@@ -233,9 +243,9 @@ class IndelRealigner(GATKFPipelineTask):
     def requires(self):
         return self.clone(RealignerTargetCreator)
 
-class BaseRecalibrator(GATKFPipelineTask):
+class BaseRecalibrator(JavaPipelineTask):
     n_cpu = os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS" in os.environ else 6
-    mem = 24
+    max_mem = 24
     def pre_shell_commands(self):
         self.commands = [self.format_string(
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} "
@@ -246,9 +256,9 @@ class BaseRecalibrator(GATKFPipelineTask):
     def requires(self):
         return self.clone(IndelRealigner)
 
-class PrintReads(GATKFPipelineTask):
+class PrintReads(JavaPipelineTask):
     n_cpu = os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS" in os.environ else 6
-    mem = 24
+    max_mem = 24
     def pre_shell_commands(self):
         # --disable_indel_quals are necessary to remove BI and BD tags in the bam file
         self.commands = [self.format_string(
@@ -262,10 +272,10 @@ class PrintReads(GATKFPipelineTask):
     def requires(self):
         return self.clone(BaseRecalibrator)
 
-class HaplotypeCaller(GATKFPipelineTask):
+class HaplotypeCaller(JavaPipelineTask):
     priority = 1 # run before other steps needing the recalibrated BAM
     n_cpu = os.getenv("DEBUG_SLOTS") if "DEBUG_SLOTS" in os.environ else 6
-    mem = 24
+    max_mem = 24
     def pre_shell_commands(self):
         self.commands = [self.format_string(
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T HaplotypeCaller "
@@ -309,8 +319,8 @@ class SelectVariantsINDEL(GATKFPipelineTask):
     def requires(self):
         return self.clone(GenotypeGVCFs)
 
-class VariantRecalibratorSNP(GATKFPipelineTask):
-    mem = 16
+class VariantRecalibratorSNP(JavaPipelineTask):
+    max_mem = 16
     def pre_shell_commands(self):
         ## Running both Exomes and Genomes the same way, i.e. we will exlcude DP, omni is set to be a truth set, also added in ExAC SNPs as a training
         ## set which can contain both TP and FP with the same prior likelihood as the 1000G training set. 
@@ -346,8 +356,8 @@ class VariantFiltrationSNP(GATKFPipelineTask):
     def requires(self):
         return self.clone(SelectVariantsSNP)
 
-class VariantRecalibratorINDEL(GATKFPipelineTask):
-    mem = 16
+class VariantRecalibratorINDEL(JavaPipelineTask):
+    max_mem = 16
     def pre_shell_commands(self):
         self.commands = [self.format_string(
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} "
