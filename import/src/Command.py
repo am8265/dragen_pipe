@@ -21,7 +21,11 @@ class Command():
         """run the previously defined command for at most timeout seconds
         """
         def target():
-            self.process = subprocess.Popen(sxsplit(self.cmd), **self.kwargs)
+            if "shell" in self.kwargs and self.kwargs["shell"]:
+                cmd = self.cmd
+            else:
+                cmd = sxsplit(self.cmd)
+            self.process = subprocess.Popen(cmd, **self.kwargs)
             self.process.communicate()
 
         self.thread = threading.Thread(target=target)
