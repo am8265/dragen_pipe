@@ -124,7 +124,7 @@ VALID_GTS = set(["0", "1"]) # valid values in GT field, i.e. REF/ALT
 # the table format to output for calls
 VARIANT_CALL_FORMAT = ("{" + "}\t{".join(
     ["sample_id", "variant_id", "block_id", "GT", "DP", "AD_REF",
-     "AD_ALT", "GQ", "VQSLOD",
+     "AD_ALT", "GQ", "PL_AA", "PL_AB", "PL_BB", "VQSLOD", "SOR",
      "FS", "MQ", "QD", "QUAL", "ReadPosRankSum",
      "MQRankSum", "FILTER", "highest_impact", "PID_variant_id", "PGT",
      "HP_variant_id", "HP_GT", "PQ"]) + "}")

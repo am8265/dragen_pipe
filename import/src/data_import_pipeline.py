@@ -12,6 +12,8 @@ import os
 import subprocess
 import tabix
 import shlex
+import warnings
+import MySQLdb
 from shutil import copy
 from collections import OrderedDict
 from parse_vcf import parse_vcf
@@ -24,6 +26,7 @@ import tarfile
 from time import sleep
 from random import random
 
+warnings.filterwarnings("error", category=MySQLdb.Warning)
 cfg = get_cfg()
 # the maximum number of tables to load concurrently
 MAX_TABLES_TO_LOAD = cfg.getint("pipeline", "max_tables_to_load")
@@ -187,9 +190,9 @@ class ExtractTarball(SGEJobTask):
 
     def output(self):
         return MultipleFilesTarget(
-            [os.path.join(self.output_directory, self.fn_format.format(
+            [[os.path.join(self.output_directory, self.fn_format.format(
                 chromosome=chromosome, **self.__dict__)) for chromosome in
-                CHROMs])
+                CHROMs]])
 
 class ParseVCF(SGEJobTask):
     """parse the specified VCF, output text files for the data, and
@@ -220,6 +223,8 @@ class ParseVCF(SGEJobTask):
     dont_load_data = luigi.BoolParameter(
         description="don't actually load any data, used for testing purposes")
     priority = 1 # tell the scheduler to run these first
+    version = luigi.Parameter(
+        description="the version of the pipeline run")
 
     def __init__(self, *args, **kwargs):
         super(ParseVCF, self).__init__(*args, **kwargs)
@@ -260,10 +265,12 @@ class ParseVCF(SGEJobTask):
                 seq_cur = seqdb.cursor()
                 seq_cur.execute(GET_TIMES_STEP_RUN.format(
                     prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
-                times_run = seq_cur.fetchone()[0] + 1
-                seq_cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
-                    prep_id=self.prep_id, times_run=times_run,
-                    pipeline_step_id=self.pipeline_step_id))
+                row = seq_cur.fetchone()
+                times_ran = row[0] if row else 0
+                seq_cur.execute(BEGIN_STEP.format(
+                    pseudo_prepid=self.prep_id,
+                    pipeline_step_id=self.pipeline_step_id,
+                    version=self.version, times_ran=times_ran + 1))
                 seqdb.commit()
             finally:
                 if seqdb.open:
@@ -389,6 +396,8 @@ class LoadBinData(SGEJobTask):
         default="waldb6", description="the database to load to")
     dont_load_data = luigi.BoolParameter(
         description="don't actually load any data, used for testing purposes")
+    version = luigi.Parameter(
+        description="the version of the pipeline run")
 
     def __init__(self, *args, **kwargs):
         super(LoadBinData, self).__init__(*args, **kwargs)
@@ -429,10 +438,12 @@ class LoadBinData(SGEJobTask):
                 seq_cur = seqdb.cursor()
                 seq_cur.execute(GET_TIMES_STEP_RUN.format(
                     prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
-                times_run = seq_cur.fetchone()[0] + 1
-                seq_cur.execute(UPDATE_PIPELINE_STEP_SUBMIT_TIME.format(
-                    times_run=times_run, prep_id=self.prep_id,
-                    pipeline_step_id=self.pipeline_step_id))
+                row = seq_cur.fetchone()
+                times_ran = row[0] if row else 0
+                seq_cur.execute(BEGIN_STEP.format(
+                    pseudo_prepid=self.prep_id,
+                    pipeline_step_id=self.pipeline_step_id,
+                    version=self.version, times_ran=times_ran + 1))
                 seqdb.commit()
                 statement = INSERT_BIN_STATEMENT.format(
                     data_file=self.fn, data_type=self.data_type,
@@ -501,6 +512,9 @@ class ImportSample(luigi.Task):
     override_directory_check = luigi.BoolParameter(
         description="don't check for existence of sample directory "
         "(will assume it exists and copy files; can be helpful if ls hangs)")
+    version = luigi.Parameter(
+        default=None, description="the version of the pipeline run "
+        "(doesn't need to be specified)")
 
     def __init__(self, *args, **kwargs):
         super(ImportSample, self).__init__(*args, **kwargs)
@@ -534,8 +548,9 @@ class ImportSample(luigi.Task):
             # still working
             try:
                 cmd = "ls -d {} &> /dev/null".format(data_directory)
-                c = Command.Command(cmd)
-                c.run(5)
+                c = Command.Command(cmd, shell=True)
+                c.start()
+                c.join(5)
             except Command.TimeoutException:
                 raise ValueError("the data directory {} is inaccessible".format(
                     data_directory))
@@ -571,6 +586,8 @@ class ImportSample(luigi.Task):
                 data_directory, "{sample_name}.{prep_id}.analysisReady."
                 "annotated.vcf.gz".format(
                     sample_name=sample_name, prep_id=self.prep_id))
+        if not self.version:
+            kwargs["version"] = get_pipeline_version()
         super(ImportSample, self).__init__(*args, **kwargs)
         if os.path.isfile(self.vcf):
             if self.sequencing_type == "exome" and os.path.getsize(self.vcf) > 248000000:
@@ -617,8 +634,14 @@ class ImportSample(luigi.Task):
             seqdb = get_connection("seqdb")
             try:
                 seq_cur = seqdb.cursor()
-                seq_cur.execute(INCREMENT_TIMES_STEP_RUN.format(
+                seq_cur.execute(GET_TIMES_STEP_RUN.format(
                     prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
+                row = seq_cur.fetchone()
+                times_ran = row[0] if row else 0
+                seq_cur.execute(BEGIN_STEP.format(
+                    pseudo_prepid=self.prep_id,
+                    pipeline_step_id=self.pipeline_step_id,
+                    version=self.version, times_ran=times_ran + 1))
                 seqdb.commit()
             finally:
                 if seqdb.open:

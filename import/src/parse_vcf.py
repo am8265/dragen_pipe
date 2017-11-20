@@ -703,7 +703,7 @@ def parse_vcf(vcf, CHROM, sample_id, database, min_dp_to_include, output_base):
                     if variant_stat in INFO:
                         INFO[variant_stat] = int(round(float(INFO[variant_stat])))
                 for variant_stat in (
-                    "FS", "MQ", "QD", "ReadPosRankSum", "MQRankSum", "VQSLOD"):
+                    "FS", "MQ", "QD", "ReadPosRankSum", "MQRankSum", "VQSLOD", "SOR"):
                     if variant_stat not in INFO:
                         # NULL value for loading
                         INFO[variant_stat] = "\\N"
@@ -715,6 +715,13 @@ def parse_vcf(vcf, CHROM, sample_id, database, min_dp_to_include, output_base):
                 if nalleles == 1:
                     (call["variant_id"], call["block_id"],
                      call["highest_impact"], indel) = variant_ids[0]
+                    if "PL" in call_stats:
+                        call["PL_AA"], call["PL_AB"], call["PL_BB"] = (
+                            call_stats["PL"].split(","))
+                    else:
+                        # seems as MNPs we don't have these at this point
+                        call["PL_AA"], call["PL_AB"], call["PL_BB"] = (
+                            "\\N", "\\N", "\\N")
                     output_call = True
                     if indel:
                         if call["variant_id"] in indel_ids:
@@ -764,12 +771,17 @@ def parse_vcf(vcf, CHROM, sample_id, database, min_dp_to_include, output_base):
                             "-{ALT}".format(GT=call_stats["GT"], **fields))
                     ADs = call_stats["AD"].split(",")
                     call["AD_REF"] = ADs[0]
+                    pl_scores = call_stats["PL"].split(",")
+                    call["PL_AA"] = pl_scores[0] # PL(AA)
+                    call["PL_AB"] = pl_scores[4] # this is PL(BC)
                     for x, (variant_id, block_id, highest_impact, indel) in enumerate(variant_ids):
                         if indel:
                             if variant_id in indel_ids:
                                 continue
                             else:
                                 indel_ids.add(variant_id)
+                        call["PL_BB"] = pl_scores[2 + 3 * x]
+                        # if first alternate allele, use PL(BB); if second alternate allele, use PL(CC)
                         calls_fh.write(VARIANT_CALL_FORMAT.format(
                             **merge_dicts(
                                 call, {"AD_ALT":ADs[1 + x], "variant_id":variant_id,
@@ -812,7 +824,7 @@ if __name__ == "__main__":
                         help="the id of the sample")
     parser.add_argument("OUTPUT_BASE", help="the base output file name structure")
     parser.add_argument("-d", "--database", default="waldb6",
-                        choices=["waldb", "dragen", "waldb4", "waldb1", "waldb6"],
+                        choices=["waldb2", "waldb4", "waldb6"],
                         help="the database to load to")
     parser.add_argument("-m", "--min_dp_to_include", type=int,
                         default=cfg.getint("pipeline", "min_dp_to_include"),
@@ -836,4 +848,4 @@ if __name__ == "__main__":
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     parse_vcf(args.VCF, args.CHROMOSOME, args.SAMPLE_ID, args.database,
-              args.min_dp_to_include, output_base_rp, not args.no_calls)
+              args.min_dp_to_include, output_base_rp)#, not args.no_calls)

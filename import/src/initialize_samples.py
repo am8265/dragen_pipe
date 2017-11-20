@@ -39,6 +39,9 @@ def initialize_samples(database, level=logging.DEBUG):
         nsamples = len(prep_ids)
         logger.info("Found {nsamples} samples to initialize".format(nsamples=nsamples))
         for prep_id in prep_ids:
+            if prep_id >= 8388600:
+                logger.debug("Ignoring test sample: {}".format(prep_id))
+                continue
             seq_cur.execute(GET_SAMPLE_METADATA.format(prep_id=prep_id))
             rows = seq_cur.fetchall()
             if not rows:
