@@ -587,6 +587,7 @@ def parse_vcf(vcf, CHROM, sample_id, database, min_dp_to_include, output_base):
                 # "alternate" - our solution is to just retain the first entry
                 # in such a rare instance
                 elif nalleles == 2:
+                    multiallelic = True
                     if ALT_alleles[0][:255] == ALT_alleles[1][:255]:
                         logger.debug(
                             "{CHROM}-{POS} has two alternate alleles with > 255 "
@@ -601,6 +602,8 @@ def parse_vcf(vcf, CHROM, sample_id, database, min_dp_to_include, output_base):
                         ads[1] = str(int(ads[1]) + int(ads[2]))
                         del ads[2]
                         call_stats["AD"] = ",".join(ads)
+                else:
+                    multiallelic = False
                 variant_ids = []
                 for ALT_allele in ALT_alleles:
                     (variant_id, highest_impact, block_id, novel_variant_id,
@@ -716,8 +719,12 @@ def parse_vcf(vcf, CHROM, sample_id, database, min_dp_to_include, output_base):
                     (call["variant_id"], call["block_id"],
                      call["highest_impact"], indel) = variant_ids[0]
                     if "PL" in call_stats:
-                        call["PL_AA"], call["PL_AB"], call["PL_BB"] = (
-                            call_stats["PL"].split(","))
+                        if multiallelic:
+                            call["PL_AA"], _, _, _, call["PL_AB"], call["PL_BB"] = (
+                                call_stats["PL"].split(","))
+                        else:
+                            call["PL_AA"], call["PL_AB"], call["PL_BB"] = (
+                                call_stats["PL"].split(","))
                     else:
                         # seems as MNPs we don't have these at this point
                         call["PL_AA"], call["PL_AB"], call["PL_BB"] = (
