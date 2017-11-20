@@ -61,6 +61,11 @@ SELECT sample_name, sample_type, capture_kit, prep_id
 FROM sample
 WHERE sample_id = {sample_id}
 """
+GET_SAMPLE_INFO_PSEUDO_PREPID = """
+SELECT sample_name, sample_type, capture_kit, sample_id
+FROM sample
+WHERE prep_id = {pseudo_prepid}
+"""
 GET_DATA_LOADED_PIPELINE_STEP_ID = """
 SELECT id
 FROM dragen_pipeline_step_desc
@@ -103,7 +108,7 @@ WHERE sample_id = {sample_id}
 """
 INSERT_BIN_STATEMENT = """
 LOAD DATA INFILE '{data_file}' IGNORE INTO TABLE {data_type}_bins_chr{chromosome}
-    (@block_id, @bin_string)
+    (@dummy, @block_id, @bin_string)
     SET sample_id={sample_id}, block_id=@block_id, {data_type}_string=@bin_string
 """
 GET_MIN_CUSTOM_TRANSCRIPT_ID = """
