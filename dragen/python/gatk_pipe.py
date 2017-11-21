@@ -1057,8 +1057,8 @@ class DuplicateMetrics(GATKFPipelineTask):
             self.log_dir, self.name_prep + ".dragen.out")
         self.picard_log = os.path.join(
             self.scratch_dir, self.name_prep + ".metrics_duplication.txt")
-        #self.duplicates_file = os.path.join(
-        #    self.scratch_dir, self.name_prep + ".duplicates.txt")
+        self.duplicates_file = os.path.join(
+            self.scratch_dir, self.name_prep + ".duplicates.txt")
 
     def pre_shell_commands(self):
         perc_duplicates = None
