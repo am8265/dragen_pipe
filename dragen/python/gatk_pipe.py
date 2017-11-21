@@ -1055,21 +1055,23 @@ class DuplicateMetrics(GATKFPipelineTask):
         super(DuplicateMetrics, self).__init__(*args, **kwargs)
         self.dragen_log = os.path.join(
             self.log_dir, self.name_prep + ".dragen.out")
-        self.duplicates_file = os.path.join(
-            self.scratch_dir, self.name_prep + ".duplicates.txt")
+        self.picard_log = os.path.join(
+            self.scratch_dir, self.name_prep + ".metrics_duplication.txt")
+        #self.duplicates_file = os.path.join(
+        #    self.scratch_dir, self.name_prep + ".duplicates.txt")
 
     def pre_shell_commands(self):
-        if not os.path.isfile(self.dragen_log):
-            raise Exception("The dragen log file, '%s',  could not be found!" % self.dragen_log)
         perc_duplicates = None
-        with open(self.dragen_log) as d:
-            for line in d:
-                line = line.strip()
-                if line.endswith("%) duplicates marked"):
-                    perc_duplicates = float(line.split("(")[-1].split("%")[0])
-                    break
-        if not perc_duplicates:
-            # try alternate format
+        if os.path.isfile(self.picard_log):
+            with open(self.picard_log) as log_fh:
+                for line in log_fh:
+                    if line.startswith("LIBRARY"):
+                        fields = line.strip().split("\t")
+                        duplication_idx = fields.index("PERCENT_DUPLICATION")
+                        break
+                fields = log_fh.next().strip().split("\t")
+                perc_duplicates = float(fields[duplication_idx]) * 100
+        elif os.path.isfile(self.dragen_log):
             with open(self.dragen_log) as d:
                 for line in d:
                     line = line.strip()
@@ -1082,7 +1084,7 @@ class DuplicateMetrics(GATKFPipelineTask):
             raise ValueError("Could not find duplicate metrics in dragen log!")
 
     def requires(self):
-        return ValidateBAM(bam=self.scratch_bam), FileExists(self.dragen_log)
+        return ValidateBAM(bam=self.scratch_bam)#, FileExists(self.dragen_log)
 
 class VariantCallingMetrics(GATKFPipelineTask):
     def pre_shell_commands(self):
