@@ -670,6 +670,9 @@ class SubsetVCF(GATKFPipelineTask):
     def requires(self):
         return self.clone(AnnotateVCF)
 
+class ArchiveDirectoryAlreadyExists(Exception):
+    pass
+
 class ArchiveSample(GATKFPipelineTask):
     """ Archive samples on Amplidata """
     n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 7
@@ -695,7 +698,8 @@ class ArchiveSample(GATKFPipelineTask):
         self.raw_coverage = os.path.join(
             self.scratch_dir, "{}.coverage_bins".format(self.name_prep))
         if os.path.isdir(self.base_dir):
-            raise Exception("the archive location, '%s', already exists" % self.base_dir)
+            raise ArchiveDirectoryAlreadyExists(
+                "the archive location, '{}', already exists".format(self.base_dir))
 
         with tarfile.open(self.pipeline_tarball, "w:gz") as tar:
             for d in (self.script_dir, self.log_dir):
@@ -754,6 +758,16 @@ class ArchiveSample(GATKFPipelineTask):
             if db.open:
                 db.close()
         #rmtree(self.scratch_dir)
+
+    def run(self):
+        try:
+            super(ArchiveSample, self).run()
+        except Exception, e:
+            if type(e) is not ArchiveDirectoryAlreadyExists:
+                # clean up the directory if it was created and an error was
+                # generated
+                rmtree(self.base_dir)
+            raise
 
     def requires(self):
         if self.sample_name.upper().startswith('SRR'):
