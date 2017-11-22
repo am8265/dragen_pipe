@@ -678,7 +678,9 @@ class ArchiveSample(GATKFPipelineTask):
     n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 7
     dont_remove_tmp_dir = False # remove the temporary directory iff this task succeeds
     dont_remove_tmp_dir_if_failure = True # don't remove if it fails
-    def pre_shell_commands(self):
+
+    def __init__(self, *args, **kwargs):
+        super(ArchiveSample, self).__init__(*args, **kwargs)
         if (self.sample_name.upper().startswith('PGMCLIN') or
             self.sample_name.upper().startswith('PGMVIP')):
             self.base_dir = os.path.join(
@@ -687,6 +689,8 @@ class ArchiveSample(GATKFPipelineTask):
         else:
             self.base_dir = os.path.join(
                 self.config_parameters["base"], self.sample_type, self.name_prep)
+
+    def pre_shell_commands(self):
         self.script_dir = os.path.join(self.scratch_dir, "scripts")
         self.pipeline_tarball = (
             "{scratch_dir}/{name_prep}.pipeline_data.tar.gz".format(
