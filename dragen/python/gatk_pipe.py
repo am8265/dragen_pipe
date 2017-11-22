@@ -767,7 +767,8 @@ class ArchiveSample(GATKFPipelineTask):
         try:
             super(ArchiveSample, self).run()
         except Exception, e:
-            if type(e) is not ArchiveDirectoryAlreadyExists:
+            if (type(e) is not ArchiveDirectoryAlreadyExists
+                and os.path.isdir(self.base_dir)):
                 # clean up the directory if it was created and an error was
                 # generated
                 rmtree(self.base_dir)
