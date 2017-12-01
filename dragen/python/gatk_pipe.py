@@ -160,10 +160,6 @@ class GATKFPipelineTask(GATKPipelineTask):
         super(GATKFPipelineTask, self).__init__(*args, **kwargs)
         self.config_parameters.update(self.__dict__)
 
-    def run(self):
-        seqdb = get_connection("seqdb")
-
-
     def format_string(self, s, **kwargs):
         """Format the string s with any parameters in config_parameters, self, and kwargs
         (priority if overlap is given to kwargs then self)
