@@ -247,7 +247,7 @@ class BaseRecalibrator(JavaPipelineTask):
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} "
             "-T BaseRecalibrator -I {realn_bam} "
             "-o {recal_table} -knownSites {Mills1000g} "
-            "-knownSites {dbSNP} -nct {n_cpu}{intervals_param} {silly_arg}")]
+            "-knownSites {dbSNP} -nct {n_cpu} {intervals_param} {silly_arg}")]
 
     def requires(self):
         return self.clone(IndelRealigner)
