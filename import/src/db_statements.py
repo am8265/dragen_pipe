@@ -188,10 +188,10 @@ WHERE pseudo_prepid = {pseudo_prepid} AND pipeline_step_id = {pipeline_step_id}
 GET_PREP_STATUS = """
 SELECT status
 FROM prepT
-WHERE pseudo_prepid = {pseudo_prepid}
+WHERE p_prepID = {pseudo_prepid}
 """
 UPDATE_PREP_STATUS = """
 UPDATE prepT
 SET status = "{status}", status_time = UNIX_TIMESTAMP(NOW())
-WHERE pseudo_prepid = {pseudo_prepid}
+WHERE p_prepID = {pseudo_prepid}
 """
