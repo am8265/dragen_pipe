@@ -34,22 +34,6 @@ def owner(fn):
     else:
         raise OSError("{fn} does not exist!".format(fn=fn))
 
-def getCaptureKit(pseudo_prepid):
-    """ Get the capturekit for a given pseudo_prepid
-
-    pseudo_prepid : str : the pseudo_prepid value """
-
-    db = get_connection("seqdb")
-    try:
-        cur = db.cursor()
-        cur.execute(GET_CAPTURE_KIT.format(
-            pseudo_prepid=pseudo_prepid))
-        capture_kit = cur.fetchone()
-    finally:
-        if db.open:
-            db.close()
-    return capture_kit
-
 class programs(luigi.Config):
     """ Configuration class for instantiating parameters for this pipeline
     the values are read from luigi.cfg in the current folder """
@@ -90,6 +74,8 @@ class gatk_resources(luigi.Config):
     dbSNP = luigi.InputFileParameter()
     annotatedbSNP = luigi.InputFileParameter()
     exac = luigi.InputFileParameter()
+    roche_bed = luigi.InputFileParameter()
+
     def __init__(self, *args, **kwargs):
         if "DEBUG_INTERVALS" in os.environ:
             kwargs["interval"] = os.getenv("DEBUG_INTERVALS")
@@ -154,6 +140,8 @@ class GATKFPipelineTask(GATKPipelineTask):
             kwargs["poll_time"] = 10 # use a shorter qstat poll time if running debug mode
             if "DEBUG_BED" in os.environ:
                 kwargs["capture_kit_bed"] = os.getenv("DEBUG_BED")
+        if self.sample_type == "GENOME_AS_FAKE_EXOME":
+            self.config_parameters["interval"] = self.config_parameters["roche_bed"]
         super(GATKFPipelineTask, self).__init__(*args, **kwargs)
         self.config_parameters.update(self.__dict__)
 
@@ -179,6 +167,11 @@ class JavaPipelineTask(GATKFPipelineTask):
     def __init__(self, *args, **kwargs):
         super(JavaPipelineTask, self).__init__(*args, **kwargs)
         self.mem = int(ceil(self.max_mem / self.n_cpu))
+        if self.sample_type == "GENOME_AS_FAKE_EXOME":
+            self.intervals_param = self.format_string(
+                "-L {roche_bed}")
+        else:
+            self.intervals_param = ""
 
 class FileExists(luigi.ExternalTask):
     fn = luigi.Parameter(
@@ -226,7 +219,7 @@ class RealignerTargetCreator(JavaPipelineTask):
         self.commands = [self.format_string(
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T RealignerTargetCreator "
             "-I {scratch_bam} -o {interval_list} -known {Mills1000g} "
-            "-known {dbSNP} -nt {n_cpu} {silly_arg}")]
+            "-known {dbSNP} -nt {n_cpu} {intervals_param} {silly_arg}")]
 
     def requires(self):
         return ValidateBAM(bam=self.scratch_bam)
@@ -239,7 +232,7 @@ class IndelRealigner(JavaPipelineTask):
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T IndelRealigner "
             "-I {scratch_bam} -o {realn_bam} -targetIntervals {interval_list} "
             "-maxReads 10000000 -maxInMemory 450000 -known {Mills1000g} "
-            "-known {dbSNP} {silly_arg}")]
+            "-known {dbSNP} {intervals_param} {silly_arg}")]
 
     def requires(self):
         return self.clone(RealignerTargetCreator)
@@ -252,7 +245,7 @@ class BaseRecalibrator(JavaPipelineTask):
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} "
             "-T BaseRecalibrator -I {realn_bam} "
             "-o {recal_table} -knownSites {Mills1000g} "
-            "-knownSites {dbSNP} -nct {n_cpu} {silly_arg}")]
+            "-knownSites {dbSNP} -nct {n_cpu}{intervals_param} {silly_arg}")]
 
     def requires(self):
         return self.clone(IndelRealigner)
@@ -265,7 +258,7 @@ class PrintReads(JavaPipelineTask):
         self.commands = [self.format_string(
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T PrintReads "
             "-I {realn_bam} --disable_indel_quals "
-            "-BQSR {recal_table} -o {recal_bam} -nct {n_cpu} {silly_arg}")]
+            "-BQSR {recal_table} -o {recal_bam} -nct {n_cpu} {intervals_param} {silly_arg}")]
 
     def _run_post_success(self):
         os.remove(self.realn_bam)
@@ -1414,7 +1407,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         Returns : String; One of the following values : [Male,Female,Ambiguous]
         """
 
-        if self.sample_type in ("EXOME", "GENOME"):
+        if self.sample_type in ("EXOME", "GENOME", "GENOME_AS_FAKE_EXOME"):
             query = """
             SELECT {cvg_type}
             FROM {qc_table}

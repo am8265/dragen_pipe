@@ -618,7 +618,7 @@ class DragenPipelineTask(PipelineTask):
         default=None,
         description="the location of the BED file containing the capture kit regions")
     sample_type = luigi.ChoiceParameter(
-        default=None, choices=["EXOME", "GENOME"],
+        default=None, choices=["EXOME", "GENOME", "GENOME_AS_FAKE_EXOME"],
         description="The type of sequencing performed for this sample")
     scratch = luigi.Parameter(
         default=None,
