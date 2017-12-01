@@ -26,6 +26,8 @@ sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.realpath(__file__)))), "import", "src"))
 from waldb_globals import *
 
+warnings.filterwarnings("error", category=MySQLdb.Warning)
+
 def owner(fn):
     """Return the user name of the owner of the specified file
     """
