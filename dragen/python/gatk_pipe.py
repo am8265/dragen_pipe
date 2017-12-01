@@ -456,9 +456,9 @@ class CombineVariants(GATKFPipelineTask):
             "{tabix} -f {final_vcf_gz}"))
 
     def requires(self):
-        if self.sample_type in ("EXOME", "GENOME"):
+        if self.sample_type in ("EXOME", "GENOME", "GENOME_AS_FAKE_EXOME"):
             yield self.clone(ApplyRecalibrationSNP)
-            if self.sample_type == "EXOME":
+            if self.sample_type in ("EXOME", "GENOME_AS_FAKE_EXOME"):
                 yield self.clone(VariantFiltrationINDEL)
             else:
                 yield self.clone(ApplyRecalibrationINDEL)
