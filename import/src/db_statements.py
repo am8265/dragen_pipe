@@ -185,3 +185,13 @@ UPDATE dragen_pipeline_step
 SET step_status = "failed", finish_time = NOW()
 WHERE pseudo_prepid = {pseudo_prepid} AND pipeline_step_id = {pipeline_step_id}
 """
+GET_PREP_STATUS = """
+SELECT status
+FROM prepT
+WHERE pseudo_prepid = {pseudo_prepid}
+"""
+UPDATE_PREP_STATUS = """
+UPDATE prepT
+SET status = "{status}", status_time = UNIX_TIMESTAMP(NOW())
+WHERE pseudo_prepid = {pseudo_prepid}
+"""
