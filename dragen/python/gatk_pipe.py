@@ -142,6 +142,9 @@ class GATKFPipelineTask(GATKPipelineTask):
     subdirectory = luigi.Parameter(
         significant=False, default="{sample_name}.{pseudo_prepid}",
         description="output to this (relative) path instead of a randomly generated directory name")
+    prept_start_message = "GATK Pipeline" # any inherited class will update
+    # prepT's status column with having started or failed the GATK pipeline as
+    # appropriate
     dont_remove_tmp_dir = True
     # don't delete temp dirs ever for any Task other than ArchiveSample,
     # as the directories are shared across Tasks
@@ -156,6 +159,10 @@ class GATKFPipelineTask(GATKPipelineTask):
                 kwargs["capture_kit_bed"] = os.getenv("DEBUG_BED")
         super(GATKFPipelineTask, self).__init__(*args, **kwargs)
         self.config_parameters.update(self.__dict__)
+
+    def run(self):
+        seqdb = get_connection("seqdb")
+
 
     def format_string(self, s, **kwargs):
         """Format the string s with any parameters in config_parameters, self, and kwargs
@@ -676,6 +683,8 @@ class ArchiveDirectoryAlreadyExists(Exception):
 class ArchiveSample(GATKFPipelineTask):
     """ Archive samples on Amplidata """
     n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 7
+    prept_start_message = "Data Archival"
+    prept_completed_message = "Data Archival"
     dont_remove_tmp_dir = False # remove the temporary directory iff this task succeeds
     dont_remove_tmp_dir_if_failure = True # don't remove if it fails
 
@@ -1157,6 +1166,9 @@ def update_alignseqfile(cur, location, pseudo_prepid):
         raise Exception("ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1]))
 
 class UpdateSeqdbMetrics(GATKFPipelineTask):
+    prept_completed_message = "GATK Pipeline" # Update the fact that the
+    # pipeline has succeeded upon completion of this step
+
     def pre_shell_commands(self):
         ## Generic query to be used for updates 
         self.update_statement = """
