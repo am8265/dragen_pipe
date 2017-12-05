@@ -1101,6 +1101,11 @@ class DuplicateMetrics(GATKFPipelineTask):
                     line = line.strip()
                     if line.startswith("Number of duplicate reads"):
                         perc_duplicates = float(line.split("[")[-1].split("]")[0])
+                        break
+                    elif line.startswith("MAPPING/ALIGNING SUMMARY\tNumber of "
+                                         "duplicate reads (marked)"):
+                        perc_duplicates = float(line.split("\t")[-1])
+                        break
         if perc_duplicates:
             with open(self.duplicates_file, "w") as out:
                 out.write(str(perc_duplicates) + "\n")
