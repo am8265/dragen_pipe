@@ -1103,7 +1103,7 @@ class DuplicateMetrics(GATKFPipelineTask):
                         perc_duplicates = float(line.split("[")[-1].split("]")[0])
                         break
                     elif (line.startswith("MAPPING/ALIGNING SUMMARY") and
-                          ("Number of duplicate reads (marked)" in line):
+                          "Number of duplicate reads (marked)" in line):
                         perc_duplicates = float(line.split(" ")[-1])
                         break
         if perc_duplicates:
