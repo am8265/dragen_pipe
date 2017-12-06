@@ -34,22 +34,6 @@ def owner(fn):
     else:
         raise OSError("{fn} does not exist!".format(fn=fn))
 
-def getCaptureKit(pseudo_prepid):
-    """ Get the capturekit for a given pseudo_prepid
-
-    pseudo_prepid : str : the pseudo_prepid value """
-
-    db = get_connection("seqdb")
-    try:
-        cur = db.cursor()
-        cur.execute(GET_CAPTURE_KIT.format(
-            pseudo_prepid=pseudo_prepid))
-        capture_kit = cur.fetchone()
-    finally:
-        if db.open:
-            db.close()
-    return capture_kit
-
 class programs(luigi.Config):
     """ Configuration class for instantiating parameters for this pipeline
     the values are read from luigi.cfg in the current folder """
