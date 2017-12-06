@@ -709,6 +709,8 @@ class ImportSample(luigi.Task):
                 cur = db.cursor()
                 seq_cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
                     prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
+                seq_cur.execute(UPDATE_PREP_STATUS.format(
+                    pseudo_prepid=self.prep_id, status="In DragenDB"))
                 cur.execute(SET_SAMPLE_FINISHED.format(
                     sample_id=self.sample_id))
                 seqdb.commit()
