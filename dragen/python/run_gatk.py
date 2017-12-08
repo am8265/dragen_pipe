@@ -155,7 +155,8 @@ if __name__ == "__main__":
                         action="store_true",
                         help="ignore the priority field of samples to process")
     parser.add_argument("-s", "--sample_type", action="append",
-                        choices=["EXOME", "GENOME", "CUSTOM_CAPTURE"],
+                        choices=["EXOME", "GENOME", "CUSTOM_CAPTURE",
+                                 "GENOME_AS_FAKE_EXOME"],
                         help="restrict to one or more sequecing types")
     parser.add_argument("--level", default="INFO", choices=LOGGING_LEVELS,
                         action=DereferenceKeyAction,
