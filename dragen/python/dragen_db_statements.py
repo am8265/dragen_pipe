@@ -1,10 +1,3 @@
-GET_CAPTURE_KIT = """
-SELECT name
-FROM captureKit ck
-JOIN prepT p ON ck.prepT_name=p.exomekit
-JOIN pseudo_prepid pp ON p.prepid=pp.prepid
-WHERE chr="all" and pseudo_prepid={pseudo_prepid}
-"""
 GET_SAMPLES = """
 SELECT m.pseudo_prepid, m.sample_name, m.priority, m.sample_type, m.capture_kit
 FROM dragen_sample_metadata m
