@@ -13,7 +13,8 @@ import logging
 from db_statements import (
     GET_SAMPLE_DIRECTORY, GET_TIMES_STEP_RUN, BEGIN_STEP,
     FINISH_STEP, FAIL_STEP, GET_PIPELINE_STEP_ID, GET_STEP_STATUS,
-    GET_SAMPLE_METADATA, GET_CAPTURE_KIT_BED)
+    GET_SAMPLE_METADATA, GET_CAPTURE_KIT_BED, GET_PREP_STATUS,
+    UPDATE_PREP_STATUS)
 from itertools import chain
 from collections import OrderedDict, Counter, defaultdict
 from functools import wraps
@@ -428,6 +429,14 @@ class PipelineTask(SGEJobTask):
     pseudo_prepid = luigi.IntParameter(
         description="The pseudo_prepid for this sample; used for "
         "obtaining/updating statuses")
+    prept_start_message = luigi.Parameter(
+        default=None, description="Status with which to update prepT table if "
+        "the status does not already match this value (prepends Started or Failed "
+        "as appropriate)")
+    prept_completed_message = luigi.Parameter(
+        default=None, description="Status with which to update prepT table if "
+        "the status does not already match this value (prepends "
+        "Completed as appropriate)")
     print_init = luigi.BoolParameter(default=False)
 
     def __init__(self, *args, **kwargs):
@@ -496,6 +505,15 @@ class PipelineTask(SGEJobTask):
                 pseudo_prepid=self.pseudo_prepid,
                 pipeline_step_id=self.pipeline_step_id,
                 version=self.version, times_ran=times_ran + 1))
+            if self.prept_start_message:
+                update_message = "Started " + self.prept_start_message
+                seq_cur.execute(GET_PREP_STATUS.format(
+                    pseudo_prepid=self.pseudo_prepid))
+                status = seq_cur.fetchone()[0]
+                if status != update_message:
+                    seq_cur.execute(UPDATE_PREP_STATUS.format(
+                        status=update_message,
+                        pseudo_prepid=self.pseudo_prepid))
             seqdb.commit()
         finally:
             if seqdb.open:
@@ -508,6 +526,15 @@ class PipelineTask(SGEJobTask):
             seq_cur.execute(FINISH_STEP.format(
                 pseudo_prepid=self.pseudo_prepid,
                 pipeline_step_id=self.pipeline_step_id))
+            if self.prept_completed_message:
+                update_message = "Completed " + self.prept_completed_message
+                seq_cur.execute(GET_PREP_STATUS.format(
+                    pseudo_prepid=self.pseudo_prepid))
+                status = seq_cur.fetchone()[0]
+                if status != update_message:
+                    seq_cur.execute(UPDATE_PREP_STATUS.format(
+                        status=update_message,
+                        pseudo_prepid=self.pseudo_prepid))
             seqdb.commit()
         finally:
             if seqdb.open:
@@ -526,6 +553,15 @@ class PipelineTask(SGEJobTask):
             seq_cur.execute(FAIL_STEP.format(
                 pseudo_prepid=self.pseudo_prepid,
                 pipeline_step_id=self.pipeline_step_id))
+            if self.prept_start_message:
+                update_message = "Failed " + self.prept_start_message
+                seq_cur.execute(GET_PREP_STATUS.format(
+                    pseudo_prepid=self.pseudo_prepid))
+                status = seq_cur.fetchone()[0]
+                if status != update_message:
+                    seq_cur.execute(UPDATE_PREP_STATUS.format(
+                        status=update_message,
+                        pseudo_prepid=self.pseudo_prepid))
             seqdb.commit()
         finally:
             if seqdb.open:
