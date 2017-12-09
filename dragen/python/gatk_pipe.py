@@ -731,7 +731,7 @@ class ArchiveSample(GATKFPipelineTask):
         if self.sample_type == "GENOME_AS_FAKE_EXOME":
             # copy original BAM in this case as well in case we want to
             # reprocess as an actual genome laster
-            data_to_copy.append("{scratch_bam}")
+            data_to_copy.append("{scratch_bam} {scratch_bam}.bai")
         for data_file in data_to_copy:
             self.commands.append(self.format_string(
                 "rsync -grlt --inplace --partial " + data_file + " {base_dir}"))
