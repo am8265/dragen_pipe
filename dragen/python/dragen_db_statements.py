@@ -3,7 +3,7 @@ SELECT m.pseudo_prepid, m.sample_name, m.priority, m.sample_type, m.capture_kit
 FROM dragen_sample_metadata m
 INNER JOIN dragen_pipeline_step p1 ON m.pseudo_prepid = p1.pseudo_prepid
 WHERE p1.pipeline_step_id = 1 AND p1.step_status = "completed"
-    AND p1.pseudo_prepid < 8388600{sample_type_clause}
+    AND p1.pseudo_prepid < 111000{sample_type_clause}
     AND NOT EXISTS (
     SELECT 1
     FROM dragen_pipeline_step p2
