@@ -21,12 +21,26 @@ from pwd import getpwuid
 from gzip import open as gopen
 from string import Formatter
 from math import ceil
+from check_vcf import check_vcf
+from check_bam import check_bam
 from dragen_db_statements import *
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.realpath(__file__)))), "import", "src"))
 from waldb_globals import *
 
 warnings.filterwarnings("error", category=MySQLdb.Warning)
+
+class ArchiveDirectoryAlreadyExists(Exception):
+    pass
+
+class VCFCheckException(Exception):
+    pass
+
+class BAMCheckException(Exception):
+    pass
+
+class RsyncException(Exception):
+    pass
 
 def owner(fn):
     """Return the user name of the owner of the specified file
@@ -187,6 +201,8 @@ class FileExists(luigi.ExternalTask):
 
 class ValidateBAM(SGEJobTask):
     bam = luigi.Parameter(description="the expected path to the BAM to check")
+    check_counts = luigi.BoolParameter(
+        default=False, description="check read counts by chromosome")
     dont_remove_tmp_dir = False # remove the temporary directory iff this task succeeds
     dont_remove_tmp_dir_if_failure = True # don't remove if it fails
 
@@ -200,12 +216,10 @@ class ValidateBAM(SGEJobTask):
             # MT check doesn't work properly, just check for 'EOF marker is # absent' message
             #p = subprocess.Popen(["samtools", "view", "-H", self.bam],
             #                     stdout=devnull, stderr=subprocess.PIPE)
-            p = subprocess.Popen(["samtools", "view", self.bam],
-                                 stdout=devnull, stderr=subprocess.PIPE)
-            _, err = p.communicate()
-            if p.returncode or "EOF marker is absent" in err:
+            errors = check_bam(self.bam, self.check_counts)
+            if errors:
                 with open(self.bam + ".corrupted", "w"): pass
-                raise Exception("Corrupt BAM!")
+                raise BAMCheckException("\n".join(errors))
             else:
                 with self.output().open("w"): pass
 
@@ -227,7 +241,8 @@ class RealignerTargetCreator(JavaPipelineTask):
             "-known {dbSNP} -nt {n_cpu} {intervals_param} {silly_arg}")]
 
     def requires(self):
-        return ValidateBAM(bam=self.scratch_bam)
+        return ValidateBAM(bam=self.scratch_bam,
+                           check_counts=self.sample_type != "CUSTOM_CAPTURE")
 
 class IndelRealigner(JavaPipelineTask):
     n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
@@ -668,9 +683,6 @@ class SubsetVCF(GATKFPipelineTask):
     def requires(self):
         return self.clone(AnnotateVCF)
 
-class ArchiveDirectoryAlreadyExists(Exception):
-    pass
-
 class ArchiveSample(GATKFPipelineTask):
     """ Archive samples on Amplidata """
     n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 7
@@ -689,6 +701,7 @@ class ArchiveSample(GATKFPipelineTask):
         else:
             self.base_dir = os.path.join(
                 self.config_parameters["base"], self.sample_type, self.name_prep)
+        self.check_counts = self.sample_type != "CUSTOM_CAPTURE"
 
     def pre_shell_commands(self):
         self.script_dir = os.path.join(self.scratch_dir, "scripts")
@@ -704,6 +717,13 @@ class ArchiveSample(GATKFPipelineTask):
         if os.path.isdir(self.base_dir):
             raise ArchiveDirectoryAlreadyExists(
                 "the archive location, '{}', already exists".format(self.base_dir))
+
+        vcf_errors = check_vcf(self.annotated_vcf_gz, self.check_counts)
+        if vcf_errors:
+            raise VCFCheckException("\n".join(vcf_errors))
+        bam_errors = check_bam(self.recal_bam, self.check_counts)
+        if bam_errors:
+            raise BAMCheckException("\n".join(bam_errors))
 
         with tarfile.open(self.pipeline_tarball, "w:gz") as tar:
             for d in (self.script_dir, self.log_dir):
@@ -721,18 +741,18 @@ class ArchiveSample(GATKFPipelineTask):
         if not os.path.isdir(self.base_dir):
             os.makedirs(self.base_dir)
 
-        data_to_copy = [
+        self.data_to_copy = [
             "{pipeline_tarball}", "{recal_bam}", "{recal_bam_index}",
             "{annotated_vcf_gz}", "{annotated_vcf_gz_index}", "{gvcf}",
             "{gvcf_index}", "{cvg_tarball}", "{gq_tarball}", "{raw_coverage}"]
         if self.sample_type == "GENOME":
             if os.path.isfile(self.original_vcf_gz):
-                data_to_copy.append("{original_vcf_gz}")
+                self.data_to_copy.append("{original_vcf_gz}")
         if self.sample_type == "GENOME_AS_FAKE_EXOME":
             # copy original BAM in this case as well in case we want to
             # reprocess as an actual genome laster
-            data_to_copy.append("{scratch_bam} {scratch_bam}.bai")
-        for data_file in data_to_copy:
+            self.data_to_copy.extend(["{scratch_bam}", "{scratch_bam}.bai"])
+        for data_file in self.data_to_copy:
             self.commands.append(self.format_string(
                 "rsync -grlt --inplace --partial " + data_file + " {base_dir}"))
 
@@ -754,7 +774,25 @@ class ArchiveSample(GATKFPipelineTask):
                     os.chmod(f, 0664)
                     os.chown(f, uid, gid)
 
-        ## Update the AlignSeqFile loc to the final archive location
+        # re-check the archived data to ensure its integrity before deleting the
+        # scratch directory
+        for data_file in self.data_to_copy:
+            scratch_fn = self.format_string(data_file)
+            archived_fn = os.path.join(self.base_dir, os.path.basename(scratch_fn))
+            if os.path.getsize(scratch_fn) != os.path.getsize(archived_fn):
+                raise RsyncException("Data size of original file ({}) does not "
+                                     "match the archived version ({})!".format(
+                                         scratch_fn, archived_fn))
+        vcf_errors = check_vcf(
+            os.path.join(self.base_dir, os.path.basename(self.annotated_vcf_gz)),
+            self.check_counts)
+        if vcf_errors:
+            raise VCFCheckException("\n".join(vcf_errors))
+        bam_errors = check_bam(
+            os.path.join(self.base_dir, os.path.basename(self.recal_bam)),
+            self.check_counts)
+        if bam_errors:
+            raise BAMCheckException("\n".join(bam_errors))
         location = "{0}/{1}".format(
             self.config_parameters["base"], self.sample_type)
         db = get_connection("seqdb")
@@ -765,7 +803,7 @@ class ArchiveSample(GATKFPipelineTask):
         finally:
             if db.open:
                 db.close()
-        #rmtree(self.scratch_dir)
+        rmtree(self.scratch_dir)
 
     def run(self):
         try:
@@ -1112,7 +1150,8 @@ class DuplicateMetrics(GATKFPipelineTask):
             raise ValueError("Could not find duplicate metrics in dragen log!")
 
     def requires(self):
-        return ValidateBAM(bam=self.scratch_bam)#, FileExists(self.dragen_log)
+        return ValidateBAM(bam=self.scratch_bam,
+                           check_counts=self.sample_type != "CUSTOM_CAPTURE")#, FileExists(self.dragen_log)
 
 class VariantCallingMetrics(GATKFPipelineTask):
     def pre_shell_commands(self):
