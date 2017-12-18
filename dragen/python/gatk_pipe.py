@@ -216,12 +216,13 @@ class ValidateBAM(SGEJobTask):
             # MT check doesn't work properly, just check for 'EOF marker is # absent' message
             #p = subprocess.Popen(["samtools", "view", "-H", self.bam],
             #                     stdout=devnull, stderr=subprocess.PIPE)
-            errors = check_bam(self.bam, self.check_counts)
-            if errors:
-                with open(self.bam + ".corrupted", "w"): pass
-                raise BAMCheckException("\n".join(errors))
-            else:
-                with self.output().open("w"): pass
+            if "DEBUG_INTERVALS" not in os.environ:
+                errors = check_bam(self.bam, self.check_counts)
+                if errors:
+                    with open(self.bam + ".corrupted", "w"): pass
+                    raise BAMCheckException("\n".join(errors))
+                else:
+                    with self.output().open("w"): pass
 
     def requires(self):
         return FileExists(self.bam)
