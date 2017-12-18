@@ -34,7 +34,8 @@ def check_bam(bam_fn, check_read_counts=True):
         for read_group in bam.header["RG"]:
             # the ID in our BAMs is the flowcell.lane, but the FASTQ record will
             # be flowcell:lane
-            read_groups[read_group["ID"]] = ":" + read_group["PU"].replace(".", ":") + ":"
+            pu = ":".join(read_group["PU"].replace(".", ":")[:2])
+            read_groups[read_group["ID"]] = ":{pu}:".format(pu=pu)
         for x, read in enumerate(bam.fetch(until_eof=True)):
             if check_read_counts:
                 if not read.is_unmapped:
