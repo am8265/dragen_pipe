@@ -207,16 +207,16 @@ class ValidateBAM(SGEJobTask):
     dont_remove_tmp_dir_if_failure = True # don't remove if it fails
 
     def work(self):
-        with open(os.devnull, "w") as devnull:
-            # dsth : oct, 11
-            # so this is a bit pointless as is - i.e. it's just decompressing without checking so all 
-            # it really does it check the for EOF block - which samtools will do even when only checking 
-            # the header - but it makes quick tests run slowly without truncating the bam so for now
-            # it whould either use -H or MT alone...
-            # MT check doesn't work properly, just check for 'EOF marker is # absent' message
-            #p = subprocess.Popen(["samtools", "view", "-H", self.bam],
-            #                     stdout=devnull, stderr=subprocess.PIPE)
-            if "DEBUG_INTERVALS" not in os.environ:
+        if "DEBUG_INTERVALS" not in os.environ:
+            with open(os.devnull, "w") as devnull:
+                # dsth : oct, 11
+                # so this is a bit pointless as is - i.e. it's just decompressing without checking so all 
+                # it really does it check the for EOF block - which samtools will do even when only checking 
+                # the header - but it makes quick tests run slowly without truncating the bam so for now
+                # it whould either use -H or MT alone...
+                # MT check doesn't work properly, just check for 'EOF marker is # absent' message
+                #p = subprocess.Popen(["samtools", "view", "-H", self.bam],
+                #                     stdout=devnull, stderr=subprocess.PIPE)
                 errors = check_bam(self.bam, self.check_counts)
                 if errors:
                     with open(self.bam + ".corrupted", "w"): pass
