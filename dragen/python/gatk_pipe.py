@@ -723,7 +723,8 @@ class ArchiveSample(GATKFPipelineTask):
 
         vcf_errors = check_vcf(self.annotated_vcf_gz, self.check_counts)
         if vcf_errors:
-            raise VCFCheckException("\n".join(vcf_errors))
+            if "DEBUG_INTERVALS" not in os.environ:
+                raise VCFCheckException("\n".join(vcf_errors))
         bam_errors = check_bam(self.recal_bam, self.check_counts)
         if bam_errors:
             if "DEBUG_INTERVALS" not in os.environ:
