@@ -304,6 +304,9 @@ class HaplotypeCaller(JavaPipelineTask):
             "-GQB 5 -GQB 15 -GQB 20 -GQB 60 --variant_index_type LINEAR "
             "--variant_index_parameter 128000 --dbsnp {dbSNP} -nct {n_cpu}")]
 
+    def post_shell_commands(self):
+        check_vcf(self.gvcf)
+
     def requires(self):
         return self.clone(PrintReads)
 
@@ -313,6 +316,9 @@ class GenotypeGVCFs(GATKFPipelineTask):
         self.commands = [self.format_string(
             "{java} -jar {gatk} -R {ref_genome} -T GenotypeGVCFs "
             "-L {interval} -o {vcf} -stand_call_conf 20 -stand_emit_conf 20 -V {gvcf}")]
+
+    def post_shell_commands(self):
+        check_vcf(self.vcf)
 
     def requires(self):
         return self.clone(HaplotypeCaller)
@@ -324,6 +330,9 @@ class SelectVariantsSNP(GATKFPipelineTask):
             "{java} -jar {gatk} -R {ref_genome} -T SelectVariants "
             "-L {interval} -V {vcf}  -selectType SNP -o {snp_vcf}")]
 
+    def post_shell_commands(self):
+        check_vcf(self.snp_vcf)
+
     def requires(self):
         return self.clone(GenotypeGVCFs)
 
@@ -332,6 +341,9 @@ class SelectVariantsINDEL(GATKFPipelineTask):
         self.commands = [self.format_string(
             "{java} -jar {gatk} -R {ref_genome} -T SelectVariants "
             "-L {interval} -V {vcf}  -selectType INDEL -o {indel_vcf}")]
+
+    def post_shell_commands(self):
+        check_vcf(self.indel_vcf)
 
     def requires(self):
         return self.clone(GenotypeGVCFs)
@@ -370,6 +382,9 @@ class VariantFiltrationSNP(GATKFPipelineTask):
             '"QD < 2.0 || FS > 60.0 || MQ < 40.0 || MQRankSum < -12.5 || '
             'ReadPosRankSum < -8.0" --filterName "SNP_filter" -o {snp_filtered}')]
 
+    def post_shell_commands(self):
+        check_vcf(self.snp_filtered)
+
     def requires(self):
         return self.clone(SelectVariantsSNP)
 
@@ -396,6 +411,9 @@ class ApplyRecalibrationSNP(GATKFPipelineTask):
             "-tranchesFile {snp_tranches} -recalFile {snp_recal} "
             "-o {snp_filtered} --ts_filter_level 90.0 -mode SNP")]
 
+    def post_shell_commands(self):
+        check_vcf(self.snp_filtered)
+
     def requires(self):
         return self.clone(VariantRecalibratorSNP)
 
@@ -407,6 +425,9 @@ class ApplyRecalibrationINDEL(GATKFPipelineTask):
             "-tranchesFile {indel_tranches} -recalFile {indel_recal} "
             "-o {indel_filtered} --ts_filter_level 90.0 -mode INDEL")]
 
+    def post_shell_commands(self):
+        check_vcf(self.indel_filtered)
+
     def requires(self):
       return self.clone(VariantRecalibratorINDEL)
 
@@ -417,6 +438,9 @@ class VariantFiltrationINDEL(GATKFPipelineTask):
             '-L {interval} -V {indel_vcf} --filterExpression '
             '"QD < 2.0 || FS > 200.0 || ReadPosRankSum < -20.0" --filterName '
             '"INDEL_filter"  -o {indel_filtered}')]
+
+    def post_shell_commands(self):
+        check_vcf(self.indel_filtered)
 
     def requires(self):
       return self.clone(SelectVariantsINDEL)
@@ -478,6 +502,9 @@ class CombineVariants(GATKFPipelineTask):
         self.commands.append(self.format_string(
             "{tabix} -f {final_vcf_gz}"))
 
+    def post_shell_commands(self):
+        check_vcf(self.final_vcf_gz)
+
     def requires(self):
         if self.sample_type in ("EXOME", "GENOME", "GENOME_AS_FAKE_EXOME"):
             yield self.clone(ApplyRecalibrationSNP)
@@ -502,6 +529,9 @@ class RBP(GATKFPipelineTask):
             "--enableMergePhasedSegregatingPolymorphismsToMNP "
             "-U ALLOW_SEQ_DICT_INCOMPATIBILITY")]
 
+    def post_shell_commands(self):
+        check_vcf(self.phased_vcf)
+
     def requires(self):
         return self.clone(CombineVariants), self.clone(PrintReads)
 
@@ -512,7 +542,7 @@ class FixMergedMNPInfo(GATKFPipelineTask):
     and add these information to the fixed vcf """
     def post_shell_commands(self):
         self.fix_phased_vcf()
-        #os.remove(self.phased_vcf)
+        check_vcf(self.fixed_vcf)
 
     def fix_phased_vcf(self):
         """ Fix the missing DP and AD fields for the phased variants
@@ -657,6 +687,9 @@ class AnnotateVCF(GATKFPipelineTask):
             #self.format_string("{bgzip} -f {annotated_vcf}"),
             self.format_string("{tabix} -f {annotated_vcf_gz}")]
 
+    def post_shell_commands(self):
+        check_vcf(self.annotated_vcf_gz)
+
     def requires(self):
         return self.clone(FixMergedMNPInfo)
 
@@ -682,6 +715,9 @@ class SubsetVCF(GATKFPipelineTask):
         self.commands = [
             self.subset_cmd, self.bgzip_cmd, self.rename1, self.rename2,
             self.tabix_cmd1, self.tabix_cmd2]
+
+    def post_shell_commands(self):
+        check_vcf(self.annotated_vcf_gz)
 
     def requires(self):
         return self.clone(AnnotateVCF)
