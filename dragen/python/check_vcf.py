@@ -46,23 +46,31 @@ def check_vcf(vcf_fn, check_variant_counts=True, debug=False):
             ccds_bases = load(open(CCDS_BASES, "rb"))
             ccds_variant_count = 0
         header_finished = False
-        for x, line in enumerate(vcf_fh):
-            if set(line) - printable_set:
-                errors.append("Non-printable character(s) on line {}".format(
-                    x + 1))
-                continue
-            if not header_finished:
-                if line.startswith("#CHROM"):
-                    header_finished = True
-                continue
-            if check_variant_counts:
-                fields = line.split("\t")
-                chromosome = fields[0]
-                if chromosome in CHROMOSOMES:
-                    position = int(fields[1])
-                    if position in ccds_bases[chromosome]:
-                        ccds_variant_count += 1
-                        ccds_variant_counts_by_chromosome[chromosome] += 1
+        try:
+            for x, line in enumerate(vcf_fh):
+                if set(line) - printable_set:
+                    errors.append("Non-printable character(s) on line {}".format(
+                        x + 1))
+                    continue
+                if not header_finished:
+                    if line.startswith("#CHROM"):
+                        header_finished = True
+                    continue
+                if check_variant_counts:
+                    fields = line.split("\t")
+                    chromosome = fields[0]
+                    if chromosome in CHROMOSOMES:
+                        position = int(fields[1])
+                        if position in ccds_bases[chromosome]:
+                            ccds_variant_count += 1
+                            ccds_variant_counts_by_chromosome[chromosome] += 1
+        except IOError:
+            errors.append("Reached line #{} after which there is a gzip error".format(
+                x + 1))
+        finally:
+            if not vcf_fh.closed:
+                fh.close()
+
         if check_variant_counts:
             if ccds_variant_count < MIN_CCDS_VARIANTS:
                 msg = ("Minimum # of CCDS variants ({}) not met: {}".
