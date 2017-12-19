@@ -318,7 +318,7 @@ class GenotypeGVCFs(GATKFPipelineTask):
             "-L {interval} -o {vcf} -stand_call_conf 20 -stand_emit_conf 20 -V {gvcf}")]
 
     def post_shell_commands(self):
-        check_vcf(self.vcf)
+        check_vcf(self.vcf, self.check_variant_counts)
 
     def requires(self):
         return self.clone(HaplotypeCaller)
@@ -503,7 +503,7 @@ class CombineVariants(GATKFPipelineTask):
             "{tabix} -f {final_vcf_gz}"))
 
     def post_shell_commands(self):
-        check_vcf(self.final_vcf_gz)
+        check_vcf(self.final_vcf_gz, self.check_variant_counts)
 
     def requires(self):
         if self.sample_type in ("EXOME", "GENOME", "GENOME_AS_FAKE_EXOME"):
@@ -530,7 +530,7 @@ class RBP(GATKFPipelineTask):
             "-U ALLOW_SEQ_DICT_INCOMPATIBILITY")]
 
     def post_shell_commands(self):
-        check_vcf(self.phased_vcf)
+        check_vcf(self.phased_vcf, self.check_variant_counts)
 
     def requires(self):
         return self.clone(CombineVariants), self.clone(PrintReads)
@@ -542,7 +542,7 @@ class FixMergedMNPInfo(GATKFPipelineTask):
     and add these information to the fixed vcf """
     def post_shell_commands(self):
         self.fix_phased_vcf()
-        check_vcf(self.fixed_vcf)
+        check_vcf(self.fixed_vcf, self.check_variant_counts)
 
     def fix_phased_vcf(self):
         """ Fix the missing DP and AD fields for the phased variants
@@ -688,7 +688,7 @@ class AnnotateVCF(GATKFPipelineTask):
             self.format_string("{tabix} -f {annotated_vcf_gz}")]
 
     def post_shell_commands(self):
-        check_vcf(self.annotated_vcf_gz)
+        check_vcf(self.annotated_vcf_gz, self.check_variant_counts)
 
     def requires(self):
         return self.clone(FixMergedMNPInfo)
@@ -717,7 +717,7 @@ class SubsetVCF(GATKFPipelineTask):
             self.tabix_cmd1, self.tabix_cmd2]
 
     def post_shell_commands(self):
-        check_vcf(self.annotated_vcf_gz)
+        check_vcf(self.annotated_vcf_gz, self.check_variant_counts)
 
     def requires(self):
         return self.clone(AnnotateVCF)
@@ -757,7 +757,7 @@ class ArchiveSample(GATKFPipelineTask):
             raise ArchiveDirectoryAlreadyExists(
                 "the archive location, '{}', already exists".format(self.base_dir))
 
-        vcf_errors = check_vcf(self.annotated_vcf_gz, self.check_counts)
+        vcf_errors = check_vcf(self.annotated_vcf_gz, self.check_variant_counts)
         if vcf_errors:
             if "DEBUG_INTERVALS" not in os.environ:
                 raise VCFCheckException("\n".join(vcf_errors))
@@ -826,7 +826,7 @@ class ArchiveSample(GATKFPipelineTask):
                                          scratch_fn, archived_fn))
         vcf_errors = check_vcf(
             os.path.join(self.base_dir, os.path.basename(self.annotated_vcf_gz)),
-            self.check_counts)
+            self.check_variant_counts)
         if vcf_errors:
             if "DEBUG_INTERVALS" not in os.environ:
                 raise VCFCheckException("\n".join(vcf_errors))
