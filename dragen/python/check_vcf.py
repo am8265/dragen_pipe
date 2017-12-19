@@ -29,7 +29,7 @@ CCDS_VARIANTS_RANGE_BY_CHROMOSOME = {
     "17":(451, 2053), "18":(138, 616), "19":(381, 3236), "20":(155, 929),
     "21":(59, 528), "22":(87, 872), "X":(59, 1028)}
 
-def check_vcf(vcf_fn, check_variant_counts=True, debug=False):
+def check_vcf(vcf_fn, check_variant_counts=False, debug=False):
     if not os.path.isfile(vcf_fn):
         raise OSError("{} does not exist!".format(vcf_fn))
     if vcf_fn.endswith(".gz"):
