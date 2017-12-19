@@ -69,7 +69,7 @@ def check_vcf(vcf_fn, check_variant_counts=True, debug=False):
                 x + 1))
         finally:
             if not vcf_fh.closed:
-                fh.close()
+                vcf_fh.close()
 
         if check_variant_counts:
             if ccds_variant_count < MIN_CCDS_VARIANTS:
