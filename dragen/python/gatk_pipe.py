@@ -1611,6 +1611,8 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
                 if line.startswith("#CHROM"):
                     break
             header_fields = line[1:].strip().split("\t")
+            # strip off .pseudo_prepid suffix if present
+            header_fields[9] = header_fields[9].split(".")[0] 
             for line in vcf_fh:
                 fields = dict(zip(header_fields, line.strip().split("\t")))
                 lREF = len(fields["REF"])
