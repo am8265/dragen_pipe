@@ -305,7 +305,9 @@ class HaplotypeCaller(JavaPipelineTask):
             "--variant_index_parameter 128000 --dbsnp {dbSNP} -nct {n_cpu}")]
 
     def post_shell_commands(self):
-        check_vcf(self.gvcf)
+        errors = check_vcf(self.gvcf)
+        if errors:
+            raise VCFCheckException("\n".join(errors))
 
     def requires(self):
         return self.clone(PrintReads)
@@ -318,7 +320,9 @@ class GenotypeGVCFs(GATKFPipelineTask):
             "-L {interval} -o {vcf} -stand_call_conf 20 -stand_emit_conf 20 -V {gvcf}")]
 
     def post_shell_commands(self):
-        check_vcf(self.vcf, self.check_variant_counts)
+        errors = check_vcf(self.vcf, self.check_variant_counts)
+        if errors:
+            raise VCFCheckException("\n".join(errors))
 
     def requires(self):
         return self.clone(HaplotypeCaller)
@@ -331,7 +335,9 @@ class SelectVariantsSNP(GATKFPipelineTask):
             "-L {interval} -V {vcf}  -selectType SNP -o {snp_vcf}")]
 
     def post_shell_commands(self):
-        check_vcf(self.snp_vcf)
+        errors = check_vcf(self.snp_vcf)
+        if errors:
+            raise VCFCheckException("\n".join(errors))
 
     def requires(self):
         return self.clone(GenotypeGVCFs)
@@ -343,7 +349,9 @@ class SelectVariantsINDEL(GATKFPipelineTask):
             "-L {interval} -V {vcf}  -selectType INDEL -o {indel_vcf}")]
 
     def post_shell_commands(self):
-        check_vcf(self.indel_vcf)
+        errors = check_vcf(self.indel_vcf)
+        if errors:
+            raise VCFCheckException("\n".join(errors))
 
     def requires(self):
         return self.clone(GenotypeGVCFs)
@@ -383,7 +391,9 @@ class VariantFiltrationSNP(GATKFPipelineTask):
             'ReadPosRankSum < -8.0" --filterName "SNP_filter" -o {snp_filtered}')]
 
     def post_shell_commands(self):
-        check_vcf(self.snp_filtered)
+        errors = check_vcf(self.snp_filtered)
+        if errors:
+            raise VCFCheckException("\n".join(errors))
 
     def requires(self):
         return self.clone(SelectVariantsSNP)
@@ -412,7 +422,9 @@ class ApplyRecalibrationSNP(GATKFPipelineTask):
             "-o {snp_filtered} --ts_filter_level 90.0 -mode SNP")]
 
     def post_shell_commands(self):
-        check_vcf(self.snp_filtered)
+        errors = check_vcf(self.snp_filtered)
+        if errors:
+            raise VCFCheckException("\n".join(errors))
 
     def requires(self):
         return self.clone(VariantRecalibratorSNP)
@@ -426,7 +438,9 @@ class ApplyRecalibrationINDEL(GATKFPipelineTask):
             "-o {indel_filtered} --ts_filter_level 90.0 -mode INDEL")]
 
     def post_shell_commands(self):
-        check_vcf(self.indel_filtered)
+        errors = check_vcf(self.indel_filtered)
+        if errors:
+            raise VCFCheckException("\n".join(errors))
 
     def requires(self):
       return self.clone(VariantRecalibratorINDEL)
@@ -440,7 +454,9 @@ class VariantFiltrationINDEL(GATKFPipelineTask):
             '"INDEL_filter"  -o {indel_filtered}')]
 
     def post_shell_commands(self):
-        check_vcf(self.indel_filtered)
+        errors = check_vcf(self.indel_filtered)
+        if errors:
+            raise VCFCheckException("\n".join(errors))
 
     def requires(self):
       return self.clone(SelectVariantsINDEL)
@@ -503,7 +519,9 @@ class CombineVariants(GATKFPipelineTask):
             "{tabix} -f {final_vcf_gz}"))
 
     def post_shell_commands(self):
-        check_vcf(self.final_vcf_gz, self.check_variant_counts)
+        errors = check_vcf(self.final_vcf_gz, self.check_variant_counts)
+        if errors:
+            raise VCFCheckException("\n".join(errors))
 
     def requires(self):
         if self.sample_type in ("EXOME", "GENOME", "GENOME_AS_FAKE_EXOME"):
@@ -530,7 +548,9 @@ class RBP(GATKFPipelineTask):
             "-U ALLOW_SEQ_DICT_INCOMPATIBILITY")]
 
     def post_shell_commands(self):
-        check_vcf(self.phased_vcf, self.check_variant_counts)
+        errors = check_vcf(self.phased_vcf, self.check_variant_counts)
+        if errors:
+            raise VCFCheckException("\n".join(errors))
 
     def requires(self):
         return self.clone(CombineVariants), self.clone(PrintReads)
@@ -542,7 +562,9 @@ class FixMergedMNPInfo(GATKFPipelineTask):
     and add these information to the fixed vcf """
     def post_shell_commands(self):
         self.fix_phased_vcf()
-        check_vcf(self.fixed_vcf, self.check_variant_counts)
+        errors = check_vcf(self.fixed_vcf, self.check_variant_counts)
+        if errors:
+            raise VCFCheckException("\n".join(errors))
 
     def fix_phased_vcf(self):
         """ Fix the missing DP and AD fields for the phased variants
@@ -688,7 +710,9 @@ class AnnotateVCF(GATKFPipelineTask):
             self.format_string("{tabix} -f {annotated_vcf_gz}")]
 
     def post_shell_commands(self):
-        check_vcf(self.annotated_vcf_gz, self.check_variant_counts)
+        errors = check_vcf(self.annotated_vcf_gz, self.check_variant_counts)
+        if errors:
+            raise VCFCheckException("\n".join(errors))
 
     def requires(self):
         return self.clone(FixMergedMNPInfo)
@@ -717,7 +741,9 @@ class SubsetVCF(GATKFPipelineTask):
             self.tabix_cmd1, self.tabix_cmd2]
 
     def post_shell_commands(self):
-        check_vcf(self.annotated_vcf_gz, self.check_variant_counts)
+        errors = check_vcf(self.annotated_vcf_gz, self.check_variant_counts)
+        if errors:
+            raise VCFCheckException("\n".join(errors))
 
     def requires(self):
         return self.clone(AnnotateVCF)
