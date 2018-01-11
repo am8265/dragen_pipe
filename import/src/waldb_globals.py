@@ -23,6 +23,8 @@ import subprocess
 from luigi.contrib.sge import SGEJobTask
 from shlex import split as sxsplit
 from pprint import pprint
+import socket
+import getpass
 
 cfg = RawConfigParser()
 cfg.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "waldb.cfg"))
@@ -59,6 +61,42 @@ def confirm_no_uncommitted_changes():
     except subprocess.CalledProcessError:
         raise GitRepoError("Could not check for uncommitted changes in the pipeline; "
                            "maybe run it from a directory in the repo?")
+
+# really inefficient but considering how often luigi hits the db who gives $^%#$%...
+def _i_hate_python_really_hate_luigi(p_prepid):
+    seqdb = get_connection("seqdb")
+    try:
+        seq_cur = seqdb.cursor()
+        seq_cur.execute( 
+            "SELECT seqscratch_drive, sample_type, sample_name FROM dragen_sample_metadata WHERE pseudo_prepid = {prep_id}"
+              .format(prep_id=p_prepid)
+        )
+        row = seq_cur.fetchone()
+        if row:
+            # should we just put this junk in the db
+            seqscratch_drive, sample_type, sample_name = row
+            lf = "/nfs/{}/ALIGNMENT/BUILD37/DRAGEN/{}/{}.{}/who.txt".format( seqscratch_drive, sample_type.upper(), sample_name, p_prepid )
+            # os.path.join('nfs', seqscratch_drive, 'ALIGNMENT', 'BUILD37', 'DRAGEN', sample_type, sample_name + '.' + str( p_prepid) )
+            lock = "{}@{}".format(getpass.getuser(), socket.gethostname())
+            print("we are running in %s - by %s - from %s" % (lf , getpass.getuser(), socket.gethostname() ) )
+            if os.path.isfile(lf):
+                print("check for %s" % (lock))
+                with open(lf,"r") as f:
+                    if f.read()==lock:
+                        print("here we go!")
+                    else:
+                        raise ValueError("who're you? I'm currently locked for {}!".format(lock))
+            else:
+                print("create file with %s " % (lf))
+                with open(lf,"w") as f:
+                    f.write(lock)
+        else:
+            raise ValueError("Couldn't find sample metadata for {}!".format(p_prepid))
+    finally:
+        if seqdb.open:
+            seqdb.close()
+    # print("GO AWAY : %d" % p_prepid)
+    # exit(1)
 
 def confirm_proper_branch():
     try:
@@ -441,6 +479,7 @@ class PipelineTask(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(PipelineTask, self).__init__(*args, **kwargs)
+        _i_hate_python_really_hate_luigi(self.pseudo_prepid)
         confirm_no_uncommitted_changes()
         confirm_proper_branch()
         self.pipeline_step_id = self._get_pipeline_step_id()
@@ -483,6 +522,8 @@ class PipelineTask(SGEJobTask):
         set its start time, and increment its times_ran counter
         """
         self._set_pipeline_version()
+        # nah, do it during initialization...
+        # self._i_hate_python_really_hate_luigi()
         self._update_step_start_time()
         try:
             super(PipelineTask, self).run()
