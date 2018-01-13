@@ -139,6 +139,8 @@ def run_gatk(max_samples_concurrently, workers, additional_sample_requirements,
     gatk.process_samples()
 
 if __name__ == "__main__":
+    print("I'm deprecated")
+    exit(1)
     #confirm_no_uncommitted_changes()
     confirm_proper_branch()
     parser = argparse.ArgumentParser(
