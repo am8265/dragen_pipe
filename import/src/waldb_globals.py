@@ -63,7 +63,7 @@ def confirm_no_uncommitted_changes():
                            "maybe run it from a directory in the repo?")
 
 # really inefficient but considering how often luigi hits the db who gives $^%#$%...
-def _i_hate_python_really_hate_luigi(p_prepid):
+def _i_hate_python_but_i_really_hate_luigi(p_prepid):
     seqdb = get_connection("seqdb")
     try:
         seq_cur = seqdb.cursor()
@@ -77,15 +77,16 @@ def _i_hate_python_really_hate_luigi(p_prepid):
             seqscratch_drive, sample_type, sample_name = row
             lf = "/nfs/{}/ALIGNMENT/BUILD37/DRAGEN/{}/{}.{}/who.txt".format( seqscratch_drive, sample_type.upper(), sample_name, p_prepid )
             # os.path.join('nfs', seqscratch_drive, 'ALIGNMENT', 'BUILD37', 'DRAGEN', sample_type, sample_name + '.' + str( p_prepid) )
-            lock = "{}@{}".format(getpass.getuser(), socket.gethostname())
+            lock = "{}@{}@{}".format(getpass.getuser(), socket.gethostname(), os.getpid())
             print("we are running in %s - by %s - from %s" % (lf , getpass.getuser(), socket.gethostname() ) )
             if os.path.isfile(lf):
                 print("check for %s" % (lock))
                 with open(lf,"r") as f:
-                    if f.read()==lock:
+                    x=f.read()
+                    if x==lock:
                         print("here we go!")
                     else:
-                        raise ValueError("who're you? I'm currently locked for {}!".format(lock))
+                        raise ValueError("\n\nHmm, {}\nwho're you? I'm already locked for {}!\n".format(lf,x))
             else:
                 print("create file with %s " % (lf))
                 with open(lf,"w") as f:
@@ -479,8 +480,8 @@ class PipelineTask(SGEJobTask):
 
     def __init__(self, *args, **kwargs):
         super(PipelineTask, self).__init__(*args, **kwargs)
-        _i_hate_python_really_hate_luigi(self.pseudo_prepid)
-        confirm_no_uncommitted_changes()
+        _i_hate_python_but_i_really_hate_luigi(self.pseudo_prepid)
+        # confirm_no_uncommitted_changes()
         confirm_proper_branch()
         self.pipeline_step_id = self._get_pipeline_step_id()
         # these will be passed onto subprocess, overwrite in pre_shell_commands

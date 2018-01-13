@@ -177,6 +177,22 @@ class GATKFPipelineTask(GATKPipelineTask):
         self.config_parameters.update(kwargs)
         return s.format(**self.config_parameters)
 
+    def archive_helper(self):
+
+        self.data_to_copy = [ "{pipeline_tarball}", "{recal_bam}", "{recal_bam_index}", "{annotated_vcf_gz}", 
+          "{annotated_vcf_gz_index}", "{gvcf}", "{gvcf_index}", "{cvg_tarball}", "{gq_tarball}", "{raw_coverage}"
+        ]
+
+        if self.sample_type == "GENOME":
+            if os.path.isfile(self.original_vcf_gz):
+                self.data_to_copy.append("{original_vcf_gz}")
+
+        # copy original BAM in this case as well in case we want to reprocess as an actual genome laster
+        if self.sample_type == "GENOME_AS_FAKE_EXOME":
+            self.data_to_copy.extend(["{scratch_bam}", "{scratch_bam}.bai"])
+
+##################################################################
+
 class JavaPipelineTask(GATKFPipelineTask):
     """Handle java's potentially large memory requirements by for example
     specifying that if one slot is requested, we get 24 GB memory/slot, or if 4
@@ -748,13 +764,94 @@ class SubsetVCF(GATKFPipelineTask):
     def requires(self):
         return self.clone(AnnotateVCF)
 
-class ArchiveSample(GATKFPipelineTask):
-    """ Archive samples on Amplidata """
+class PreArchiveChecks(GATKFPipelineTask):
+
     n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 7
-    prept_start_message = "Data Archival"
-    prept_completed_message = "Data Archival"
+    prept_start_message = "PreArchiveChecks"
+    prept_completed_message = "PreArchiveChecks"
+    # prept_start_message = prept_completed_message = __class__.__name__
+
     dont_remove_tmp_dir = False # remove the temporary directory iff this task succeeds
     dont_remove_tmp_dir_if_failure = True # don't remove if it fails
+
+    def requires(self):
+        if self.sample_name.upper().startswith('SRR'):
+            yield self.clone(SubsetVCF)
+        yield self.clone(UpdateSeqdbMetrics)
+
+    def __init__(self, *args, **kwargs):
+
+        super(PreArchiveChecks, self).__init__(*args, **kwargs)
+
+        if (self.sample_name.upper().startswith('PGMCLIN') or self.sample_name.upper().startswith('PGMVIP')):
+            self.base_dir = os.path.join( "/nfs/pgmclin/ALIGNMENT/BUILD37/DRAGEN/", self.sample_type, self.name_prep )
+        else:
+            self.base_dir = os.path.join( self.config_parameters["base"], self.sample_type, self.name_prep )
+
+        self.check_counts = self.sample_type != "CUSTOM_CAPTURE"
+
+    def pre_shell_commands(self):
+
+        self.script_dir = os.path.join(self.scratch_dir, "scripts")
+
+        self.pipeline_tarball   = ( "{scratch_dir}/{name_prep}.pipeline_data.tar.gz".format( scratch_dir=self.scratch_dir, name_prep=self.name_prep) )
+        self.cvg_tarball        = ( "{cov_dir}/coverage.tar.gz".format(cov_dir=self.cov_dir) )
+        self.gq_tarball         = ( "{gq_dir}/gq.tar.gz".format(gq_dir=self.gq_dir) )
+        self.raw_coverage       = os.path.join( self.scratch_dir, "{}.coverage_bins".format(self.name_prep) )
+
+        if os.path.isdir(self.base_dir): #### self.base_dir aka archive dir
+            raise ArchiveDirectoryAlreadyExists( "the archive location, '{}', already exists".format(self.base_dir) )
+
+        ##### checks
+        vcf_errors = check_vcf(self.annotated_vcf_gz, self.check_variant_counts)
+        if vcf_errors:
+            if "DEBUG_INTERVALS" not in os.environ:
+                raise VCFCheckException( "\n".join(vcf_errors) )
+
+        bam_errors = check_bam( self.recal_bam, self.check_counts )
+        if bam_errors:
+            if "DEBUG_INTERVALS" not in os.environ:
+                raise BAMCheckException( "\n".join(bam_errors) )
+
+        ##### tar-up the bits
+        with tarfile.open(  self.pipeline_tarball, "w:gz"   ) as tar:
+            for d in (self.script_dir, self.log_dir):
+                tar.add( d, arcname=os.path.basename(d) )
+            for txt in glob("{scratch_dir}/*.txt".format(scratch_dir=self.scratch_dir)):
+                tar.add( txt, arcname=os.path.basename(txt) )
+
+        with tarfile.open(  self.cvg_tarball, "w:gz"        ) as tar:
+            for cvg_file in glob( "{cov_dir}/*.txt".format(cov_dir=self.cov_dir)):
+                tar.add( cvg_file, arcname=os.path.basename(cvg_file) )
+
+        with tarfile.open(  self.gq_tarball, "w:gz"         ) as tar:
+            for gq_file in glob( "{gq_dir}/*.txt".format(gq_dir=self.gq_dir)):
+                tar.add( gq_file, arcname=os.path.basename(gq_file) )
+
+    def run(self):
+        try:
+            super(PreArchiveChecks, self).run()
+        except Exception, e:
+            if (type(e) is not ArchiveDirectoryAlreadyExists
+                and os.path.isdir(self.base_dir)):
+                # clean up the directory if it was created and an error was
+                # generated
+                rmtree(self.base_dir)
+            raise
+
+class ArchiveSample(GATKFPipelineTask):
+
+    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 7
+    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 7
+    # prept_start_message = prept_completed_message = self.__class__.__name__
+    prept_start_message = "ArchiveSample"
+    prept_completed_message = "ArchiveSample" 
+
+    dont_remove_tmp_dir = False # remove the temporary directory iff this task succeeds
+    dont_remove_tmp_dir_if_failure = True # don't remove if it fails
+
+    def requires(self):
+        yield self.clone(PreArchiveChecks)
 
     def __init__(self, *args, **kwargs):
         super(ArchiveSample, self).__init__(*args, **kwargs)
@@ -769,61 +866,80 @@ class ArchiveSample(GATKFPipelineTask):
         self.check_counts = self.sample_type != "CUSTOM_CAPTURE"
 
     def pre_shell_commands(self):
+
         self.script_dir = os.path.join(self.scratch_dir, "scripts")
-        self.pipeline_tarball = (
-            "{scratch_dir}/{name_prep}.pipeline_data.tar.gz".format(
-                scratch_dir=self.scratch_dir, name_prep=self.name_prep))
-        self.cvg_tarball = (
-            "{cov_dir}/coverage.tar.gz".format(cov_dir=self.cov_dir))
-        self.gq_tarball =  (
-            "{gq_dir}/gq.tar.gz".format(gq_dir=self.gq_dir))
-        self.raw_coverage = os.path.join(
-            self.scratch_dir, "{}.coverage_bins".format(self.name_prep))
-        if os.path.isdir(self.base_dir):
-            raise ArchiveDirectoryAlreadyExists(
-                "the archive location, '{}', already exists".format(self.base_dir))
 
-        vcf_errors = check_vcf(self.annotated_vcf_gz, self.check_variant_counts)
-        if vcf_errors:
-            if "DEBUG_INTERVALS" not in os.environ:
-                raise VCFCheckException("\n".join(vcf_errors))
-        bam_errors = check_bam(self.recal_bam, self.check_counts)
-        if bam_errors:
-            if "DEBUG_INTERVALS" not in os.environ:
-                raise BAMCheckException("\n".join(bam_errors))
+        self.pipeline_tarball   = ( "{scratch_dir}/{name_prep}.pipeline_data.tar.gz".format( scratch_dir=self.scratch_dir, name_prep=self.name_prep) )
+        self.cvg_tarball        = ( "{cov_dir}/coverage.tar.gz".format(cov_dir=self.cov_dir) )
+        self.gq_tarball         = ( "{gq_dir}/gq.tar.gz".format(gq_dir=self.gq_dir) )
+        self.raw_coverage       = os.path.join( self.scratch_dir, "{}.coverage_bins".format(self.name_prep) )
 
-        with tarfile.open(self.pipeline_tarball, "w:gz") as tar:
-            for d in (self.script_dir, self.log_dir):
-                tar.add(d, arcname=os.path.basename(d))
-            for txt in glob("{scratch_dir}/*.txt".format(scratch_dir=self.scratch_dir)):
-                tar.add(txt, arcname=os.path.basename(txt))
-        with tarfile.open(self.cvg_tarball, "w:gz") as tar:
-            for cvg_file in glob(
-                "{cov_dir}/*.txt".format(cov_dir=self.cov_dir)):
-                tar.add(cvg_file, arcname=os.path.basename(cvg_file))
-        with tarfile.open(self.gq_tarball, "w:gz") as tar:
-            for gq_file in glob(
-                "{gq_dir}/*.txt".format(gq_dir=self.gq_dir)):
-                tar.add(gq_file, arcname=os.path.basename(gq_file))
-        if not os.path.isdir(self.base_dir):
+        if os.path.isdir(self.base_dir): #### self.base_dir aka archive dir
+            raise ArchiveDirectoryAlreadyExists( "the archive location, '{}', already exists".format(self.base_dir) )
+
+##################################################################
+
+        self.archive_helper() # just get the proper list
+
+##################################################################
+
+        if not os.path.isdir(self.base_dir): #### self.base_dir aka archive dir
             os.makedirs(self.base_dir)
 
-        self.data_to_copy = [
-            "{pipeline_tarball}", "{recal_bam}", "{recal_bam_index}",
-            "{annotated_vcf_gz}", "{annotated_vcf_gz_index}", "{gvcf}",
-            "{gvcf_index}", "{cvg_tarball}", "{gq_tarball}", "{raw_coverage}"]
-        if self.sample_type == "GENOME":
-            if os.path.isfile(self.original_vcf_gz):
-                self.data_to_copy.append("{original_vcf_gz}")
-        if self.sample_type == "GENOME_AS_FAKE_EXOME":
-            # copy original BAM in this case as well in case we want to
-            # reprocess as an actual genome laster
-            self.data_to_copy.extend(["{scratch_bam}", "{scratch_bam}.bai"])
         for data_file in self.data_to_copy:
-            self.commands.append(self.format_string(
-                "rsync -grlt --inplace --partial " + data_file + " {base_dir}"))
+            self.commands.append(self.format_string( "rsync -grlt --inplace --partial " + data_file + " {base_dir}") )
 
-    def post_shell_commands(self):
+        # re-check the archived data to ensure its integrity before deleting the
+        # scratch directory
+        for data_file in self.data_to_copy:
+            scratch_fn = self.format_string(data_file)
+            archived_fn = os.path.join(self.base_dir, os.path.basename(scratch_fn))
+            if os.path.getsize(scratch_fn) != os.path.getsize(archived_fn):
+                raise RsyncException("Data size of original file ({}) does not "
+                                     "match the archived version ({})!".format(
+                                         scratch_fn, archived_fn))
+
+##################################################################
+
+    def run(self):
+        try:
+            super(ArchiveSample, self).run()
+        except Exception, e:
+            if (type(e) is not ArchiveDirectoryAlreadyExists
+                and os.path.isdir(self.base_dir)):
+                # clean up the directory if it was created and an error was
+                # generated
+                rmtree(self.base_dir)
+            raise
+
+class PostArchiveChecks(GATKFPipelineTask):
+
+    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 7
+    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 7
+    # prept_start_message = prept_completed_message = self.__class__.__name__
+    prept_start_message = "PostArchiveChecks"
+    prept_completed_message = "PostArchiveChecks" 
+
+    dont_remove_tmp_dir = False # remove the temporary directory iff this task succeeds
+    dont_remove_tmp_dir_if_failure = True # don't remove if it fails
+
+    def requires(self):
+        yield self.clone(ArchiveSample)
+
+    def __init__(self, *args, **kwargs):
+        super(PostArchiveChecks, self).__init__(*args, **kwargs)
+        if (self.sample_name.upper().startswith('PGMCLIN') or
+            self.sample_name.upper().startswith('PGMVIP')):
+            self.base_dir = os.path.join(
+                "/nfs/pgmclin/ALIGNMENT/BUILD37/DRAGEN/",
+                self.sample_type, self.name_prep)
+        else:
+            self.base_dir = os.path.join(
+                self.config_parameters["base"], self.sample_type, self.name_prep)
+        self.check_counts = self.sample_type != "CUSTOM_CAPTURE"
+
+    def pre_shell_commands(self):
+
         ## Change folder permissions of base directory
         uid = os.getuid()
         gid = grp.getgrnam("bioinfo").gr_gid
@@ -841,15 +957,6 @@ class ArchiveSample(GATKFPipelineTask):
                     os.chmod(f, 0664)
                     os.chown(f, uid, gid)
 
-        # re-check the archived data to ensure its integrity before deleting the
-        # scratch directory
-        for data_file in self.data_to_copy:
-            scratch_fn = self.format_string(data_file)
-            archived_fn = os.path.join(self.base_dir, os.path.basename(scratch_fn))
-            if os.path.getsize(scratch_fn) != os.path.getsize(archived_fn):
-                raise RsyncException("Data size of original file ({}) does not "
-                                     "match the archived version ({})!".format(
-                                         scratch_fn, archived_fn))
         vcf_errors = check_vcf(
             os.path.join(self.base_dir, os.path.basename(self.annotated_vcf_gz)),
             self.check_variant_counts)
@@ -876,7 +983,7 @@ class ArchiveSample(GATKFPipelineTask):
 
     def run(self):
         try:
-            super(ArchiveSample, self).run()
+            super(PostArchiveChecks, self).run()
         except Exception, e:
             if (type(e) is not ArchiveDirectoryAlreadyExists
                 and os.path.isdir(self.base_dir)):
@@ -884,11 +991,6 @@ class ArchiveSample(GATKFPipelineTask):
                 # generated
                 rmtree(self.base_dir)
             raise
-
-    def requires(self):
-        if self.sample_name.upper().startswith('SRR'):
-            yield self.clone(SubsetVCF)
-        yield self.clone(UpdateSeqdbMetrics)
 
 class CoverageBinning(GATKFPipelineTask):
     """Call Dan's program to bin coverage where we require some minimum
