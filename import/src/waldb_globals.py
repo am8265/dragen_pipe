@@ -45,6 +45,9 @@ class IncorrectBranch(Exception):
     pass
 
 def get_pipeline_version():
+    ### clearly incorrect - need to get this location but just don't give a f' atm....
+    td=os.getcwd()
+    os.chdir('/nfs/goldstein/software/dragen_pipe/master/dragen/python')
     version = subprocess.check_output(
         [GIT, "describe", "--tags"]).strip()
     if version:
@@ -52,6 +55,7 @@ def get_pipeline_version():
     else:
         raise GitRepoError("Could not get the version # of the pipeline; "
                            "maybe run it from a directory in the repo?")
+    os.chdir(td)
 
 def confirm_no_uncommitted_changes():
     try:
@@ -78,11 +82,12 @@ def _i_hate_python_but_i_really_hate_luigi(p_prepid):
             lf = "/nfs/{}/ALIGNMENT/BUILD37/DRAGEN/{}/{}.{}/who.txt".format( seqscratch_drive, sample_type.upper(), sample_name, p_prepid )
             # os.path.join('nfs', seqscratch_drive, 'ALIGNMENT', 'BUILD37', 'DRAGEN', sample_type, sample_name + '.' + str( p_prepid) )
             ####### argh, need to deal with local scheduler contention... - clealry pid is effectively just turning this into a checkpoint file...?!?
-            # lock = "{}@{}@{}".format(getpass.getuser(), socket.gethostname(), os.getpid())
+            ####### but while factor out a few bits it's less hassle...?!?
+            lock = "{}@{}@{}".format(getpass.getuser(), socket.gethostname(), os.getpid())
+            # lock = "{}@{}".format(getpass.getuser(), socket.gethostname() )
             # import traceback
             # for line in traceback.format_stack(): print(line)
             # exit(1)
-            lock = "{}@{}".format(getpass.getuser(), socket.gethostname() )
             print("we are running in %s - by %s - from %s" % (lf , getpass.getuser(), socket.gethostname() ) )
             if os.path.isfile(lf):
                 print("check for %s" % (lock))
@@ -552,15 +557,15 @@ class PipelineTask(SGEJobTask):
                 pseudo_prepid=self.pseudo_prepid,
                 pipeline_step_id=self.pipeline_step_id,
                 version=self.version, times_ran=times_ran + 1))
-            if self.prept_start_message:
-                update_message = "Started " + self.prept_start_message
-                seq_cur.execute(GET_PREP_STATUS.format(
-                    pseudo_prepid=self.pseudo_prepid))
-                status = seq_cur.fetchone()[0]
-                if status != update_message:
-                    seq_cur.execute(UPDATE_PREP_STATUS.format(
-                        status=update_message,
-                        pseudo_prepid=self.pseudo_prepid))
+#            if self.prept_start_message:
+#                update_message = "Started " + self.prept_start_message
+#                seq_cur.execute(GET_PREP_STATUS.format(
+#                    pseudo_prepid=self.pseudo_prepid))
+#                status = seq_cur.fetchone()[0]
+#                if status != update_message:
+#                    seq_cur.execute(UPDATE_PREP_STATUS.format(
+#                        status=update_message,
+#                        pseudo_prepid=self.pseudo_prepid))
             seqdb.commit()
         finally:
             if seqdb.open:

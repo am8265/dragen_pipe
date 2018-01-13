@@ -98,7 +98,8 @@ class RunGATK(ProcessSamples):
         specified in luigi_args
         """
         return ("/nfs/goldstein/software/python2.7.7/bin/luigi --module gatk_pipe "
-                "ArchiveSample --logging-conf-file logging.conf --pseudo-prepid "
+                # "ArchiveSample --logging-conf-file logging.conf --pseudo-prepid "
+                "PostArchiveChecks --logging-conf-file logging.conf --pseudo-prepid "
                 "{pseudo_prepid} --workers {workers}{local_scheduler}{luigi_args}".format(
                     pseudo_prepid=pseudo_prepid, workers=self.workers,
                     local_scheduler=" --local-scheduler" if self.local_scheduler else "",

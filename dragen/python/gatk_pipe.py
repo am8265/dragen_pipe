@@ -178,6 +178,8 @@ class GATKFPipelineTask(GATKPipelineTask):
         self.config_parameters.update(kwargs)
         return s.format(**self.config_parameters)
 
+##################################################################
+
     def archive_helper(self):
 
         self.data_to_copy = [ "{pipeline_tarball}", "{recal_bam}", "{recal_bam_index}", "{annotated_vcf_gz}", 
@@ -192,6 +194,47 @@ class GATKFPipelineTask(GATKPipelineTask):
         if self.sample_type == "GENOME_AS_FAKE_EXOME":
             self.data_to_copy.extend(["{scratch_bam}", "{scratch_bam}.bai"])
 
+##################################################################
+
+    def update_sample_status(self, status):
+
+        db = get_connection("seqdb")
+        # from warnings import filterwarnings
+        # filterwarnings('ignore', category = db.Warning)
+        try:
+            cur = db.cursor()
+            try:
+                print("updating status to {} for {}".format(status,self.pseudo_prepid))
+                #### should check row count...?!?
+                wtf = "update prepT set status = '{}', status_time = UNIX_TIMESTAMP(CURRENT_TIMESTAMP()) where p_prepid = {}".format(status,self.pseudo_prepid)
+                print(wtf)
+                cur.execute(wtf)
+                # cur.execute("update prepT set status = '{}', status_time = CURRENT_TIMESTAMP() where p_prepid = {}".format(status,self.pseudo_prepid))
+            except MySQLdb.Error, e:
+                raise Exception("ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1]))
+            db.commit()
+        finally:
+            if db.open:
+                db.close()
+
+##################################################################
+
+    def set_dsm_status(self, status):
+
+        db = get_connection("seqdb")
+        try:
+            cur = db.cursor()
+            # horrid, but i am too sick of all this instability
+            try:
+                print("updating dsm to {} for {}".format(status,self.pseudo_prepid))
+                cur.execute("update dragen_sample_metadata set is_merged = {} where pseudo_prepid = {}".format(status,self.pseudo_prepid))
+            except MySQLdb.Error, e:
+                raise Exception("ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1]))
+            db.commit()
+        finally:
+            if db.open:
+                db.close()
+                
 ##################################################################
 
 class JavaPipelineTask(GATKFPipelineTask):
@@ -254,7 +297,10 @@ class RealignerTargetCreator(JavaPipelineTask):
     priority = 1 # run before other competing steps with no requirement
     n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
     max_mem = 24
+
     def pre_shell_commands(self):
+        self.set_dsm_status(3) # just don't care anymore about this shite?!?
+        self.update_sample_status('Realign Bam')
         self.commands = [self.format_string(
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T RealignerTargetCreator "
             "-I {scratch_bam} -o {interval_list} -known {Mills1000g} "
@@ -281,6 +327,7 @@ class BaseRecalibrator(JavaPipelineTask):
     n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
     max_mem = 24
     def pre_shell_commands(self):
+        self.update_sample_status('Recal Bam')
         self.commands = [self.format_string(
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} "
             "-T BaseRecalibrator -I {realn_bam} "
@@ -311,6 +358,7 @@ class HaplotypeCaller(JavaPipelineTask):
     n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
     max_mem = 24
     def pre_shell_commands(self):
+        self.update_sample_status('Variant Calling')
         self.commands = [self.format_string(
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T HaplotypeCaller "
             # dsth: making this sensible to avoid the bounds condition in 3.6...
@@ -332,6 +380,7 @@ class HaplotypeCaller(JavaPipelineTask):
 class GenotypeGVCFs(GATKFPipelineTask):
     priority = 1
     def pre_shell_commands(self):
+        self.update_sample_status('Genotyping')
         self.commands = [self.format_string(
             "{java} -jar {gatk} -R {ref_genome} -T GenotypeGVCFs "
             "-L {interval} -o {vcf} -stand_call_conf 20 -stand_emit_conf 20 -V {gvcf}")]
@@ -383,6 +432,7 @@ class VariantRecalibratorSNP(JavaPipelineTask):
         ## https://software.broadinstitute.org/gatk/gatkdocs/org_broadinstitute_gatk_tools_walkers_variantrecalibration_VariantRecalibrator.php
         ## For genomes : 
         ## https://software.broadinstitute.org/gatk/guide/article?id=1259
+        self.update_sample_status('Variant Recal')
         self.commands = [self.format_string(
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T VariantRecalibrator "
             "-L {interval}  --input {snp_vcf} -an QD -an FS -an SOR -an MQ "
@@ -712,6 +762,7 @@ class FixMergedMNPInfo(GATKFPipelineTask):
 
 class AnnotateVCF(GATKFPipelineTask):
     def pre_shell_commands(self):
+        self.update_sample_status('Annotating Variants')
         self.shell_options.update(
             {"stdout":None, "stderr":self.log_file, "shell":True})
         self.commands = [self.format_string(
@@ -878,6 +929,7 @@ class ArchiveSample(GATKFPipelineTask):
 
     def pre_shell_commands(self):
 
+        self.update_sample_status('Archiving')
         self.script_dir = os.path.join(self.scratch_dir, "scripts")
 
         self.pipeline_tarball   = ( "{scratch_dir}/{name_prep}.pipeline_data.tar.gz".format( scratch_dir=self.scratch_dir, name_prep=self.name_prep) )
@@ -902,6 +954,7 @@ class ArchiveSample(GATKFPipelineTask):
 
         ##### okay, seems pre_shell overrite is where you prep things including commands, then run_shell is not over-riden executes them...
         ##### for f' sake, guess commands are executed at exit/in run...
+        ##### use of external routines that do sys calls in pre_shell makes this all a bit pointless?!?
         for data_file in self.data_to_copy:
             print("copy {} to {}".format(data_file,self.base_dir))
             self.commands.append(self.format_string( "rsync -grlt --inplace --partial " + data_file + " {base_dir}") )
@@ -919,45 +972,10 @@ class ArchiveSample(GATKFPipelineTask):
                 raise RsyncException("Data size of original file ({}) does not match the archived version ({})!".format( scratch_fn, archived_fn) )
 
 ##################################################################
+# this really shouldn't be here but i just don't want the bother...
+##################################################################
 
-    def run(self):
-        try:
-            super(ArchiveSample, self).run()
-        except Exception, e:
-            if (type(e) is not ArchiveDirectoryAlreadyExists
-                and os.path.isdir(self.base_dir)):
-                # clean up the directory if it was created and an error was
-                # generated
-                rmtree(self.base_dir)
-            raise
-
-class PostArchiveChecks(GATKFPipelineTask):
-
-    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 7
-    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 7
-    # prept_start_message = prept_completed_message = self.__class__.__name__
-    prept_start_message = "PostArchiveChecks"
-    prept_completed_message = "PostArchiveChecks" 
-
-    dont_remove_tmp_dir = False # remove the temporary directory iff this task succeeds
-    dont_remove_tmp_dir_if_failure = True # don't remove if it fails
-
-    def requires(self):
-        yield self.clone(ArchiveSample)
-
-    def __init__(self, *args, **kwargs):
-        super(PostArchiveChecks, self).__init__(*args, **kwargs)
-        if (self.sample_name.upper().startswith('PGMCLIN') or
-            self.sample_name.upper().startswith('PGMVIP')):
-            self.base_dir = os.path.join(
-                "/nfs/pgmclin/ALIGNMENT/BUILD37/DRAGEN/",
-                self.sample_type, self.name_prep)
-        else:
-            self.base_dir = os.path.join(
-                self.config_parameters["base"], self.sample_type, self.name_prep)
-        self.check_counts = self.sample_type != "CUSTOM_CAPTURE"
-
-    def pre_shell_commands(self):
+        self.set_dsm_status(5)
 
         ## Change folder permissions of base directory
         uid = os.getuid()
@@ -999,13 +1017,11 @@ class PostArchiveChecks(GATKFPipelineTask):
             if db.open:
                 db.close()
 
-    def post_shell_commands(self):
-
-        rmtree(self.scratch_dir)
+        self.set_dsm_status(10)
 
     def run(self):
         try:
-            super(PostArchiveChecks, self).run()
+            super(ArchiveSample, self).run()
         except Exception, e:
             if (type(e) is not ArchiveDirectoryAlreadyExists
                 and os.path.isdir(self.base_dir)):
@@ -1013,6 +1029,90 @@ class PostArchiveChecks(GATKFPipelineTask):
                 # generated
                 rmtree(self.base_dir)
             raise
+
+#class PostArchiveChecks(GATKFPipelineTask):
+#
+#    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 7
+#    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 7
+#    # prept_start_message = prept_completed_message = self.__class__.__name__
+#    prept_start_message = "PostArchiveChecks"
+#    prept_completed_message = "PostArchiveChecks" 
+#
+#    dont_remove_tmp_dir = False # remove the temporary directory iff this task succeeds
+#    dont_remove_tmp_dir_if_failure = True # don't remove if it fails
+#
+#    def requires(self):
+#        yield self.clone(ArchiveSample)
+#
+#    def __init__(self, *args, **kwargs):
+#        super(PostArchiveChecks, self).__init__(*args, **kwargs)
+#        if (self.sample_name.upper().startswith('PGMCLIN') or
+#            self.sample_name.upper().startswith('PGMVIP')):
+#            self.base_dir = os.path.join(
+#                "/nfs/pgmclin/ALIGNMENT/BUILD37/DRAGEN/",
+#                self.sample_type, self.name_prep)
+#        else:
+#            self.base_dir = os.path.join(
+#                self.config_parameters["base"], self.sample_type, self.name_prep)
+#        self.check_counts = self.sample_type != "CUSTOM_CAPTURE"
+#
+#    def pre_shell_commands(self):
+#
+#        ## Change folder permissions of base directory
+#        uid = os.getuid()
+#        gid = grp.getgrnam("bioinfo").gr_gid
+#        os.chown(self.base_dir, uid, gid)
+#        user = getuser()
+#        for root, dirs, files in os.walk(self.base_dir):
+#            for d in dirs:
+#                d = os.path.join(root, d)
+#                if not os.path.islink(d) and owner(d) == user:
+#                    os.chmod(d, 0775)
+#                    os.chown(d, uid, gid)
+#            for f in files:
+#                f = os.path.join(root, f)
+#                if not os.path.islink(f) and owner(f) == user:
+#                    os.chmod(f, 0664)
+#                    os.chown(f, uid, gid)
+#
+#        vcf_errors = check_vcf(
+#            os.path.join(self.base_dir, os.path.basename(self.annotated_vcf_gz)),
+#            self.check_variant_counts)
+#        if vcf_errors:
+#            if "DEBUG_INTERVALS" not in os.environ:
+#                raise VCFCheckException("\n".join(vcf_errors))
+#        bam_errors = check_bam(
+#            os.path.join(self.base_dir, os.path.basename(self.recal_bam)),
+#            self.check_counts)
+#        if bam_errors:
+#            if "DEBUG_INTERVALS" not in os.environ:
+#                raise BAMCheckException("\n".join(bam_errors))
+#        location = "{0}/{1}".format(
+#            self.config_parameters["base"], self.sample_type)
+#        db = get_connection("seqdb")
+#        try:
+#            cur = db.cursor()
+#            update_alignseqfile(cur, location, self.pseudo_prepid)
+#            db.commit()
+#        finally:
+#            if db.open:
+#                db.close()
+#
+#    def post_shell_commands(self):
+#
+#        #### no, no, no
+#        rmtree(self.scratch_dir)
+#
+#    def run(self):
+#        try:
+#            super(PostArchiveChecks, self).run()
+#        except Exception, e:
+#            if (type(e) is not ArchiveDirectoryAlreadyExists
+#                and os.path.isdir(self.base_dir)):
+#                # clean up the directory if it was created and an error was
+#                # generated
+#                rmtree(self.base_dir)
+#            raise
 
 class CoverageBinning(GATKFPipelineTask):
     """Call Dan's program to bin coverage where we require some minimum
