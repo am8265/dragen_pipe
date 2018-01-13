@@ -27,6 +27,7 @@ from dragen_db_statements import *
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.realpath(__file__)))), "import", "src"))
 from waldb_globals import *
+from inspect import currentframe, getframeinfo
 
 warnings.filterwarnings("error", category=MySQLdb.Warning)
 
@@ -764,6 +765,7 @@ class SubsetVCF(GATKFPipelineTask):
     def requires(self):
         return self.clone(AnnotateVCF)
 
+####### there's some pretty strange ordering here?!?
 class PreArchiveChecks(GATKFPipelineTask):
 
     n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 7
@@ -803,17 +805,23 @@ class PreArchiveChecks(GATKFPipelineTask):
             raise ArchiveDirectoryAlreadyExists( "the archive location, '{}', already exists".format(self.base_dir) )
 
         ##### checks
+        frameinfo = getframeinfo(currentframe())
+        print('checking vcf', frameinfo.filename, frameinfo.lineno)
         vcf_errors = check_vcf(self.annotated_vcf_gz, self.check_variant_counts)
         if vcf_errors:
             if "DEBUG_INTERVALS" not in os.environ:
                 raise VCFCheckException( "\n".join(vcf_errors) )
 
+        frameinfo = getframeinfo(currentframe())
+        print('checking bam', frameinfo.filename, frameinfo.lineno)
         bam_errors = check_bam( self.recal_bam, self.check_counts )
         if bam_errors:
             if "DEBUG_INTERVALS" not in os.environ:
                 raise BAMCheckException( "\n".join(bam_errors) )
 
         ##### tar-up the bits
+        frameinfo = getframeinfo(currentframe())
+        print('taring ', frameinfo.filename, frameinfo.lineno, self.pipeline_tarball)
         with tarfile.open(  self.pipeline_tarball, "w:gz"   ) as tar:
             for d in (self.script_dir, self.log_dir):
                 tar.add( d, arcname=os.path.basename(d) )
@@ -827,6 +835,9 @@ class PreArchiveChecks(GATKFPipelineTask):
         with tarfile.open(  self.gq_tarball, "w:gz"         ) as tar:
             for gq_file in glob( "{gq_dir}/*.txt".format(gq_dir=self.gq_dir)):
                 tar.add( gq_file, arcname=os.path.basename(gq_file) )
+
+        frameinfo = getframeinfo(currentframe())
+        print('bye', frameinfo.filename, frameinfo.lineno)
 
     def run(self):
         try:
@@ -879,6 +890,9 @@ class ArchiveSample(GATKFPipelineTask):
 
 ##################################################################
 
+        frameinfo = getframeinfo(currentframe())
+        print('will archive', frameinfo.filename, frameinfo.lineno)
+
         self.archive_helper() # just get the proper list
 
 ##################################################################
@@ -886,18 +900,23 @@ class ArchiveSample(GATKFPipelineTask):
         if not os.path.isdir(self.base_dir): #### self.base_dir aka archive dir
             os.makedirs(self.base_dir)
 
+        ##### okay, seems pre_shell overrite is where you prep things including commands, then run_shell is not over-riden executes them...
+        ##### for f' sake, guess commands are executed at exit/in run...
         for data_file in self.data_to_copy:
+            print("copy {} to {}".format(data_file,self.base_dir))
             self.commands.append(self.format_string( "rsync -grlt --inplace --partial " + data_file + " {base_dir}") )
 
         # re-check the archived data to ensure its integrity before deleting the
         # scratch directory
+        print('will copy', frameinfo.filename, frameinfo.lineno)
+
+    def post_shell_commands(self):
+
         for data_file in self.data_to_copy:
             scratch_fn = self.format_string(data_file)
             archived_fn = os.path.join(self.base_dir, os.path.basename(scratch_fn))
             if os.path.getsize(scratch_fn) != os.path.getsize(archived_fn):
-                raise RsyncException("Data size of original file ({}) does not "
-                                     "match the archived version ({})!".format(
-                                         scratch_fn, archived_fn))
+                raise RsyncException("Data size of original file ({}) does not match the archived version ({})!".format( scratch_fn, archived_fn) )
 
 ##################################################################
 
@@ -979,6 +998,9 @@ class PostArchiveChecks(GATKFPipelineTask):
         finally:
             if db.open:
                 db.close()
+
+    def post_shell_commands(self):
+
         rmtree(self.scratch_dir)
 
     def run(self):

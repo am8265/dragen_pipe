@@ -77,7 +77,12 @@ def _i_hate_python_but_i_really_hate_luigi(p_prepid):
             seqscratch_drive, sample_type, sample_name = row
             lf = "/nfs/{}/ALIGNMENT/BUILD37/DRAGEN/{}/{}.{}/who.txt".format( seqscratch_drive, sample_type.upper(), sample_name, p_prepid )
             # os.path.join('nfs', seqscratch_drive, 'ALIGNMENT', 'BUILD37', 'DRAGEN', sample_type, sample_name + '.' + str( p_prepid) )
-            lock = "{}@{}@{}".format(getpass.getuser(), socket.gethostname(), os.getpid())
+            ####### argh, need to deal with local scheduler contention... - clealry pid is effectively just turning this into a checkpoint file...?!?
+            # lock = "{}@{}@{}".format(getpass.getuser(), socket.gethostname(), os.getpid())
+            # import traceback
+            # for line in traceback.format_stack(): print(line)
+            # exit(1)
+            lock = "{}@{}".format(getpass.getuser(), socket.gethostname() )
             print("we are running in %s - by %s - from %s" % (lf , getpass.getuser(), socket.gethostname() ) )
             if os.path.isfile(lf):
                 print("check for %s" % (lock))
@@ -663,6 +668,7 @@ class PipelineTask(SGEJobTask):
                         fh_dict[fh] = f
                         if f:
                             fhs[fh] = file_handle(f)
+                    print("execute {}".format(command))
                     p = subprocess.Popen(
                         command, stdout=fhs["stdout"], stderr=fhs["stderr"],
                         **self.shell_options)
