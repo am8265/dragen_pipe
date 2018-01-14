@@ -614,6 +614,8 @@ class PipelineTask(SGEJobTask):
                     seq_cur.execute(UPDATE_PREP_STATUS.format(
                         status=update_message,
                         pseudo_prepid=self.pseudo_prepid))
+            seq_cur.execute("update dragen_sample_metadata set is_merged = 11 where pseudo_prepid = {}"
+              .format( pseudo_prepid=self.pseudo_prepid )
             seqdb.commit()
         finally:
             if seqdb.open:
