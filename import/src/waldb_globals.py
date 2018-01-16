@@ -47,6 +47,7 @@ class IncorrectBranch(Exception):
 def get_pipeline_version():
     ### clearly incorrect - need to get this location but just don't give a f' atm....
     td=os.getcwd()
+    print("in {}".format(td))
     os.chdir('/nfs/goldstein/software/dragen_pipe/master/dragen/python')
     version = subprocess.check_output(
         [GIT, "describe", "--tags"]).strip()
@@ -110,6 +111,9 @@ def _i_hate_python_but_i_really_hate_luigi(p_prepid):
     # exit(1)
 
 def confirm_proper_branch():
+    td=os.getcwd()
+    print("in {}".format(td))
+    os.chdir('/nfs/goldstein/software/dragen_pipe/master/dragen/python')
     try:
         branch_output = subprocess.check_output(["git", "branch"])
         branch_name = [line.split()[1] for line in branch_output.splitlines() if
@@ -125,6 +129,7 @@ def confirm_proper_branch():
     except subprocess.CalledProcessError:
         raise GitRepoError("Could not get the branch of the pipeline; "
                            "maybe run it from a directory in the repo?")
+    os.chdir(td)
 
 class SQLTarget(luigi.Target):
     """ A luigi target class describing verification of the entries in the database

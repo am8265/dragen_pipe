@@ -198,6 +198,8 @@ class GATKFPipelineTask(GATKPipelineTask):
 
     def update_sample_status(self, status):
 
+        status = 'Pipeline ('+status+')'
+        # status = 'Pipeline ({})'.format(status)
         db = get_connection("seqdb")
         # from warnings import filterwarnings
         # filterwarnings('ignore', category = db.Warning)
