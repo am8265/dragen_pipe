@@ -84,7 +84,8 @@ def _i_hate_python_but_i_really_hate_luigi(p_prepid):
             # os.path.join('nfs', seqscratch_drive, 'ALIGNMENT', 'BUILD37', 'DRAGEN', sample_type, sample_name + '.' + str( p_prepid) )
             ####### argh, need to deal with local scheduler contention... - clealry pid is effectively just turning this into a checkpoint file...?!?
             ####### but while factor out a few bits it's less hassle...?!?
-            lock = "{}@{}@{}".format(getpass.getuser(), socket.gethostname(), os.getpid())
+            JID = os.getenv("JOB_ID") if ("JOB_ID" in os.environ) else 'NULL'
+            lock = "user=\t{}@{}\npid=\t{}\njid=\t{}".format(getpass.getuser(), socket.gethostname(), os.getpid(),JID)
             # lock = "{}@{}".format(getpass.getuser(), socket.gethostname() )
             # import traceback
             # for line in traceback.format_stack(): print(line)

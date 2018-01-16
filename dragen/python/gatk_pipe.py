@@ -196,7 +196,12 @@ class GATKFPipelineTask(GATKPipelineTask):
 
 ##################################################################
 
+    ##### really ought to put this higher in the hierachy...!?! make it take arg for whether to to db status too?!?
     def update_sample_status(self, status):
+
+##### put in jid for individual job...?!?
+# seqscratch_drive, sample_type, sample_name = row
+# lf = "/nfs/{}/ALIGNMENT/BUILD37/DRAGEN/{}/{}.{}/who.txt".format( seqscratch_drive, sample_type.upper(), sample_name, p_prepid )
 
         status = 'Pipeline ('+status+')'
         # status = 'Pipeline ({})'.format(status)
@@ -261,6 +266,7 @@ class FileExists(luigi.ExternalTask):
     def output(self):
         return luigi.LocalTarget(self.fn)
 
+### change this to go via dragenpipelinetask...?!?
 class ValidateBAM(SGEJobTask):
     bam = luigi.Parameter(description="the expected path to the BAM to check")
     check_counts = luigi.BoolParameter(
