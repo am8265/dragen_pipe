@@ -28,6 +28,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.realpath(__file__)))), "import", "src"))
 from waldb_globals import *
 from inspect import currentframe, getframeinfo
+import re
 
 warnings.filterwarnings("error", category=MySQLdb.Warning)
 
@@ -197,33 +198,39 @@ class GATKFPipelineTask(GATKPipelineTask):
 ##################################################################
 
     ##### really ought to put this higher in the hierachy...!?! make it take arg for whether to to db status too?!?
-    def update_sample_status(self, status):
+    def update_sample_status(self, status, prept=False):
+
+        jf=re.sub("[ ]", "_", status)
+        # status = 'Pipeline ({})'.format(status)
+        # from warnings import filterwarnings
+        # filterwarnings('ignore', category = db.Warning)
+        if prept==True:
+            status = 'Pipeline ('+status+')'
+            db = get_connection("seqdb")
+            try:
+                cur = db.cursor()
+                try:
+                    print("updating status to {} for {}".format(status,self.pseudo_prepid))
+                    #### should check row count...?!?
+                    wtf = "update prepT set status = '{}', status_time = UNIX_TIMESTAMP(CURRENT_TIMESTAMP()) where p_prepid = {}".format(status,self.pseudo_prepid)
+                    print(wtf)
+                    cur.execute(wtf)
+                    # cur.execute("update prepT set status = '{}', status_time = CURRENT_TIMESTAMP() where p_prepid = {}".format(status,self.pseudo_prepid))
+                except MySQLdb.Error, e:
+                    raise Exception("ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1]))
+                db.commit()
+            finally:
+                if db.open:
+                    db.close()
+
+        jf="{}/.worker_{}.txt".format( self.scratch_dir, jf) 
+        print("using {}".format(jf));
+        msg = "user=\t{}@{}\npid=\t{}\njid=\t{}".format(getpass.getuser(), socket.gethostname(), os.getpid(), (os.getenv("JOB_ID") if ("JOB_ID" in os.environ) else 'NULL') )
+        with open(jf,"w") as f:
+            f.write(msg)
 
 ##### put in jid for individual job...?!?
 # seqscratch_drive, sample_type, sample_name = row
-# lf = "/nfs/{}/ALIGNMENT/BUILD37/DRAGEN/{}/{}.{}/who.txt".format( seqscratch_drive, sample_type.upper(), sample_name, p_prepid )
-
-        status = 'Pipeline ('+status+')'
-        # status = 'Pipeline ({})'.format(status)
-        db = get_connection("seqdb")
-        # from warnings import filterwarnings
-        # filterwarnings('ignore', category = db.Warning)
-        try:
-            cur = db.cursor()
-            try:
-                print("updating status to {} for {}".format(status,self.pseudo_prepid))
-                #### should check row count...?!?
-                wtf = "update prepT set status = '{}', status_time = UNIX_TIMESTAMP(CURRENT_TIMESTAMP()) where p_prepid = {}".format(status,self.pseudo_prepid)
-                print(wtf)
-                cur.execute(wtf)
-                # cur.execute("update prepT set status = '{}', status_time = CURRENT_TIMESTAMP() where p_prepid = {}".format(status,self.pseudo_prepid))
-            except MySQLdb.Error, e:
-                raise Exception("ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1]))
-            db.commit()
-        finally:
-            if db.open:
-                db.close()
-
 ##################################################################
 
     def set_dsm_status(self, status):
@@ -308,7 +315,7 @@ class RealignerTargetCreator(JavaPipelineTask):
 
     def pre_shell_commands(self):
         self.set_dsm_status(3) # just don't care anymore about this shite?!?
-        self.update_sample_status('Realign Bam')
+        self.update_sample_status('Realign Bam',True)
         self.commands = [self.format_string(
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T RealignerTargetCreator "
             "-I {scratch_bam} -o {interval_list} -known {Mills1000g} "
@@ -322,6 +329,7 @@ class IndelRealigner(JavaPipelineTask):
     n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
     max_mem = 24
     def pre_shell_commands(self):
+        self.update_sample_status('Realign Bam II',False)
         self.commands = [self.format_string(
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T IndelRealigner "
             "-I {scratch_bam} -o {realn_bam} -targetIntervals {interval_list} "
@@ -335,7 +343,7 @@ class BaseRecalibrator(JavaPipelineTask):
     n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
     max_mem = 24
     def pre_shell_commands(self):
-        self.update_sample_status('Recal Bam')
+        self.update_sample_status('Recal Bam',True)
         self.commands = [self.format_string(
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} "
             "-T BaseRecalibrator -I {realn_bam} "
@@ -349,6 +357,7 @@ class PrintReads(JavaPipelineTask):
     n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
     max_mem = 24
     def pre_shell_commands(self):
+        self.update_sample_status('Recal Bam II',False)
         # --disable_indel_quals are necessary to remove BI and BD tags in the bam file
         self.commands = [self.format_string(
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T PrintReads "
@@ -366,7 +375,7 @@ class HaplotypeCaller(JavaPipelineTask):
     n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
     max_mem = 24
     def pre_shell_commands(self):
-        self.update_sample_status('Variant Calling')
+        self.update_sample_status('Variant Calling',True)
         self.commands = [self.format_string(
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T HaplotypeCaller "
             # dsth: making this sensible to avoid the bounds condition in 3.6...
@@ -388,7 +397,7 @@ class HaplotypeCaller(JavaPipelineTask):
 class GenotypeGVCFs(GATKFPipelineTask):
     priority = 1
     def pre_shell_commands(self):
-        self.update_sample_status('Genotyping')
+        self.update_sample_status('Genotyping',True)
         self.commands = [self.format_string(
             "{java} -jar {gatk} -R {ref_genome} -T GenotypeGVCFs "
             "-L {interval} -o {vcf} -stand_call_conf 20 -stand_emit_conf 20 -V {gvcf}")]
@@ -404,6 +413,7 @@ class GenotypeGVCFs(GATKFPipelineTask):
 class SelectVariantsSNP(GATKFPipelineTask):
     priority = 1
     def pre_shell_commands(self):
+        self.update_sample_status('SelectVar',False)
         self.commands = [self.format_string(
             "{java} -jar {gatk} -R {ref_genome} -T SelectVariants "
             "-L {interval} -V {vcf}  -selectType SNP -o {snp_vcf}")]
@@ -418,6 +428,7 @@ class SelectVariantsSNP(GATKFPipelineTask):
 
 class SelectVariantsINDEL(GATKFPipelineTask):
     def pre_shell_commands(self):
+        self.update_sample_status('SelectVar II',False)
         self.commands = [self.format_string(
             "{java} -jar {gatk} -R {ref_genome} -T SelectVariants "
             "-L {interval} -V {vcf}  -selectType INDEL -o {indel_vcf}")]
@@ -440,7 +451,7 @@ class VariantRecalibratorSNP(JavaPipelineTask):
         ## https://software.broadinstitute.org/gatk/gatkdocs/org_broadinstitute_gatk_tools_walkers_variantrecalibration_VariantRecalibrator.php
         ## For genomes : 
         ## https://software.broadinstitute.org/gatk/guide/article?id=1259
-        self.update_sample_status('Variant Recal')
+        self.update_sample_status('Variant Recal',True)
         self.commands = [self.format_string(
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T VariantRecalibrator "
             "-L {interval}  --input {snp_vcf} -an QD -an FS -an SOR -an MQ "
@@ -459,6 +470,7 @@ class VariantRecalibratorSNP(JavaPipelineTask):
 
 class VariantFiltrationSNP(GATKFPipelineTask):
     def pre_shell_commands(self):
+        self.update_sample_status('VariantFilt',False)
         self.commands = [self.format_string(
             '{java} -jar {gatk} -R {ref_genome} -T VariantFiltration '
             '-L {interval} -V {snp_vcf} --filterExpression '
@@ -476,6 +488,7 @@ class VariantFiltrationSNP(GATKFPipelineTask):
 class VariantRecalibratorINDEL(JavaPipelineTask):
     max_mem = 16
     def pre_shell_commands(self):
+        self.update_sample_status('VariantRecal',False)
         self.commands = [self.format_string(
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} "
             "-T VariantRecalibrator -L {interval} "
@@ -490,6 +503,7 @@ class VariantRecalibratorINDEL(JavaPipelineTask):
 
 class ApplyRecalibrationSNP(GATKFPipelineTask):
     def pre_shell_commands(self):
+        self.update_sample_status('VariantRecalApp',False)
         self.commands = [self.format_string(
             "{java} -jar {gatk} -R {ref_genome} -T ApplyRecalibration "
             "-L {interval}  -input {snp_vcf} "
@@ -506,6 +520,7 @@ class ApplyRecalibrationSNP(GATKFPipelineTask):
 
 class ApplyRecalibrationINDEL(GATKFPipelineTask):
     def pre_shell_commands(self):
+        self.update_sample_status('VariantRecalApp II',False)
         self.commands = [self.format_string(
             "{java} -jar {gatk} -R {ref_genome} -T ApplyRecalibration "
             "-L {interval}  -input {indel_vcf} "
@@ -522,6 +537,7 @@ class ApplyRecalibrationINDEL(GATKFPipelineTask):
 
 class VariantFiltrationINDEL(GATKFPipelineTask):
     def pre_shell_commands(self):
+        self.update_sample_status('VariantFilt II',False)
         self.commands = [self.format_string(
             '{java} -jar {gatk} -R {ref_genome} -T VariantFiltration '
             '-L {interval} -V {indel_vcf} --filterExpression '
@@ -538,6 +554,7 @@ class VariantFiltrationINDEL(GATKFPipelineTask):
 
 class CombineVariants(GATKFPipelineTask):
     def pre_shell_commands(self):
+        self.update_sample_status('CombineVar',False)
         """Merges SNP and INDEL vcfs.  Using the filtered SNP vcf header as a
         base, variant type/sample type specific ##FILTERs are added to the header.
         After finishing reading through the header the SNP vcf is read again with 
@@ -615,6 +632,7 @@ class CombineVariants(GATKFPipelineTask):
 class RBP(GATKFPipelineTask):
     priority = 1
     def pre_shell_commands(self):
+        self.update_sample_status('RBP',False)
         self.commands = [self.format_string(
             "{java} -XX:ParallelGCThreads=1 -jar {gatk} -T ReadBackedPhasing -R {ref_genome} "
             "-I {recal_bam} --variant {final_vcf_gz} -o {phased_vcf} "
@@ -770,7 +788,7 @@ class FixMergedMNPInfo(GATKFPipelineTask):
 
 class AnnotateVCF(GATKFPipelineTask):
     def pre_shell_commands(self):
-        self.update_sample_status('Annotating Variants')
+        self.update_sample_status('Annotating Variants',True)
         self.shell_options.update(
             {"stdout":None, "stderr":self.log_file, "shell":True})
         self.commands = [self.format_string(
@@ -796,6 +814,7 @@ class AnnotateVCF(GATKFPipelineTask):
 class SubsetVCF(GATKFPipelineTask):
     """ For SRR/Any future deemed to be low quality sequenced samples, subset the vcf to only the capturekit regions """
     def pre_shell_commands(self):
+        self.update_sample_status('SubSet',False)
         self.shell_options.update({"stdout":None, "stderr":self.log_file})
         self.original_vcf_gz = "{0}/{1}.{2}.analysisReady.annotated.original.vcf.gz".format(
             self.scratch_dir,self.sample_name,self.pseudo_prepid)
@@ -852,7 +871,7 @@ class PreArchiveChecks(GATKFPipelineTask):
         self.check_counts = self.sample_type != "CUSTOM_CAPTURE"
 
     def pre_shell_commands(self):
-
+        self.update_sample_status('PreArchive',False)
         self.script_dir = os.path.join(self.scratch_dir, "scripts")
 
         self.pipeline_tarball   = ( "{scratch_dir}/{name_prep}.pipeline_data.tar.gz".format( scratch_dir=self.scratch_dir, name_prep=self.name_prep) )
@@ -937,7 +956,7 @@ class ArchiveSample(GATKFPipelineTask):
 
     def pre_shell_commands(self):
 
-        self.update_sample_status('Archiving')
+        self.update_sample_status('Archiving',True)
         self.script_dir = os.path.join(self.scratch_dir, "scripts")
 
         self.pipeline_tarball   = ( "{scratch_dir}/{name_prep}.pipeline_data.tar.gz".format( scratch_dir=self.scratch_dir, name_prep=self.name_prep) )
