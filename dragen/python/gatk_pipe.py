@@ -284,6 +284,16 @@ class ValidateBAM(SGEJobTask):
     dont_remove_tmp_dir_if_failure = True # don't remove if it fails
 
     def work(self):
+
+        # from pprint import pprint
+        # pprint(vars(self))
+
+        jf="/{}/.worker_{}.txt".format( '/'.join(self.bam.split('/')[1:-1]), self.__class__.__name__) 
+        print("using {}".format(jf));
+        msg = "jid=\t{}\nuser=\t{}@{}\npid=\t{}".format( (os.getenv("JOB_ID") if ("JOB_ID" in os.environ) else 'NULL'), getpass.getuser(), socket.gethostname(), os.getpid() )
+        with open(jf,"w") as f:
+            f.write(msg)
+
         with open(os.devnull, "w") as devnull:
             # dsth : oct, 11
             # so this is a bit pointless as is - i.e. it's just decompressing without checking so all 
@@ -1489,6 +1499,9 @@ class DuplicateMetrics(GATKFPipelineTask):
             self.scratch_dir, self.name_prep + ".duplicates.txt")
 
     def pre_shell_commands(self):
+
+        self.log_jid()
+
         perc_duplicates = None
         if os.path.isfile(self.picard_log):
             with open(self.picard_log) as log_fh:

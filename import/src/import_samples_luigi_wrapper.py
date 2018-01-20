@@ -72,6 +72,8 @@ class ImportSamples(ProcessSamples.ProcessSamples):
                    local_scheduler=" --local-scheduler" if self.local_scheduler
                    else ""))
         #return cmd, self.timeout[sample_type]
+
+        ######## really, why the heck would you need to be 'careful' just block it if it's dangerous?!?
         return cmd, None # we have to be very careful to not ever load multiple
                          # samples, or multiple variants can be assigned the same
                          # variant_id
@@ -79,6 +81,8 @@ class ImportSamples(ProcessSamples.ProcessSamples):
 def main(database, seqscratch, force_failed_samples, sample_names,
          run_locally, workers, local_scheduler, debug_level,
          timeout_exome, timeout_genome, timeout_custom_capture):
+    print("i'm deprecated")
+    exit(1)
     # set up logging
     formatter = logging.Formatter(cfg.get("logging", "format"))
     root_logger = logging.getLogger()

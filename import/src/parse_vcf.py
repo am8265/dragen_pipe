@@ -343,8 +343,7 @@ def output_novel_variant(
                     # arguably we don't care about the 'missense' in this case
                     # and it would get us such variants if we did query for
                     # missense, so we'll ignore this case
-                    logger.debug("Skipping missense_variant effect for "
-                                 "{VariantID}".format(VariantID=VariantID))
+                    logger.debug("Skipping missense_variant effect for " "{VariantID}".format(VariantID=VariantID))
                     continue
                 if effect == "custom":
                     # these correspond to the deprecated INTRON_EXON_BOUNDARY
@@ -540,6 +539,9 @@ def parse_vcf(vcf, CHROM, sample_id, database, min_dp_to_include, output_base):
                 INFO = create_INFO_dict(fields["INFO"])
                 if fields["FILTER"] == "PASS":
                     INFO["FILTER"] = "PASS"
+                ### WTF?!?
+                elif fields["FILTER"] == "SNP_filter":
+                    INFO["FILTER"] = "FAIL"
                 elif fields["FILTER"] == "INDEL_filter":
                     INFO["FILTER"] = "FAIL"
                 elif fields["FILTER"] == "VQSRTrancheSNP90.00to99.00":
@@ -555,8 +557,7 @@ def parse_vcf(vcf, CHROM, sample_id, database, min_dp_to_include, output_base):
                 elif fields["FILTER"] == "VQSRTrancheINDEL99.90to100.00":
                     INFO["FILTER"] = "FAIL"
                 else:
-                    raise ValueError("invalid FILTER {} @ line {}".format(
-                        fields["FILTER"], x))
+                    raise ValueError("\n\ninvalid FILTER= '{}' @ line= '{}'\n".format( fields["FILTER"], x) )
                 call_stats = create_call_dict(fields["FORMAT"], fields["call"])
                 try:
                     call = {"sample_id":sample_id, "GQ":call_stats["GQ"],

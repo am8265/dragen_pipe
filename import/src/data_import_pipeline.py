@@ -180,7 +180,7 @@ class ExtractTarball(SGEJobTask):
         super(ExtractTarball, self).__init__(*args, **kwargs)
 
     def requires(self):
-        return self.clone(CopyDataToScratch, originals=[self.tarball])
+        return self.clone( CopyDataToScratch, originals=[self.tarball] )
 
     def work(self):
         new_tarball = os.path.join(
@@ -256,7 +256,7 @@ class ParseVCF(SGEJobTask):
                     seqdb.close()
 
     def requires(self):
-        return self.clone(CopyDataToScratch, originals=[self.vcf, self.vcf + ".tbi"])
+        return self.clone( CopyDataToScratch, originals=[self.vcf, self.vcf + ".tbi"] )
 
     def work(self):
         if not self.dont_load_data:
@@ -330,35 +330,30 @@ class ParseVCF(SGEJobTask):
                 for table_name, table_file, is_variant_table in (
                     ("variant_chr" + self.chromosome, self.novel_variants, True),
                     ("indel_chr" + self.chromosome, self.novel_indels, False),
-                    ("custom_transcript_ids_chr" + self.chromosome,
-                     self.novel_transcripts, False),
-                    ("called_variant_chr" + self.chromosome, self.called_variants,
-                     False),
+                    ("custom_transcript_ids_chr" + self.chromosome, self.novel_transcripts, False),
+                    ("called_variant_chr" + self.chromosome, self.called_variants, False),
                     ("matched_indels", self.matched_indels, False)):
-                    load_statement = (
-                        LOAD_TABLE_REPLACE if is_variant_table else LOAD_TABLE)
-                    load_statement = load_statement.format(
-                        table_name=table_name, table_file=table_file)
+                    load_statement = ( LOAD_TABLE_REPLACE if is_variant_table else LOAD_TABLE)
+                    load_statement = load_statement.format( table_name=table_name, table_file=table_file )
                     try:
                         cur.execute(load_statement)
                     except (MySQLdb.IntegrityError, MySQLdb.OperationalError):
                         logger.error(
                             "error with:\n" + load_statement, exc_info=True)
                         sys.exit(1)
-                cur.execute(GET_NUM_CALLS_FOR_SAMPLE.format(
-                    CHROM=self.chromosome, sample_id=self.sample_id))
+                cur.execute(GET_NUM_CALLS_FOR_SAMPLE.format( CHROM=self.chromosome, sample_id=self.sample_id) )
                 variant_ids = set()
                 for variant_id in cur.fetchall():
                     variant_ids.add(variant_id[0])
                 db_count = len(variant_ids)
+
                 if db_count != vcf_variants_count:
                     db.rollback()
-                    raise ValueError(
-                        "incorrect number of calls in the called_variant table")
+                    raise ValueError( "incorrect number of calls in the called_variant table" )
                 db.commit()
-                seq_cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
-                    prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
+                seq_cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format( prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id) )
                 seqdb.commit()
+
             finally:
                 if db.open:
                     db.close()
@@ -392,7 +387,7 @@ class LoadBinData(SGEJobTask):
     data_type = luigi.ChoiceParameter(
         choices=["DP", "GQ"], description="the type of binned data to load")
     database = luigi.ChoiceParameter(
-        choices=["waldb", "dragen", "waldb4", "waldb1", "waldb6"],
+        choices=["waldb_master","waldb", "dragen", "waldb4", "waldb1", "waldb6"],
         default="waldb6", description="the database to load to")
     dont_load_data = luigi.BoolParameter(
         description="don't actually load any data, used for testing purposes")
@@ -424,9 +419,7 @@ class LoadBinData(SGEJobTask):
                     seqdb.close()
 
     def requires(self):
-        return self.clone(
-            ExtractTarball, fn_format=self.fn_format,
-            tarball=os.path.join(self.data_directory, "coverage.tar.gz"))
+        return self.clone( ExtractTarball, fn_format=self.fn_format, tarball=os.path.join(self.data_directory, "coverage.tar.gz") )
 
     def work(self):
         if not self.dont_load_data:
@@ -501,7 +494,7 @@ class ImportSample(luigi.Task):
         significant=False,
         description="don't remove the tmp dir if there's a failure")
     database = luigi.ChoiceParameter(
-        choices=["waldb", "dragen", "waldb4", "waldb1", "waldb6"],
+        choices=["waldb_master","waldb", "dragen", "waldb4", "waldb1", "waldb6"],
         default="waldb6", description="the database to load to")
     min_dp_to_include = luigi.NumericalParameter(
         min_value=0, max_value=sys.maxsize, var_type=int,
@@ -521,6 +514,7 @@ class ImportSample(luigi.Task):
         db = get_connection(self.database)
         try:
             cur = db.cursor()
+
             cur.execute(GET_SAMPLE_INFO.format(sample_id=self.sample_id))
             row = cur.fetchone()
             if row:
@@ -537,6 +531,25 @@ class ImportSample(luigi.Task):
         finally:
             if db.open:
                 db.close()
+
+        try:
+            seqdb = get_connection("seqdb")
+            seq_cur = seqdb.cursor()
+            seq_cur.execute('select is_merged from dragen_sample_metadata where pseudo_prepid = {}'.format(self.prep_id))
+            ##### horrid but in a hurry and just don't care!?!
+            if seq_cur.fetchone()[0]!=41:
+                raise ValueError("please don't run me directly ({})!?! ".format(self.prep_id))
+            else:
+                # should lock the sample itself in waldb to a user/host/pid?!?
+                # print('YAY')
+                ##### horrid but in a hurry and just don't care!?!
+                seq_cur.execute('update dragen_sample_metadata set is_merged = 42 where pseudo_prepid = {} '.format(self.prep_id))
+                seqdb.commit()
+
+        finally:
+            if db.open:
+                db.close()
+
         kwargs["output_directory"] = cfg.get("pipeline", "scratch_area").format(
             seqscratch=self.seqscratch, sample_name=sample_name,
             prep_id=self.prep_id,
@@ -550,7 +563,9 @@ class ImportSample(luigi.Task):
                 cmd = "ls -d {} &> /dev/null".format(data_directory)
                 c = Command.Command(cmd, shell=True)
                 c.start()
-                c.join(5)
+                #### way too short for something as brute force as this on an object store...
+                c.join(15)
+                # c.join(5)
             except Command.TimeoutException:
                 raise ValueError("the data directory {} is inaccessible".format(
                     data_directory))
@@ -609,13 +624,12 @@ class ImportSample(luigi.Task):
             raise OSError(
                 "could not find the VCF: {vcf}".format(vcf=self.vcf))
 
-    def requires(self):
-        return ([self.clone(
-            ParseVCF, chromosome=CHROM, 
-            output_base=self.output_directory + CHROM)
-            for CHROM in CHROMs.iterkeys()] +
-            [self.clone(LoadBinData, chromosome=CHROM, data_type="DP")
-             for CHROM in CHROMs.iterkeys()])
+    def requires(self): # list of parse & loadbin 
+        return ( 
+                    [ self.clone( ParseVCF, chromosome=CHROM,  output_base=self.output_directory + CHROM) for CHROM in CHROMs.iterkeys() ] 
+                +
+                    [ self.clone( LoadBinData, chromosome=CHROM, data_type="DP") for CHROM in CHROMs.iterkeys() ]
+        )
     
     def run(self):
         # verify that each VariantID annotated chromosome's VCF is present,
@@ -682,37 +696,37 @@ class ImportSample(luigi.Task):
                 # to hang indefinitely
                 if os.path.isfile(fn):
                     os.remove(fn)
-            cmd = "bgzip " + vcf_out
-            p = subprocess.Popen(
-                shlex.split(cmd), stdout=devnull, stderr=devnull)
+            ##### bored, bored, bored!?!
+            cmd = "/nfs/goldstein/software/bin/bgzip " + vcf_out
+            print("running : '{}'".format(cmd))
+            p = subprocess.Popen( shlex.split(cmd), stdout=devnull, stderr=devnull )
             p.communicate()
             if p.returncode:
                 raise subprocess.CalledProcessError(p.returncode, cmd)
             vcf_out += ".gz"
-            cmd = "tabix -p vcf " + vcf_out
-            p = subprocess.Popen(
-                shlex.split(cmd), stdout=devnull, stderr=devnull)
+            ##### bored, bored, bored!?!
+            cmd = "/nfs/goldstein/software/bin/tabix -p vcf " + vcf_out
+            print("running : '{}'".format(cmd))
+            p = subprocess.Popen( shlex.split(cmd), stdout=devnull, stderr=devnull )
             p.communicate()
             if p.returncode:
                 raise subprocess.CalledProcessError(p.returncode, cmd)
         if not self.dont_load_data:
+            ##### currently this is have to run 'after' archive protection which means this is a bit of a PIA and is simpler to move elsewhere or not bother?!?
             # only back up/update DB if we're actually loading data
-            copy(vcf_out, os.path.join(
-                self.data_directory, os.path.basename(vcf_out)))
-            copy(vcf_out + ".tbi", os.path.join(
-                self.data_directory, os.path.basename(vcf_out) + ".tbi"))
+            # copy(vcf_out, os.path.join( self.data_directory, os.path.basename(vcf_out)))
+            # copy(vcf_out + ".tbi", os.path.join( self.data_directory, os.path.basename(vcf_out) + ".tbi"))
             # copy other stuff/delete scratch directory, etc.
             seqdb = get_connection("seqdb")
             db = get_connection(self.database)
             try:
                 seq_cur = seqdb.cursor()
                 cur = db.cursor()
-                seq_cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
-                    prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id))
-                seq_cur.execute(UPDATE_PREP_STATUS.format(
-                    pseudo_prepid=self.prep_id, status="In DragenDB"))
-                cur.execute(SET_SAMPLE_FINISHED.format(
-                    sample_id=self.sample_id))
+                seq_cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format( prep_id=self.prep_id, pipeline_step_id=self.pipeline_step_id) )
+                seq_cur.execute(UPDATE_PREP_STATUS.format( pseudo_prepid=self.prep_id, status="In DragenDB") )
+                ##### horrid but in a hurry and just don't care!?!
+                seq_cur.execute('update dragen_sample_metadata set is_merged = 43 where pseudo_prepid = {} '.format(self.prep_id))
+                cur.execute(SET_SAMPLE_FINISHED.format( sample_id=self.sample_id) )
                 seqdb.commit()
                 db.commit()
             finally:

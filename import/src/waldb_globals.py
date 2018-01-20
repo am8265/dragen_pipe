@@ -585,7 +585,7 @@ class PipelineTask(SGEJobTask):
                 pseudo_prepid=self.pseudo_prepid,
                 pipeline_step_id=self.pipeline_step_id))
             if self.prept_completed_message:
-                update_message = "Completed " + self.prept_completed_message
+                update_message = "Pipeline Completed " + self.prept_completed_message + " (" + self.__class__.__name__ + ")"
                 seq_cur.execute(GET_PREP_STATUS.format(
                     pseudo_prepid=self.pseudo_prepid))
                 status = seq_cur.fetchone()[0]
@@ -612,7 +612,7 @@ class PipelineTask(SGEJobTask):
                 pseudo_prepid=self.pseudo_prepid,
                 pipeline_step_id=self.pipeline_step_id))
             if self.prept_start_message:
-                update_message = "Failed " + self.prept_start_message + " (" + self.__class__.__name__ + ")"
+                update_message = "Pipeline Failed " + self.prept_start_message + " (" + self.__class__.__name__ + ")"
                 seq_cur.execute(GET_PREP_STATUS.format(
                     pseudo_prepid=self.pseudo_prepid))
                 status = seq_cur.fetchone()[0]
