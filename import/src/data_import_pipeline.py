@@ -214,7 +214,7 @@ class ParseVCF(SGEJobTask):
         choices=LOGGING_LEVELS, significant=False,
         default="DEBUG", description="the logging level to use")
     database = luigi.ChoiceParameter(
-        choices=["waldb4", "waldb6"],
+        choices=["waldb_master","waldb", "dragen", "waldb4", "waldb1", "waldb6"],
         default="waldb6", description="the database to load to")
     min_dp_to_include = luigi.NumericalParameter(
         min_value=0, max_value=sys.maxsize, var_type=int,
