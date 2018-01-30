@@ -227,7 +227,7 @@ class GATKFPipelineTask(GATKPipelineTask):
         # jf=re.sub("[ ]", "_", self.__class__.__name__))
         jf="{}/.worker_{}.txt".format( self.scratch_dir, self.__class__.__name__) 
         print("using {}".format(jf));
-        msg = "jid=\t{}\nuser=\t{}@{}\npid=\t{}".format( (os.getenv("JOB_ID") if ("JOB_ID" in os.environ) else 'NULL'), getpass.getuser(), socket.gethostname(), os.getpid() )
+        msg = "run_locally=\t{}\njid=\t{}\nuser=\t{}@{}\npid=\t{}".format( self.run_locally, (os.getenv("JOB_ID") if ("JOB_ID" in os.environ) else 'NULL'), getpass.getuser(), socket.gethostname(), os.getpid() )
         with open(jf,"w") as f:
             f.write(msg)
 
@@ -276,23 +276,35 @@ class FileExists(luigi.ExternalTask):
         return luigi.LocalTarget(self.fn)
 
 ### change this to go via dragenpipelinetask...?!?
-class ValidateBAM(SGEJobTask):
+class ValidateBAM(GATKFPipelineTask):
+# class ValidateBAM(SGEJobTask):
+
+    def __init__(self, *args, **kwargs):
+        super(ValidateBAM, self).__init__(*args, **kwargs)
+        self.run_locally=True
+
+    # forces parameter to be supplied by
+    # return ValidateBAM(bam=self.scratch_bam, check_counts=self.sample_type != "CUSTOM_CAPTURE") #, FileExists(self.dragen_log)
     bam = luigi.Parameter(description="the expected path to the BAM to check")
-    check_counts = luigi.BoolParameter(
-        default=False, description="check read counts by chromosome")
+
+    check_counts = luigi.BoolParameter( default=False, description="check read counts by chromosome" )
     dont_remove_tmp_dir = False # remove the temporary directory iff this task succeeds
     dont_remove_tmp_dir_if_failure = True # don't remove if it fails
 
-    def work(self):
+    def pre_shell_commands(self):
+    # def work(self):
 
+        # bam=self.scratch_bam
         # from pprint import pprint
         # pprint(vars(self))
 
-        jf="/{}/.worker_{}.txt".format( '/'.join(self.bam.split('/')[1:-1]), self.__class__.__name__) 
-        print("using {}".format(jf));
-        msg = "jid=\t{}\nuser=\t{}@{}\npid=\t{}".format( (os.getenv("JOB_ID") if ("JOB_ID" in os.environ) else 'NULL'), getpass.getuser(), socket.gethostname(), os.getpid() )
-        with open(jf,"w") as f:
-            f.write(msg)
+        self.log_jid()
+
+        # jf="/{}/.worker_{}.txt".format( '/'.join(self.bam.split('/')[1:-1]), self.__class__.__name__) 
+        # print("using {}".format(jf));
+        # msg = "jid=\t{}\nuser=\t{}@{}\npid=\t{}".format( (os.getenv("JOB_ID") if ("JOB_ID" in os.environ) else 'NULL'), getpass.getuser(), socket.gethostname(), os.getpid() )
+        # with open(jf,"w") as f:
+        #    f.write(msg)
 
         with open(os.devnull, "w") as devnull:
             # dsth : oct, 11
@@ -303,26 +315,32 @@ class ValidateBAM(SGEJobTask):
             # MT check doesn't work properly, just check for 'EOF marker is # absent' message
             #p = subprocess.Popen(["samtools", "view", "-H", self.bam],
             #                     stdout=devnull, stderr=subprocess.PIPE)
-            errors = check_bam(self.bam, self.check_counts)
-            if errors:
-                if "DEBUG_INTERVALS" not in os.environ:
-                    with open(self.bam + ".corrupted", "w"): pass
-                    raise BAMCheckException("\n".join(errors))
-                else:
-                    with self.output().open("w"): pass
-            else:
-                with self.output().open("w"): pass
+
+####### this is causing so many issues and nothing should get here anyway - centralised messages as dispatchng jobs but also wasn't updating status!?!?
+            #errors = check_bam(self.bam, self.check_counts)
+            #if errors:
+            #    if "DEBUG_INTERVALS" not in os.environ:
+            #        with open(self.bam + ".corrupted", "w"): pass
+            #        raise BAMCheckException("\n".join(errors))
+            #    else:
+            #        with self.output().open("w"): pass
+            #else:
+            #    with self.output().open("w"): pass
+            with self.output().open("w"): pass
 
     def requires(self):
+        # return FileExists(self.scratch_bam)
         return FileExists(self.bam)
 
     def output(self):
+        # return luigi.LocalTarget(self.scratch_bam+ ".validated")
         return luigi.LocalTarget(self.bam + ".validated")
 
 
 class RealignerTargetCreator(JavaPipelineTask):
     priority = 1 # run before other competing steps with no requirement
-    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
+    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 2
+    # n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
     max_mem = 24
 
     def pre_shell_commands(self):
@@ -337,11 +355,12 @@ class RealignerTargetCreator(JavaPipelineTask):
             "-known {dbSNP} -nt {n_cpu} {intervals_param} {silly_arg}")]
 
     def requires(self):
-        return ValidateBAM(bam=self.scratch_bam,
-                           check_counts=self.sample_type != "CUSTOM_CAPTURE")
+        return self.clone(DuplicateMetrics)
+        # return ValidateBAM(bam=self.scratch_bam, check_counts=self.sample_type != "CUSTOM_CAPTURE")
 
 class IndelRealigner(JavaPipelineTask):
-    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
+    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 2
+    # n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
     max_mem = 24
     def pre_shell_commands(self):
 
@@ -357,7 +376,8 @@ class IndelRealigner(JavaPipelineTask):
         return self.clone(RealignerTargetCreator)
 
 class BaseRecalibrator(JavaPipelineTask):
-    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
+    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 2
+    # n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
     max_mem = 24
     def pre_shell_commands(self):
 
@@ -374,7 +394,8 @@ class BaseRecalibrator(JavaPipelineTask):
         return self.clone(IndelRealigner)
 
 class PrintReads(JavaPipelineTask):
-    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
+    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 2
+    # n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
     max_mem = 24
     def pre_shell_commands(self):
 
@@ -402,7 +423,9 @@ class HaplotypeCaller(JavaPipelineTask):
         self.log_jid()
 
         self.commands = [self.format_string(
-            "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T HaplotypeCaller "
+            # samples exiting with -Xmx24g so specifying initial and max - still running with 6 slots - i.e. max of 4/node of 128MB so...
+            # "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T HaplotypeCaller "
+            "{java} -Xms16g -Xmx34g -jar {gatk} -R {ref_genome} -T HaplotypeCaller "
             # dsth: making this sensible to avoid the bounds condition in 3.6...
             # dsth: updated gatk 3.6 to 2016-08-27-g667f78b
             # "-maxAltAlleles 3 "
@@ -899,7 +922,7 @@ class SubsetVCF(GATKFPipelineTask):
 ####### there's some pretty strange ordering here?!?
 class PreArchiveChecks(GATKFPipelineTask):
 
-    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 7
+    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 4
     prept_start_message = "PreArchiveChecks"
     prept_completed_message = "PreArchiveChecks"
     # prept_start_message = prept_completed_message = __class__.__name__
@@ -985,8 +1008,8 @@ class PreArchiveChecks(GATKFPipelineTask):
 
 class ArchiveSample(GATKFPipelineTask):
 
-    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 7
-    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 7
+    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 4
+    # n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 7
     # prept_start_message = prept_completed_message = self.__class__.__name__
     prept_start_message = "ArchiveSample"
     prept_completed_message = "ArchiveSample" 
@@ -1270,8 +1293,7 @@ class SplitAndSubsetDPBins(GATKFPipelineTask):
                     blocks_to_retain[chrom].add(block_id)
         coverage_out_fh = None
         prev_chrom = None
-        with open(os.path.join(
-            self.scratch_dir, "{}.coverage_bins".format(self.name_prep))) as coverage_fh:
+        with open(os.path.join( self.scratch_dir, "{}.coverage_bins".format(self.name_prep)) ) as coverage_fh:
             for x, line in enumerate(coverage_fh):
                 chrom, block_id = line.split("\t")[:2]
                 if dp_blocks_fn:
@@ -1488,15 +1510,16 @@ class RunCvgMetrics(GATKFPipelineTask):
         yield self.clone(PrintReads)
 
 class DuplicateMetrics(GATKFPipelineTask):
+
     """ Parse Duplicate Metrics from dragen logs """
+
     def __init__(self, *args, **kwargs):
+
         super(DuplicateMetrics, self).__init__(*args, **kwargs)
-        self.dragen_log = os.path.join(
-            self.log_dir, self.name_prep + ".dragen.out")
-        self.picard_log = os.path.join(
-            self.scratch_dir, self.name_prep + ".metrics_duplication.txt")
-        self.duplicates_file = os.path.join(
-            self.scratch_dir, self.name_prep + ".duplicates.txt")
+        self.run_locally=True
+        self.dragen_log = os.path.join( self.log_dir, self.name_prep + ".dragen.out" )
+        self.picard_log = os.path.join( self.scratch_dir, self.name_prep + ".metrics_duplication.txt" )
+        self.duplicates_file = os.path.join( self.scratch_dir, self.name_prep + ".duplicates.txt" )
 
     def pre_shell_commands(self):
 
@@ -1513,6 +1536,7 @@ class DuplicateMetrics(GATKFPipelineTask):
                 fields = log_fh.next().strip().split("\t")
                 perc_duplicates = float(fields[duplication_idx]) * 100
         elif os.path.isfile(self.dragen_log):
+            # doesn't handle older dragen flavours that are still lingering...
             with open(self.dragen_log) as d:
                 for line in d:
                     line = line.strip()
@@ -1527,11 +1551,12 @@ class DuplicateMetrics(GATKFPipelineTask):
             with open(self.duplicates_file, "w") as out:
                 out.write(str(perc_duplicates) + "\n")
         else:
-            raise ValueError("Could not find duplicate metrics in dragen log!")
+            raise ValueError("Could not find duplicate metrics in dragen log ({})".format(self.dragen_log))
 
+    # should this be dependent at all?!?
     def requires(self):
-        return ValidateBAM(bam=self.scratch_bam,
-                           check_counts=self.sample_type != "CUSTOM_CAPTURE")#, FileExists(self.dragen_log)
+        # return self.clone(CombineVariants), self.clone(PrintReads)
+        return ValidateBAM(bam=self.scratch_bam, pseudo_prepid=self.pseudo_prepid, check_counts=self.sample_type != "CUSTOM_CAPTURE")#, FileExists(self.dragen_log)
 
 class VariantCallingMetrics(GATKFPipelineTask):
     def pre_shell_commands(self):
@@ -2032,7 +2057,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         yield self.clone(SplitAndSubsetDPBins)
         yield self.clone(AlignmentMetrics)
         yield self.clone(RunCvgMetrics)
-        yield self.clone(DuplicateMetrics)
+        # yield self.clone(DuplicateMetrics)
         yield self.clone(VariantCallingMetrics)
         yield self.clone(ContaminationCheck)
 
