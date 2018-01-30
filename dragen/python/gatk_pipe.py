@@ -227,7 +227,8 @@ class GATKFPipelineTask(GATKPipelineTask):
         # jf=re.sub("[ ]", "_", self.__class__.__name__))
         jf="{}/.worker_{}.txt".format( self.scratch_dir, self.__class__.__name__) 
         print("using {}".format(jf));
-        msg = "run_locally=\t{}\njid=\t{}\nuser=\t{}@{}\npid=\t{}\npsid=\t{}".format( self.run_locally, (os.getenv("JOB_ID") if ("JOB_ID" in os.environ) else 'NULL'), getpass.getuser(), socket.gethostname(), os.getpid(), self.pipeline_step_id )
+        msg = "run_locally=\t{}\njid=\t{}\nuser=\t{}@{}\npid=\t{}\npsid=\t{}".format( self.run_locally, 
+          (os.getenv("JOB_ID") if ("JOB_ID" in os.environ) else 'NULL'), getpass.getuser(), socket.gethostname(), os.getpid(), self.pipeline_step_id )
         with open(jf,"w") as f:
             f.write(msg)
 
@@ -235,7 +236,9 @@ class GATKFPipelineTask(GATKPipelineTask):
 # seqscratch_drive, sample_type, sample_name = row
 ##################################################################
 
-    def set_dsm_status(self, status):
+    def set_dsm_status(self, status=0):
+
+        S=90000+(10*self.pipeline_step_id)+status
 
         db = get_connection("seqdb")
         try:
@@ -243,7 +246,7 @@ class GATKFPipelineTask(GATKPipelineTask):
             # horrid, but i am too sick of all this instability
             try:
                 print("updating dsm to {} for {}".format(status,self.pseudo_prepid))
-                cur.execute("update dragen_sample_metadata set is_merged = {} where pseudo_prepid = {}".format(status,self.pseudo_prepid))
+                cur.execute("update dragen_sample_metadata set is_merged = {} where pseudo_prepid = {}".format(S,self.pseudo_prepid))
             except MySQLdb.Error, e:
                 raise Exception("ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1]))
             db.commit()
@@ -300,6 +303,7 @@ class ValidateBAM(GATKFPipelineTask):
         # pprint(vars(self))
 
         self.log_jid()
+        self.set_dsm_status(0) 
 
         # jf="/{}/.worker_{}.txt".format( '/'.join(self.bam.split('/')[1:-1]), self.__class__.__name__) 
         # print("using {}".format(jf));
@@ -346,7 +350,7 @@ class RealignerTargetCreator(JavaPipelineTask):
 
     def pre_shell_commands(self):
 
-        self.set_dsm_status(3) # just don't care anymore about this shite?!?
+        self.set_dsm_status(0) # just don't care anymore about this shite?!?
         self.update_sample_status('Realign Bam')
         self.log_jid()
 
@@ -366,6 +370,7 @@ class IndelRealigner(JavaPipelineTask):
     def pre_shell_commands(self):
 
         self.log_jid()
+        self.set_dsm_status(0) 
 
         self.commands = [self.format_string(
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T IndelRealigner "
@@ -384,6 +389,7 @@ class BaseRecalibrator(JavaPipelineTask):
 
         self.update_sample_status('Recal Bam')
         self.log_jid()
+        self.set_dsm_status(0) 
 
         self.commands = [self.format_string(
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} "
@@ -401,6 +407,7 @@ class PrintReads(JavaPipelineTask):
     def pre_shell_commands(self):
 
         self.log_jid()
+        self.set_dsm_status(0) 
 
         # --disable_indel_quals are necessary to remove BI and BD tags in the bam file
         self.commands = [self.format_string(
@@ -422,6 +429,7 @@ class HaplotypeCaller(JavaPipelineTask):
 
         self.update_sample_status('Variant Calling')
         self.log_jid()
+        self.set_dsm_status(0) 
 
         self.commands = [self.format_string(
             # samples exiting with -Xmx24g so specifying initial and max - still running with 6 slots - i.e. max of 4/node of 128MB so...
@@ -436,6 +444,9 @@ class HaplotypeCaller(JavaPipelineTask):
             "--variant_index_parameter 128000 --dbsnp {dbSNP} -nct {n_cpu}")]
 
     def post_shell_commands(self):
+
+        self.set_dsm_status(1) 
+
         errors = check_vcf(self.gvcf)
         if errors:
             raise VCFCheckException("\n".join(errors))
@@ -449,12 +460,16 @@ class GenotypeGVCFs(GATKFPipelineTask):
 
         self.update_sample_status('Genotyping')
         self.log_jid()
+        self.set_dsm_status(0) 
 
         self.commands = [self.format_string(
             "{java} -jar {gatk} -R {ref_genome} -T GenotypeGVCFs "
             "-L {interval} -o {vcf} -stand_call_conf 20 -stand_emit_conf 20 -V {gvcf}")]
 
     def post_shell_commands(self):
+
+        self.set_dsm_status(1) 
+
         errors = check_vcf(self.vcf, self.check_variant_counts)
         if errors:
             raise VCFCheckException("\n".join(errors))
@@ -467,12 +482,16 @@ class SelectVariantsSNP(GATKFPipelineTask):
     def pre_shell_commands(self):
 
         self.log_jid()
+        self.set_dsm_status(0) 
 
         self.commands = [self.format_string(
             "{java} -jar {gatk} -R {ref_genome} -T SelectVariants "
             "-L {interval} -V {vcf}  -selectType SNP -o {snp_vcf}")]
 
     def post_shell_commands(self):
+
+        self.set_dsm_status(1) 
+
         errors = check_vcf(self.snp_vcf)
         if errors:
             raise VCFCheckException("\n".join(errors))
@@ -484,12 +503,16 @@ class SelectVariantsINDEL(GATKFPipelineTask):
     def pre_shell_commands(self):
 
         self.log_jid()
+        self.set_dsm_status(0) 
 
         self.commands = [self.format_string(
             "{java} -jar {gatk} -R {ref_genome} -T SelectVariants "
             "-L {interval} -V {vcf}  -selectType INDEL -o {indel_vcf}")]
 
     def post_shell_commands(self):
+
+        self.set_dsm_status(1) 
+
         errors = check_vcf(self.indel_vcf)
         if errors:
             raise VCFCheckException("\n".join(errors))
@@ -509,6 +532,7 @@ class VariantRecalibratorSNP(JavaPipelineTask):
         ## https://software.broadinstitute.org/gatk/guide/article?id=1259
 
         self.log_jid()
+        self.set_dsm_status(0) 
 
         self.commands = [self.format_string(
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T VariantRecalibrator "
@@ -530,6 +554,7 @@ class VariantFiltrationSNP(GATKFPipelineTask):
     def pre_shell_commands(self):
 
         self.log_jid()
+        self.set_dsm_status(0) 
 
         self.commands = [self.format_string(
             '{java} -jar {gatk} -R {ref_genome} -T VariantFiltration '
@@ -538,6 +563,9 @@ class VariantFiltrationSNP(GATKFPipelineTask):
             'ReadPosRankSum < -8.0" --filterName "SNP_filter" -o {snp_filtered}')]
 
     def post_shell_commands(self):
+
+        self.set_dsm_status(1) 
+
         errors = check_vcf(self.snp_filtered)
         if errors:
             raise VCFCheckException("\n".join(errors))
@@ -550,6 +578,7 @@ class VariantRecalibratorINDEL(JavaPipelineTask):
     def pre_shell_commands(self):
 
         self.log_jid()
+        self.set_dsm_status(0) 
 
         self.commands = [self.format_string(
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} "
@@ -567,6 +596,7 @@ class ApplyRecalibrationSNP(GATKFPipelineTask):
     def pre_shell_commands(self):
 
         self.log_jid()
+        self.set_dsm_status(0) 
 
         self.commands = [self.format_string(
             "{java} -jar {gatk} -R {ref_genome} -T ApplyRecalibration "
@@ -575,6 +605,9 @@ class ApplyRecalibrationSNP(GATKFPipelineTask):
             "-o {snp_filtered} --ts_filter_level 90.0 -mode SNP")]
 
     def post_shell_commands(self):
+
+        self.set_dsm_status(1) 
+
         errors = check_vcf(self.snp_filtered)
         if errors:
             raise VCFCheckException("\n".join(errors))
@@ -586,6 +619,7 @@ class ApplyRecalibrationINDEL(GATKFPipelineTask):
     def pre_shell_commands(self):
 
         self.log_jid()
+        self.set_dsm_status(0) 
 
         self.commands = [self.format_string(
             "{java} -jar {gatk} -R {ref_genome} -T ApplyRecalibration "
@@ -594,6 +628,9 @@ class ApplyRecalibrationINDEL(GATKFPipelineTask):
             "-o {indel_filtered} --ts_filter_level 90.0 -mode INDEL")]
 
     def post_shell_commands(self):
+
+        self.set_dsm_status(1) 
+
         errors = check_vcf(self.indel_filtered)
         if errors:
             raise VCFCheckException("\n".join(errors))
@@ -605,6 +642,7 @@ class VariantFiltrationINDEL(GATKFPipelineTask):
     def pre_shell_commands(self):
 
         self.log_jid()
+        self.set_dsm_status(0) 
 
         self.commands = [self.format_string(
             '{java} -jar {gatk} -R {ref_genome} -T VariantFiltration '
@@ -613,6 +651,9 @@ class VariantFiltrationINDEL(GATKFPipelineTask):
             '"INDEL_filter"  -o {indel_filtered}')]
 
     def post_shell_commands(self):
+
+        self.set_dsm_status(1) 
+
         errors = check_vcf(self.indel_filtered)
         if errors:
             raise VCFCheckException("\n".join(errors))
@@ -624,6 +665,7 @@ class CombineVariants(GATKFPipelineTask):
     def pre_shell_commands(self):
 
         self.log_jid()
+        self.set_dsm_status(0) 
 
         """Merges SNP and INDEL vcfs.  Using the filtered SNP vcf header as a
         base, variant type/sample type specific ##FILTERs are added to the header.
@@ -681,6 +723,9 @@ class CombineVariants(GATKFPipelineTask):
             "{tabix} -f {final_vcf_gz}"))
 
     def post_shell_commands(self):
+
+        self.set_dsm_status(1) 
+
         errors = check_vcf(self.final_vcf_gz, self.check_variant_counts)
         if errors:
             raise VCFCheckException("\n".join(errors))
@@ -704,6 +749,7 @@ class RBP(GATKFPipelineTask):
     def pre_shell_commands(self):
 
         self.log_jid()
+        self.set_dsm_status(0) 
 
         self.commands = [self.format_string(
             "{java} -XX:ParallelGCThreads=1 -jar {gatk} -T ReadBackedPhasing -R {ref_genome} "
@@ -713,6 +759,9 @@ class RBP(GATKFPipelineTask):
             "-U ALLOW_SEQ_DICT_INCOMPATIBILITY")]
 
     def post_shell_commands(self):
+
+        self.set_dsm_status(1) 
+
         errors = check_vcf(self.phased_vcf, self.check_variant_counts)
         if errors:
             raise VCFCheckException("\n".join(errors))
@@ -726,6 +775,9 @@ class FixMergedMNPInfo(GATKFPipelineTask):
     the value for corresponding to that variant site from the vcf prior to RBP
     and add these information to the fixed vcf """
     def post_shell_commands(self):
+
+        self.set_dsm_status(1) 
+
         self.fix_phased_vcf()
         errors = check_vcf(self.fixed_vcf, self.check_variant_counts)
         if errors:
@@ -863,6 +915,7 @@ class AnnotateVCF(GATKFPipelineTask):
 
         self.update_sample_status('Annotating Variants')
         self.log_jid()
+        self.set_dsm_status(0) 
 
         self.shell_options.update(
             {"stdout":None, "stderr":self.log_file, "shell":True})
@@ -879,6 +932,9 @@ class AnnotateVCF(GATKFPipelineTask):
             self.format_string("{tabix} -f {annotated_vcf_gz}")]
 
     def post_shell_commands(self):
+
+        self.set_dsm_status(1) 
+
         errors = check_vcf(self.annotated_vcf_gz, self.check_variant_counts)
         if errors:
             raise VCFCheckException("\n".join(errors))
@@ -891,6 +947,7 @@ class SubsetVCF(GATKFPipelineTask):
     def pre_shell_commands(self):
 
         self.log_jid()
+        self.set_dsm_status(0) 
 
         self.shell_options.update({"stdout":None, "stderr":self.log_file})
         self.original_vcf_gz = "{0}/{1}.{2}.analysisReady.annotated.original.vcf.gz".format(
@@ -913,6 +970,9 @@ class SubsetVCF(GATKFPipelineTask):
             self.tabix_cmd1, self.tabix_cmd2]
 
     def post_shell_commands(self):
+
+        self.set_dsm_status(1) 
+
         errors = check_vcf(self.annotated_vcf_gz, self.check_variant_counts)
         if errors:
             raise VCFCheckException("\n".join(errors))
@@ -950,6 +1010,7 @@ class PreArchiveChecks(GATKFPipelineTask):
     def pre_shell_commands(self):
 
         self.log_jid()
+        self.set_dsm_status(0) 
 
         self.script_dir = os.path.join(self.scratch_dir, "scripts")
 
@@ -1037,6 +1098,7 @@ class ArchiveSample(GATKFPipelineTask):
 
         self.update_sample_status('Archiving')
         self.log_jid()
+        self.set_dsm_status(0) 
 
         self.script_dir = os.path.join(self.scratch_dir, "scripts")
 
@@ -1072,6 +1134,8 @@ class ArchiveSample(GATKFPipelineTask):
         print('will copy', frameinfo.filename, frameinfo.lineno)
 
     def post_shell_commands(self):
+
+        self.set_dsm_status(1) 
 
         for data_file in self.data_to_copy:
             scratch_fn = self.format_string(data_file)
@@ -1241,6 +1305,9 @@ class CoverageBinning(GATKFPipelineTask):
         "binned coverage value to be output")
 
     def pre_shell_commands(self):
+
+        self.set_dsm_status(0) 
+
         self.shell_options.update(
             {"stdout":os.path.join(
                 self.scratch_dir, "{}.coverage_bins".format(self.name_prep)),
@@ -1256,6 +1323,9 @@ class SplitAndSubsetDPBins(GATKFPipelineTask):
     if they aren't genomes
     """
     def pre_shell_commands(self):
+
+        self.set_dsm_status(0) 
+
         if not os.path.isdir(self.cov_dir):
             os.makedirs(self.cov_dir)
         if self.sample_type == "GENOME":
@@ -1323,6 +1393,9 @@ class SplitAndSubsetDPBins(GATKFPipelineTask):
    
 class GQBinning(GATKFPipelineTask):
     def pre_shell_commands(self):
+
+        self.set_dsm_status(0) 
+
         try:
             if not os.path.isdir(self.gq_dir):
                 os.makedirs(self.gq_dir)
@@ -1340,6 +1413,9 @@ class GQBinning(GATKFPipelineTask):
 
 class AlignmentMetrics(GATKFPipelineTask):
     def pre_shell_commands(self):
+
+        self.set_dsm_status(0) 
+
         self.alignment_metrics_raw = os.path.join(
             self.scratch_dir,
             "{sample_name}.{pseudo_prepid}.alignment.metrics.raw".format(
@@ -1360,6 +1436,9 @@ class AlignmentMetrics(GATKFPipelineTask):
 
 class RunCvgMetrics(GATKFPipelineTask):
     def pre_shell_commands(self):
+
+        self.set_dsm_status(0) 
+
         """Run Picard CalculateHsMetrics,DepthOfCoverage or CollectWgsMetrics
         An optimization for the future is to split this up into multiple tasks since they are all independent
         of each other will speed things up significantly, IO can be an issue"""
@@ -1525,6 +1604,7 @@ class DuplicateMetrics(GATKFPipelineTask):
     def pre_shell_commands(self):
 
         self.log_jid()
+        self.set_dsm_status(0) 
 
         perc_duplicates = None
         if os.path.isfile(self.picard_log):
@@ -1561,6 +1641,9 @@ class DuplicateMetrics(GATKFPipelineTask):
 
 class VariantCallingMetrics(GATKFPipelineTask):
     def pre_shell_commands(self):
+
+        self.set_dsm_status(0) 
+
         self.metrics_raw = os.path.join(
             self.scratch_dir, self.sample_name + ".raw")
         self.metrics_raw_summary = self.metrics_raw + ".variant_calling_summary_metrics"
@@ -1583,6 +1666,9 @@ class VariantCallingMetrics(GATKFPipelineTask):
 class ContaminationCheck(GATKFPipelineTask):
     """ Run VerifyBamID to check for sample contamination """
     def pre_shell_commands(self):
+
+        self.set_dsm_status(0) 
+
         self.contamination_raw = os.path.join(
             self.scratch_dir, self.sample_name + ".contamination.raw")
         self.contamination_final = os.path.join(
@@ -1615,6 +1701,9 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
     # pipeline has succeeded upon completion of this step
 
     def pre_shell_commands(self):
+
+        self.set_dsm_status(0) 
+
         ## Generic query to be used for updates 
         self.update_statement = """
         UPDATE {table} SET {field} = {value}
