@@ -21,6 +21,8 @@ MINIMUM_READS_PER_CHROMOSOME = 1
 def check_bam(bam_fn, check_read_counts=True):
     if not os.path.isfile(bam_fn):
         raise OSError("{} does not exist!".format(bam_fn))
+    if os.system('which samtools')!=0:
+        raise OSError("\n\nUnable to locate samtools in current path")
     bam = pysam.AlignmentFile(bam_fn, "rb")
     errors = []
     read_group_mismatch_detected = False
@@ -75,8 +77,7 @@ def check_bam(bam_fn, check_read_counts=True):
         if not bam.closed:
             bam.close()
     with open(os.devnull, "w") as devnull:
-        p = subprocess.Popen(["samtools", "view", bam_fn], stdout=devnull,
-                             stderr=subprocess.PIPE)
+        p = subprocess.Popen( ["samtools", "view", bam_fn], stdout=devnull, stderr=subprocess.PIPE )
     _, err = p.communicate()
     if p.returncode or "EOF marker is absent" in err:
         errors.append("BAM file is corrupted!")

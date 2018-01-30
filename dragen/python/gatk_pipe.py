@@ -29,6 +29,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
 from waldb_globals import *
 from inspect import currentframe, getframeinfo
 import re
+import datetime
 
 warnings.filterwarnings("error", category=MySQLdb.Warning)
 
@@ -227,8 +228,11 @@ class GATKFPipelineTask(GATKPipelineTask):
         # jf=re.sub("[ ]", "_", self.__class__.__name__))
         jf="{}/.worker_{}.txt".format( self.scratch_dir, self.__class__.__name__) 
         print("using {}".format(jf));
-        msg = "run_locally=\t{}\njid=\t{}\nuser=\t{}@{}\npid=\t{}\npsid=\t{}".format( self.run_locally, 
-          (os.getenv("JOB_ID") if ("JOB_ID" in os.environ) else 'NULL'), getpass.getuser(), socket.gethostname(), os.getpid(), self.pipeline_step_id )
+        msg = "run_locally=\t{}\njid=\t{}\nuser=\t{}@{}\npid=\t{}\npsid=\t{}\ndt=\t{}".format( 
+          self.run_locally, (os.getenv("JOB_ID") if ("JOB_ID" in os.environ) else 'NULL'), 
+          getpass.getuser(), socket.gethostname(), os.getpid(), self.pipeline_step_id, 
+          datetime.datetime.isoformat(datetime.datetime.now()) 
+        )
         with open(jf,"w") as f:
             f.write(msg)
 
