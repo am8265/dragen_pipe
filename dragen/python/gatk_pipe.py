@@ -449,7 +449,9 @@ class HaplotypeCaller(JavaPipelineTask):
 
         errors = check_vcf(self.gvcf)
         if errors:
+            self.set_dsm_status(3) 
             raise VCFCheckException("\n".join(errors))
+            self.set_dsm_status(2) 
 
     def requires(self):
         return self.clone(PrintReads)
@@ -472,7 +474,9 @@ class GenotypeGVCFs(GATKFPipelineTask):
 
         errors = check_vcf(self.vcf, self.check_variant_counts)
         if errors:
+            self.set_dsm_status(3) 
             raise VCFCheckException("\n".join(errors))
+            self.set_dsm_status(2) 
 
     def requires(self):
         return self.clone(HaplotypeCaller)
@@ -494,7 +498,9 @@ class SelectVariantsSNP(GATKFPipelineTask):
 
         errors = check_vcf(self.snp_vcf)
         if errors:
+            self.set_dsm_status(3) 
             raise VCFCheckException("\n".join(errors))
+        self.set_dsm_status(2) 
 
     def requires(self):
         return self.clone(GenotypeGVCFs)
@@ -515,7 +521,9 @@ class SelectVariantsINDEL(GATKFPipelineTask):
 
         errors = check_vcf(self.indel_vcf)
         if errors:
+            self.set_dsm_status(3) 
             raise VCFCheckException("\n".join(errors))
+        self.set_dsm_status(2) 
 
     def requires(self):
         return self.clone(GenotypeGVCFs)
@@ -568,7 +576,9 @@ class VariantFiltrationSNP(GATKFPipelineTask):
 
         errors = check_vcf(self.snp_filtered)
         if errors:
+            self.set_dsm_status(3) 
             raise VCFCheckException("\n".join(errors))
+        self.set_dsm_status(2) 
 
     def requires(self):
         return self.clone(SelectVariantsSNP)
@@ -610,7 +620,9 @@ class ApplyRecalibrationSNP(GATKFPipelineTask):
 
         errors = check_vcf(self.snp_filtered)
         if errors:
+            self.set_dsm_status(3) 
             raise VCFCheckException("\n".join(errors))
+        self.set_dsm_status(2) 
 
     def requires(self):
         return self.clone(VariantRecalibratorSNP)
@@ -633,7 +645,9 @@ class ApplyRecalibrationINDEL(GATKFPipelineTask):
 
         errors = check_vcf(self.indel_filtered)
         if errors:
+            self.set_dsm_status(3) 
             raise VCFCheckException("\n".join(errors))
+        self.set_dsm_status(2) 
 
     def requires(self):
       return self.clone(VariantRecalibratorINDEL)
@@ -656,7 +670,9 @@ class VariantFiltrationINDEL(GATKFPipelineTask):
 
         errors = check_vcf(self.indel_filtered)
         if errors:
+            self.set_dsm_status(3) 
             raise VCFCheckException("\n".join(errors))
+        self.set_dsm_status(2) 
 
     def requires(self):
       return self.clone(SelectVariantsINDEL)
@@ -692,6 +708,7 @@ class CombineVariants(GATKFPipelineTask):
                                     break
 
                             if not indel_lines:
+                                self.set_dsm_status(3) 
                                 raise ValueError(
                                     "Could not parse indel filter/VQSR line(s) "
                                     "from filtered indel VCF")
@@ -728,7 +745,9 @@ class CombineVariants(GATKFPipelineTask):
 
         errors = check_vcf(self.final_vcf_gz, self.check_variant_counts)
         if errors:
+            self.set_dsm_status(3) 
             raise VCFCheckException("\n".join(errors))
+        self.set_dsm_status(2) 
 
     def requires(self):
         if self.sample_type in ("EXOME", "GENOME", "GENOME_AS_FAKE_EXOME"):
@@ -741,6 +760,7 @@ class CombineVariants(GATKFPipelineTask):
             yield self.clone(VariantFiltrationSNP)
             yield self.clone(VariantFiltrationINDEL)
         else:
+            self.set_dsm_status(3) 
             raise ValueError(
                 "Sample type: {} not supported".format(self.sample_type))
 
@@ -764,7 +784,9 @@ class RBP(GATKFPipelineTask):
 
         errors = check_vcf(self.phased_vcf, self.check_variant_counts)
         if errors:
+            self.set_dsm_status(3) 
             raise VCFCheckException("\n".join(errors))
+        self.set_dsm_status(2) 
 
     def requires(self):
         return self.clone(CombineVariants), self.clone(PrintReads)
@@ -781,7 +803,9 @@ class FixMergedMNPInfo(GATKFPipelineTask):
         self.fix_phased_vcf()
         errors = check_vcf(self.fixed_vcf, self.check_variant_counts)
         if errors:
+            self.set_dsm_status(3) 
             raise VCFCheckException("\n".join(errors))
+        self.set_dsm_status(2) 
 
     def fix_phased_vcf(self):
         """ Fix the missing DP and AD fields for the phased variants
@@ -937,7 +961,9 @@ class AnnotateVCF(GATKFPipelineTask):
 
         errors = check_vcf(self.annotated_vcf_gz, self.check_variant_counts)
         if errors:
+            self.set_dsm_status(3) 
             raise VCFCheckException("\n".join(errors))
+        self.set_dsm_status(2) 
 
     def requires(self):
         return self.clone(FixMergedMNPInfo)
@@ -975,7 +1001,9 @@ class SubsetVCF(GATKFPipelineTask):
 
         errors = check_vcf(self.annotated_vcf_gz, self.check_variant_counts)
         if errors:
+            self.set_dsm_status(3) 
             raise VCFCheckException("\n".join(errors))
+        self.set_dsm_status(2) 
 
     def requires(self):
         return self.clone(AnnotateVCF)
@@ -1020,6 +1048,7 @@ class PreArchiveChecks(GATKFPipelineTask):
         self.raw_coverage       = os.path.join( self.scratch_dir, "{}.coverage_bins".format(self.name_prep) )
 
         if os.path.isdir(self.base_dir): #### self.base_dir aka archive dir
+            self.set_dsm_status(3) 
             raise ArchiveDirectoryAlreadyExists( "the archive location, '{}', already exists".format(self.base_dir) )
 
         ##### checks
@@ -1028,6 +1057,7 @@ class PreArchiveChecks(GATKFPipelineTask):
         vcf_errors = check_vcf(self.annotated_vcf_gz, self.check_variant_counts)
         if vcf_errors:
             if "DEBUG_INTERVALS" not in os.environ:
+                self.set_dsm_status(3) 
                 raise VCFCheckException( "\n".join(vcf_errors) )
 
         frameinfo = getframeinfo(currentframe())
@@ -1035,6 +1065,7 @@ class PreArchiveChecks(GATKFPipelineTask):
         bam_errors = check_bam( self.recal_bam, self.check_counts )
         if bam_errors:
             if "DEBUG_INTERVALS" not in os.environ:
+                self.set_dsm_status(3) 
                 raise BAMCheckException( "\n".join(bam_errors) )
 
         ##### tar-up the bits
@@ -1108,6 +1139,7 @@ class ArchiveSample(GATKFPipelineTask):
         self.raw_coverage       = os.path.join( self.scratch_dir, "{}.coverage_bins".format(self.name_prep) )
 
         if os.path.isdir(self.base_dir): #### self.base_dir aka archive dir
+            self.set_dsm_status(3) 
             raise ArchiveDirectoryAlreadyExists( "the archive location, '{}', already exists".format(self.base_dir) )
 
 ##################################################################
@@ -1135,19 +1167,21 @@ class ArchiveSample(GATKFPipelineTask):
 
     def post_shell_commands(self):
 
-        self.set_dsm_status(1) 
+        self.set_dsm_status(0) 
 
         for data_file in self.data_to_copy:
             scratch_fn = self.format_string(data_file)
             archived_fn = os.path.join(self.base_dir, os.path.basename(scratch_fn))
             if os.path.getsize(scratch_fn) != os.path.getsize(archived_fn):
+                self.set_dsm_status(3) 
                 raise RsyncException("Data size of original file ({}) does not match the archived version ({})!".format( scratch_fn, archived_fn) )
+        self.set_dsm_status(2) 
 
 ##################################################################
 # this really shouldn't be here but i just don't want the bother...
 ##################################################################
 
-        self.set_dsm_status(5)
+        # self.set_dsm_status(5)
 
         ## Change folder permissions of base directory
         uid = os.getuid()
@@ -1340,10 +1374,12 @@ class SplitAndSubsetDPBins(GATKFPipelineTask):
                 if row:
                     dp_blocks_fn = row[0]
                 else:
+                    self.set_dsm_status(3) 
                     raise ValueError(
                         "Could not find DP blocks file name for capture kit {}".
                         format(self.capture_kit))
                 if not os.path.isfile(dp_blocks_fn):
+                    self.set_dsm_status(3) 
                     raise OSError("DP blocks file does not exist for capture kit {}".
                                   format(self.capture_kit))
             finally:
@@ -1401,6 +1437,7 @@ class GQBinning(GATKFPipelineTask):
                 os.makedirs(self.gq_dir)
         except OSError,e:
             if e.errno != 17:
+                self.set_dsm_status(3) 
                 raise Exception("Problem Creating Directory : {0}".format(e))
             pass
         self.human_chromosomes = [str(x) for x in xrange(1, 23)] + ["X", "Y", "MT"]
@@ -1500,6 +1537,7 @@ class RunCvgMetrics(GATKFPipelineTask):
                     # we don't require X coverage for these
                     self.capture_file_X = None
                 else:
+                    self.set_dsm_status(3) 
                     raise ValueError("Couldn't find BED file for coverage on "
                                     "X chromosome")
                 query = ("SELECT region_file_lsrc FROM captureKit "
@@ -1512,6 +1550,7 @@ class RunCvgMetrics(GATKFPipelineTask):
                 elif self.sample_type == "CUSTOM_CAPTURE":
                     self.capture_file_Y = None
                 else:
+                    self.set_dsm_status(3) 
                     raise ValueError("Couldn't find BED file for coverage on "
                                      "Y chromosome")
             finally:
@@ -1632,6 +1671,7 @@ class DuplicateMetrics(GATKFPipelineTask):
             with open(self.duplicates_file, "w") as out:
                 out.write(str(perc_duplicates) + "\n")
         else:
+            self.set_dsm_status(3) 
             raise ValueError("Could not find duplicate metrics in dragen log ({})".format(self.dragen_log))
 
     # should this be dependent at all?!?
