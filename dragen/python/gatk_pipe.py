@@ -245,7 +245,7 @@ class GATKFPipelineTask(GATKPipelineTask):
             cur = db.cursor()
             # horrid, but i am too sick of all this instability
             try:
-                print("updating dsm to {} for {}".format(status,self.pseudo_prepid))
+                print("updating dsm to {} for {}".format(S,self.pseudo_prepid))
                 cur.execute("update dragen_sample_metadata set is_merged = {} where pseudo_prepid = {}".format(S,self.pseudo_prepid))
             except MySQLdb.Error, e:
                 raise Exception("ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1]))
