@@ -58,14 +58,12 @@ def check_bam(bam_fn, check_read_counts=True):
                                   "present in the header.".format(x + 1, read_group))
                     extra_read_group_detected = True
                 continue
-            if read_groups[read_group] not in read.query_name:
-                if not read_group_mismatch_detected:
-                    errors.append("Read #{}'s QNAME ({}) does not match the PU + "
-                                  "lane in the header for RG {}: {}".format(
-                                      x + 1, read.query_name, read_group,
-                                      read_groups[read_group]))
-                    read_group_mismatch_detected = True
-                continue
+            # if read_groups[read_group] not in read.query_name:
+            #    if not read_group_mismatch_detected:
+            #        errors.append("Read #{}'s QNAME ({}) does not match the PU + lane in the header for RG {}: {}".format(
+            #          x + 1, read.query_name, read_group, read_groups[read_group]) )
+            #        read_group_mismatch_detected = True
+            #    continue
         if check_read_counts:
             for chromosome in CHROMOSOMES:
                 if read_counts_by_chromosome[chromosome] < MINIMUM_READS_PER_CHROMOSOME:

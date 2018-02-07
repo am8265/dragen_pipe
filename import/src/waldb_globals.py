@@ -25,6 +25,7 @@ from shlex import split as sxsplit
 from pprint import pprint
 import socket
 import getpass
+import datetime
 
 cfg = RawConfigParser()
 cfg.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "waldb.cfg"))
@@ -98,7 +99,7 @@ def _i_hate_python_but_i_really_hate_luigi(p_prepid):
                     if x==lock:
                         print("here we go!")
                     else:
-                        raise ValueError("\n\nHmm, {}\nwho're you? I'm already locked for {}!\n".format(lf,x))
+                        raise ValueError("\n\nHmm, {}\nwho're you? I'm already locked for {}!\n\nSince {}\n\n".format(lf,x,time.ctime(os.path.getctime(lf))))
             else:
                 print("create file with %s " % (lf))
                 with open(lf,"w") as f:
@@ -607,10 +608,10 @@ class PipelineTask(SGEJobTask):
     def _update_step_failure(self):
         seqdb = get_connection("seqdb")
         try:
+
             seq_cur = seqdb.cursor()
-            seq_cur.execute(FAIL_STEP.format(
-                pseudo_prepid=self.pseudo_prepid,
-                pipeline_step_id=self.pipeline_step_id))
+            seq_cur.execute(FAIL_STEP.format( pseudo_prepid=self.pseudo_prepid, pipeline_step_id=self.pipeline_step_id) )
+
             if self.prept_start_message:
                 update_message = "Pipeline Failed " + self.prept_start_message + " (" + self.__class__.__name__ + ")"
                 seq_cur.execute(GET_PREP_STATUS.format(
@@ -620,8 +621,12 @@ class PipelineTask(SGEJobTask):
                     seq_cur.execute(UPDATE_PREP_STATUS.format(
                         status=update_message,
                         pseudo_prepid=self.pseudo_prepid))
-            seq_cur.execute("update dragen_sample_metadata set is_merged = 11 where pseudo_prepid = {}".format( self.pseudo_prepid ) )
+            ####### return it to pre-release...?!?
+            S = 90000+(10*self.pipeline_step_id)+4 if self.__class__.__name__ != 'EntryChecks' else 0
+            seq_cur.execute("update dragen_sample_metadata set is_merged = {} where pseudo_prepid = {}".format( S, self.pseudo_prepid ) )
+              # 90000+(10*self.pipeline_step_id)+4, self.pseudo_prepid )
             seqdb.commit()
+
         finally:
             if seqdb.open:
                 seqdb.close()

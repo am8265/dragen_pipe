@@ -242,7 +242,7 @@ class GATKFPipelineTask(GATKPipelineTask):
 
     def set_dsm_status(self, status=0):
 
-        S=90000+(10*self.pipeline_step_id)+status
+        S=90000+(10*self.pipeline_step_id)+status if status!=10 else 10
 
         db = get_connection("seqdb")
         try:
@@ -283,67 +283,73 @@ class FileExists(luigi.ExternalTask):
         return luigi.LocalTarget(self.fn)
 
 ### change this to go via dragenpipelinetask...?!?
-class ValidateBAM(GATKFPipelineTask):
-# class ValidateBAM(PipelineTask):
-# class ValidateBAM(SGEJobTask):
-
-    def __init__(self, *args, **kwargs):
-        super(ValidateBAM, self).__init__(*args, **kwargs)
-        self.run_locally=True
-
-    # forces parameter to be supplied by
-    # return ValidateBAM(bam=self.scratch_bam, check_counts=self.sample_type != "CUSTOM_CAPTURE") #, FileExists(self.dragen_log)
-    bam = luigi.Parameter(description="the expected path to the BAM to check")
-
-    check_counts = luigi.BoolParameter( default=False, description="check read counts by chromosome" )
-    dont_remove_tmp_dir = False # remove the temporary directory iff this task succeeds
-    dont_remove_tmp_dir_if_failure = True # don't remove if it fails
-
-    def pre_shell_commands(self):
-    # def work(self):
-
-        # bam=self.scratch_bam
-        # from pprint import pprint
-        # pprint(vars(self))
-
-        self.log_jid()
-        self.set_dsm_status(0) 
-
-        # jf="/{}/.worker_{}.txt".format( '/'.join(self.bam.split('/')[1:-1]), self.__class__.__name__) 
-        # print("using {}".format(jf));
-        # msg = "jid=\t{}\nuser=\t{}@{}\npid=\t{}".format( (os.getenv("JOB_ID") if ("JOB_ID" in os.environ) else 'NULL'), getpass.getuser(), socket.gethostname(), os.getpid() )
-        # with open(jf,"w") as f:
-        #    f.write(msg)
-
-        with open(os.devnull, "w") as devnull:
-            # dsth : oct, 11
-            # so this is a bit pointless as is - i.e. it's just decompressing without checking so all 
-            # it really does it check the for EOF block - which samtools will do even when only checking 
-            # the header - but it makes quick tests run slowly without truncating the bam so for now
-            # it whould either use -H or MT alone...
-            # MT check doesn't work properly, just check for 'EOF marker is # absent' message
-            #p = subprocess.Popen(["samtools", "view", "-H", self.bam],
-            #                     stdout=devnull, stderr=subprocess.PIPE)
-
-####### this is causing so many issues and nothing should get here anyway - centralised messages as dispatchng jobs but also wasn't updating status!?!?
-            #errors = check_bam(self.bam, self.check_counts)
-            #if errors:
-            #    if "DEBUG_INTERVALS" not in os.environ:
-            #        with open(self.bam + ".corrupted", "w"): pass
-            #        raise BAMCheckException("\n".join(errors))
-            #    else:
-            #        with self.output().open("w"): pass
-            #else:
-            #    with self.output().open("w"): pass
-            with self.output().open("w"): pass
-
-    def requires(self):
-        # return FileExists(self.scratch_bam)
-        return FileExists(self.bam)
-
-    def output(self):
-        # return luigi.LocalTarget(self.scratch_bam+ ".validated")
-        return luigi.LocalTarget(self.bam + ".validated")
+#class ValidateBAM(GATKFPipelineTask):
+## class ValidateBAM(PipelineTask):
+## class ValidateBAM(SGEJobTask):
+#
+#    def __init__(self, *args, **kwargs):
+#        super(ValidateBAM, self).__init__(*args, **kwargs)
+#        self.run_locally=True
+#
+#    # forces parameter to be supplied by
+#    # return ValidateBAM(bam=self.scratch_bam, check_counts=self.sample_type != "CUSTOM_CAPTURE") #, FileExists(self.dragen_log)
+#    bam = luigi.Parameter(description="the expected path to the BAM to check")
+#
+#    check_counts = luigi.BoolParameter( default=False, description="check read counts by chromosome" )
+#    dont_remove_tmp_dir = False # remove the temporary directory iff this task succeeds
+#    dont_remove_tmp_dir_if_failure = True # don't remove if it fails
+#
+#    def pre_shell_commands(self):
+#    # def work(self):
+#
+#        # bam=self.scratch_bam
+#        # from pprint import pprint
+#        # pprint(vars(self))
+#
+#        self.log_jid()
+#        self.set_dsm_status(0) 
+#
+#        # jf="/{}/.worker_{}.txt".format( '/'.join(self.bam.split('/')[1:-1]), self.__class__.__name__) 
+#        # print("using {}".format(jf));
+#        # msg = "jid=\t{}\nuser=\t{}@{}\npid=\t{}".format( (os.getenv("JOB_ID") if ("JOB_ID" in os.environ) else 'NULL'), getpass.getuser(), socket.gethostname(), os.getpid() )
+#        # with open(jf,"w") as f:
+#        #    f.write(msg)
+#
+#        #### okay, enough is enough...
+#        if os.path.exists(self.scratch_bam):
+#            self.set_dsm_status(3) 
+#            with open(os.devnull, "w") as devnull:
+#                with self.output().open("w"): pass
+#        else:
+#            self.set_dsm_status(2) 
+#            # dsth : oct, 11
+#            # so this is a bit pointless as is - i.e. it's just decompressing without checking so all 
+#            # it really does it check the for EOF block - which samtools will do even when only checking 
+#            # the header - but it makes quick tests run slowly without truncating the bam so for now
+#            # it whould either use -H or MT alone...
+#            # MT check doesn't work properly, just check for 'EOF marker is # absent' message
+#            #p = subprocess.Popen(["samtools", "view", "-H", self.bam],
+#            #                     stdout=devnull, stderr=subprocess.PIPE)
+#
+######## this is causing so many issues and nothing should get here anyway - centralised messages as dispatchng jobs but also wasn't updating status!?!?
+#            #errors = check_bam(self.bam, self.check_counts)
+#            #if errors:
+#            #    if "DEBUG_INTERVALS" not in os.environ:
+#            #        with open(self.bam + ".corrupted", "w"): pass
+#            #        raise BAMCheckException("\n".join(errors))
+#            #    else:
+#            #        with self.output().open("w"): pass
+#            #else:
+#            #    with self.output().open("w"): pass
+#
+##### this is truelly unhelpful and doesn't do shite for status or is_merged!?!
+#    # def requires(self):
+#        # return FileExists(self.scratch_bam)
+#        # return FileExists(self.bam)
+#
+#    # def output(self):
+#        # return luigi.LocalTarget(self.scratch_bam+ ".validated")
+#        # return luigi.LocalTarget(self.bam + ".validated")
 
 
 class RealignerTargetCreator(JavaPipelineTask):
@@ -364,7 +370,7 @@ class RealignerTargetCreator(JavaPipelineTask):
             "-known {dbSNP} -nt {n_cpu} {intervals_param} {silly_arg}")]
 
     def requires(self):
-        return self.clone(DuplicateMetrics)
+        return self.clone(EntryChecks)
         # return ValidateBAM(bam=self.scratch_bam, check_counts=self.sample_type != "CUSTOM_CAPTURE")
 
 class IndelRealigner(JavaPipelineTask):
@@ -455,7 +461,7 @@ class HaplotypeCaller(JavaPipelineTask):
         if errors:
             self.set_dsm_status(3) 
             raise VCFCheckException("\n".join(errors))
-            self.set_dsm_status(2) 
+        self.set_dsm_status(2) 
 
     def requires(self):
         return self.clone(PrintReads)
@@ -480,7 +486,7 @@ class GenotypeGVCFs(GATKFPipelineTask):
         if errors:
             self.set_dsm_status(3) 
             raise VCFCheckException("\n".join(errors))
-            self.set_dsm_status(2) 
+        self.set_dsm_status(2) 
 
     def requires(self):
         return self.clone(HaplotypeCaller)
@@ -1142,36 +1148,40 @@ class ArchiveSample(GATKFPipelineTask):
         self.gq_tarball         = ( "{gq_dir}/gq.tar.gz".format(gq_dir=self.gq_dir) )
         self.raw_coverage       = os.path.join( self.scratch_dir, "{}.coverage_bins".format(self.name_prep) )
 
-        if os.path.isdir(self.base_dir): #### self.base_dir aka archive dir
-            self.set_dsm_status(3) 
-            raise ArchiveDirectoryAlreadyExists( "the archive location, '{}', already exists".format(self.base_dir) )
-
-##################################################################
-
-        frameinfo = getframeinfo(currentframe())
-        print('will archive', frameinfo.filename, frameinfo.lineno)
-
-        self.archive_helper() # just get the proper list
-
-##################################################################
-
+        ###### just go straight to post_shell_commands checks...
         if not os.path.isdir(self.base_dir): #### self.base_dir aka archive dir
-            os.makedirs(self.base_dir)
+            # self.set_dsm_status(3) 
+            # raise ArchiveDirectoryAlreadyExists( "the archive location, '{}', already exists".format(self.base_dir) )
 
-        ##### okay, seems pre_shell overrite is where you prep things including commands, then run_shell is not over-riden executes them...
-        ##### for f' sake, guess commands are executed at exit/in run...
-        ##### use of external routines that do sys calls in pre_shell makes this all a bit pointless?!?
-        for data_file in self.data_to_copy:
-            print("copy {} to {}".format(data_file,self.base_dir))
-            self.commands.append(self.format_string( "rsync -grlt --inplace --partial " + data_file + " {base_dir}") )
+            ##################################################################
 
-        # re-check the archived data to ensure its integrity before deleting the
-        # scratch directory
-        print('will copy', frameinfo.filename, frameinfo.lineno)
+            frameinfo = getframeinfo(currentframe())
+            print('will archive', frameinfo.filename, frameinfo.lineno)
+
+            self.archive_helper() # just get the proper list
+
+            ##################################################################
+
+            if not os.path.isdir(self.base_dir): #### self.base_dir aka archive dir
+                os.makedirs(self.base_dir)
+
+            ##### okay, seems pre_shell overrite is where you prep things including commands, then run_shell is not over-riden executes them...
+            ##### for f' sake, guess commands are executed at exit/in run...
+            ##### use of external routines that do sys calls in pre_shell makes this all a bit pointless?!?
+            for data_file in self.data_to_copy:
+                print("copy {} to {}".format(data_file,self.base_dir))
+                self.commands.append(self.format_string( "rsync -grlt --inplace --partial " + data_file + " {base_dir}") )
+
+            # re-check the archived data to ensure its integrity before deleting the
+            # scratch directory
+            print('will copy', frameinfo.filename, frameinfo.lineno)
+        else:
+            frameinfo = getframeinfo(currentframe())
+            print('something odd is going on. just to checks', frameinfo.filename, frameinfo.lineno)
 
     def post_shell_commands(self):
 
-        self.set_dsm_status(0) 
+        self.set_dsm_status(1) 
 
         for data_file in self.data_to_copy:
             scratch_fn = self.format_string(data_file)
@@ -1179,7 +1189,6 @@ class ArchiveSample(GATKFPipelineTask):
             if os.path.getsize(scratch_fn) != os.path.getsize(archived_fn):
                 self.set_dsm_status(3) 
                 raise RsyncException("Data size of original file ({}) does not match the archived version ({})!".format( scratch_fn, archived_fn) )
-        self.set_dsm_status(2) 
 
 ##################################################################
 # this really shouldn't be here but i just don't want the bother...
@@ -1233,10 +1242,12 @@ class ArchiveSample(GATKFPipelineTask):
         try:
             super(ArchiveSample, self).run()
         except Exception, e:
+            ####### duh: if there was an issue clean up the 'archive' - i.e. 'not' scratch...
             if (type(e) is not ArchiveDirectoryAlreadyExists
                 and os.path.isdir(self.base_dir)):
                 # clean up the directory if it was created and an error was
                 # generated
+                print("something went wrong so cleaning up archive dir '{}'".format(self.base_dir))
                 rmtree(self.base_dir)
             raise
 
@@ -1632,13 +1643,13 @@ class RunCvgMetrics(GATKFPipelineTask):
     def requires(self):
         yield self.clone(PrintReads)
 
-class DuplicateMetrics(GATKFPipelineTask):
+class EntryChecks(GATKFPipelineTask):
 
     """ Parse Duplicate Metrics from dragen logs """
 
     def __init__(self, *args, **kwargs):
 
-        super(DuplicateMetrics, self).__init__(*args, **kwargs)
+        super(EntryChecks, self).__init__(*args, **kwargs)
         self.run_locally=True
         self.dragen_log = os.path.join( self.log_dir, self.name_prep + ".dragen.out" )
         self.picard_log = os.path.join( self.scratch_dir, self.name_prep + ".metrics_duplication.txt" )
@@ -1648,6 +1659,11 @@ class DuplicateMetrics(GATKFPipelineTask):
 
         self.log_jid()
         self.set_dsm_status(0) 
+
+        if not os.path.exists(self.scratch_bam):
+            self.set_dsm_status(3) 
+            raise ValueError("There's no bam file ({})".format(self.scratch_bam))
+            # with self.output().open("w"): pass
 
         perc_duplicates = None
         if os.path.isfile(self.picard_log):
@@ -1678,10 +1694,12 @@ class DuplicateMetrics(GATKFPipelineTask):
             self.set_dsm_status(3) 
             raise ValueError("Could not find duplicate metrics in dragen log ({})".format(self.dragen_log))
 
+        self.set_dsm_status(2) 
     # should this be dependent at all?!?
-    def requires(self):
+    # def requires(self):
         # return self.clone(CombineVariants), self.clone(PrintReads)
-        return ValidateBAM(bam=self.scratch_bam, pseudo_prepid=self.pseudo_prepid, check_counts=self.sample_type != "CUSTOM_CAPTURE")#, FileExists(self.dragen_log)
+        # return self.clone(ValidateBAM)
+        # return ValidateBAM(bam=self.scratch_bam, pseudo_prepid=self.pseudo_prepid, check_counts=self.sample_type != "CUSTOM_CAPTURE")#, FileExists(self.dragen_log)
 
 class VariantCallingMetrics(GATKFPipelineTask):
     def pre_shell_commands(self):
@@ -2191,7 +2209,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         yield self.clone(SplitAndSubsetDPBins)
         yield self.clone(AlignmentMetrics)
         yield self.clone(RunCvgMetrics)
-        # yield self.clone(DuplicateMetrics)
+        # yield self.clone(EntryChecks)
         yield self.clone(VariantCallingMetrics)
         yield self.clone(ContaminationCheck)
 
