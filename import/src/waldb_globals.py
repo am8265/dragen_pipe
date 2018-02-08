@@ -609,23 +609,24 @@ class PipelineTask(SGEJobTask):
         seqdb = get_connection("seqdb")
         try:
 
+            # DPS update
             seq_cur = seqdb.cursor()
             seq_cur.execute(FAIL_STEP.format( pseudo_prepid=self.pseudo_prepid, pipeline_step_id=self.pipeline_step_id) )
 
-            if self.prept_start_message:
-                update_message = "Pipeline Failed " + self.prept_start_message + " (" + self.__class__.__name__ + ")"
-                seq_cur.execute(GET_PREP_STATUS.format(
-                    pseudo_prepid=self.pseudo_prepid))
-                status = seq_cur.fetchone()[0]
-                if status != update_message:
-                    seq_cur.execute(UPDATE_PREP_STATUS.format(
-                        status=update_message,
-                        pseudo_prepid=self.pseudo_prepid))
             ####### return it to pre-release...?!?
             S = 90000+(10*self.pipeline_step_id)+4 if self.__class__.__name__ != 'EntryChecks' else 0
             seq_cur.execute("update dragen_sample_metadata set is_merged = {} where pseudo_prepid = {}".format( S, self.pseudo_prepid ) )
               # 90000+(10*self.pipeline_step_id)+4, self.pseudo_prepid )
             seqdb.commit()
+
+#            if self.prept_start_message:
+#                update_message = "Pipeline Failed " + self.prept_start_message + " (" + self.__class__.__name__ + ")"
+#                seq_cur.execute(GET_PREP_STATUS.format( pseudo_prepid=self.pseudo_prepid) )
+#                status = seq_cur.fetchone()[0]
+#                if status != update_message:
+#                    seq_cur.execute(UPDATE_PREP_STATUS.format(
+#                        status=update_message,
+#                        pseudo_prepid=self.pseudo_prepid))
 
         finally:
             if seqdb.open:

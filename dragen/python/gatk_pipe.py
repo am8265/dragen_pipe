@@ -2095,7 +2095,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         result = self.get_metrics(query)
         pct_bases_5X = float(result[0][0])
         mean_cvg = float(result[0][1])
-        return (pct_bases_5X >= 0.9 and mean_cvg >= 25)
+        return (pct_bases_5X >= 90 and mean_cvg >= 25)
 
     def check_duplicates(self):
         """
