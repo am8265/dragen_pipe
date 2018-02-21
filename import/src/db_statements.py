@@ -60,6 +60,7 @@ GET_SAMPLE_INFO = """
 SELECT sample_name, sample_type, capture_kit, prep_id
 FROM sample
 WHERE sample_id = {sample_id}
+and prep_id > 0
 """
 GET_SAMPLE_INFO_PSEUDO_PREPID = """
 SELECT sample_name, sample_type, capture_kit, sample_id

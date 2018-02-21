@@ -1080,6 +1080,16 @@ class PreArchiveChecks(GATKFPipelineTask):
 
         ##### tar-up the bits
         frameinfo = getframeinfo(currentframe())
+
+        ######## check tar doesn't exist else clean it up!?!?
+        if os.path.exists(self.pipeline_tarball):
+            # raise ValueError("\n\ntar file already exists '{}'".format(self.pipeline_tarball))
+            print("tar file already exists '{}'".format(self.pipeline_tarball))
+            try:
+                os.remove(self.pipeline_tarball)
+            except:
+                raise ValueError("\n\nunable to remove old tar file '{}'".format(self.pipeline_tarball))
+
         print('taring ', frameinfo.filename, frameinfo.lineno, self.pipeline_tarball)
         with tarfile.open(  self.pipeline_tarball, "w:gz"   ) as tar:
             for d in (self.script_dir, self.log_dir):
@@ -2115,21 +2125,30 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             return (perc_duplicate_reads <= 30)
 
     def check_variant_calling(self):
-        """
-        Check if a minimal number of SNVs have been called, per sequencing type
-        Could very well fail on custom capture
-        """
-        query = self.format_string(
-            """SELECT {total_snps}
-            FROM {qc_table} WHERE pseudo_prepid = {pseudo_prepid}""")
-        result = self.get_metrics(query)
-        num_snvs = int(result[0][0])
-
         if self.sample_type == "GENOME":
-            return num_snvs > 3000000
-        else:
-            return num_snvs > 100000
-        # arguably should use something else for CUSTOM_CAPTURE...
+            query = self.format_string(
+                """SELECT {total_snps}
+                FROM {qc_table} WHERE pseudo_prepid = {pseudo_prepid}""")
+            result = self.get_metrics(query)
+            if result[0][0] < 3000000:
+                return False
+        return bool(check_vcf(self.vcf, self.check_variant_counts))
+        # this "check" is really dumb and now deprecated
+        #"""
+        #Check if a minimal number of SNVs have been called, per sequencing type
+        #Could very well fail on custom capture
+        #"""
+        #query = self.format_string(
+        #    """SELECT {total_snps}
+        #    FROM {qc_table} WHERE pseudo_prepid = {pseudo_prepid}""")
+        #result = self.get_metrics(query)
+        #num_snvs = int(result[0][0])
+
+        #if self.sample_type == "GENOME":
+        #    return num_snvs > 3000000
+        #else:
+        #    return num_snvs > 100000
+        ## arguably should use something else for CUSTOM_CAPTURE...
 
     def check_contamination(self):
         """

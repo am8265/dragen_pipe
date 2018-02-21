@@ -686,14 +686,13 @@ class PipelineTask(SGEJobTask):
                         fh_dict[fh] = f
                         if f:
                             fhs[fh] = file_handle(f)
-                    print("execute {}".format(command))
                     p = subprocess.Popen(
                         command, stdout=fhs["stdout"], stderr=fhs["stderr"],
                         **self.shell_options)
                     p.wait()
                     if p.returncode:
-                        raise subprocess.CalledProcessError(
-                            p.returncode, command)
+                        raise ValueError("\n\ncmd=\n{}\n\ngave=\n{}\n\n".format(" ".join(command),p.returncode))
+                        # raise subprocess.CalledProcessError(p.returncode, command)
                     self.shell_options.update(fh_dict)
                 finally:
                     close_file_handles([fhs["stdout"], fhs["stderr"]])
