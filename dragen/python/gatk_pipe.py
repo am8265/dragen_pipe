@@ -2132,7 +2132,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             result = self.get_metrics(query)
             if result[0][0] < 3000000:
                 return False
-        return bool(check_vcf(self.vcf, self.check_variant_counts))
+        return not bool(check_vcf(self.vcf, self.check_variant_counts))
         # this "check" is really dumb and now deprecated
         #"""
         #Check if a minimal number of SNVs have been called, per sequencing type
