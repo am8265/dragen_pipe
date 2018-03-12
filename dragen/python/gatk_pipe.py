@@ -1,6 +1,7 @@
 #!/nfs/goldstein/software/python2.7.7/bin/python2.7
 
 import os
+# import math
 import sys
 import subprocess
 import luigi
@@ -433,7 +434,8 @@ class PrintReads(JavaPipelineTask):
 
 class HaplotypeCaller(JavaPipelineTask):
     priority = 1 # run before other steps needing the recalibrated BAM
-    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
+    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 9
+    # n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
     max_mem = 24
     def pre_shell_commands(self):
 
@@ -457,10 +459,16 @@ class HaplotypeCaller(JavaPipelineTask):
 
         self.set_dsm_status(1) 
 
+        if os.system("gzip -t {}".format(self.gvcf))!=0:
+            self.set_dsm_status(3) 
+            raise VCFCheckException("\n".join(errors))
+
+        ##### this clearly isn't very exhaustive...
         errors = check_vcf(self.gvcf)
         if errors:
             self.set_dsm_status(3) 
             raise VCFCheckException("\n".join(errors))
+
         self.set_dsm_status(2) 
 
     def requires(self):
@@ -1956,6 +1964,10 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
                     field, value  = contents[:2]
                     if field in metrics_hash:
                         db_field = metrics_hash[field]
+                        # print("updating '{}' with '{}' of '{}'".format(db_field,value,type(value)))
+                        #### it's a string?!?
+                        if value == "NaN": # if math.isnan(value):
+                            value="0.0"
                         self.update_database(self.qc_table, db_field, value)
                         if file_type == "all":
                             if db_field == "OverallCoverage":
@@ -2063,8 +2075,13 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         else : ## Custom Capture Samples
             het = self.X_snv_het + self.X_indel_het
             hom = self.X_snv_hom + self.X_indel_hom
+
+            #### v. tired and not sure what the objetive is here but since it seems to be avoiding div-by-0 just set to 1
+            #### for now let elif not het handle the extreme
+            ratio = 1.0
             if hom:
                 ratio = float(het) / hom
+
             if not (het or hom) or (0.26 <= ratio <= 0.58):
                 seq_gender = "Ambiguous"
             elif not het:
