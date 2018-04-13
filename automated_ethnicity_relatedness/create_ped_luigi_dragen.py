@@ -20,9 +20,11 @@ class CreatePed(SGEJobTask):
         """ Initialize the task class
         """
         super(CreatePed,self).__init__(*args,**kwargs)
+        self.run_locally=True
         self.bam = os.path.join(self.align_loc,'{0}.{1}.realn.recal.bam'.format(self.sample_name,self.pseudo_prepid))
         self.vcf_gz = os.path.join(self.align_loc,'{0}.{1}.analysisReady.annotated.vcf.gz'.format(self.sample_name,self.pseudo_prepid))
-        self.log_file = os.path.join(self.align_loc,'logs/{0}.{1}.createped.log'.format(self.sample_name,self.pseudo_prepid))
+        self.log_file = os.path.join(self.output_directory,'{0}.{1}.createped.log'.format(self.sample_name,self.pseudo_prepid))
+        # self.log_file = os.path.join(self.align_loc,'logs/{0}.{1}.createped.log'.format(self.sample_name,self.pseudo_prepid))
         self.famid = get_familyid(self.sample_name)
         self.pedmap_script = os.path.join(base_directory, "create_ped_map.py")
         self.cmd=("/nfs/goldstein/software/python2.7.7/bin/python {0} --vcf {1} "

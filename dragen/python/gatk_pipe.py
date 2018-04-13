@@ -1187,15 +1187,28 @@ class ArchiveSample(GATKFPipelineTask):
             ##### for f' sake, guess commands are executed at exit/in run...
             ##### use of external routines that do sys calls in pre_shell makes this all a bit pointless?!?
             for data_file in self.data_to_copy:
-                print("copy {} to {}".format(data_file,self.base_dir))
+                f = self.format_string("{}".format(data_file))
+                ### WTF : suffix changed for some dragen initial bams - merging?!?
+                if data_file=="{scratch_bam}.bai" and not os.path.isfile(f):
+                    n=f.replace('bam.bai','bai')
+                    print("rename suffix {} to {} ?!?".format(n,f))
+                    os.rename(n,f)
+                print("\ncopy\n\t{} : {}\n\tto {}\n".format(data_file,self.base_dir,f))
+                if not os.path.isfile(f):
+                    raise ValueError("\n\nfile {} does not exist\n".format(f))
+                # print(self.format_string("copy {} to {}".format(data_file,self.base_dir)))
+                # print("copy {} to {}".format(data_file,self.base_dir))
                 self.commands.append(self.format_string( "rsync -grlt --inplace --partial " + data_file + " {base_dir}") )
 
             # re-check the archived data to ensure its integrity before deleting the
             # scratch directory
+            frameinfo = getframeinfo(currentframe())
             print('will copy', frameinfo.filename, frameinfo.lineno)
         else:
             frameinfo = getframeinfo(currentframe())
             print('something odd is going on. just to checks', frameinfo.filename, frameinfo.lineno)
+            ##### should just delete pre-archive step entry?!?
+            raise ValueError('\n\nthe archive dir is present {}'.format(self.base_dir))
 
     def post_shell_commands(self):
 

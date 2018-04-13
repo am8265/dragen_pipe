@@ -610,11 +610,12 @@ class ImportSample(luigi.Task):
             kwargs["version"] = get_pipeline_version()
         super(ImportSample, self).__init__(*args, **kwargs)
         if os.path.isfile(self.vcf):
-            if self.sequencing_type == "exome" and os.path.getsize(self.vcf) > 248000000:
+            limit = 348000000
+            if self.sequencing_type == "exome" and os.path.getsize(self.vcf) > limit: # 248000000:
                 seqdb = get_connection("seqdb")
                 try:
                     seq_cur = seqdb.cursor()
-                    seq_cur.execute("update dragen_sample_metadata set is_merged = 11001 where pseudo_prepid = {}".format(self.prep_id))
+                    seq_cur.execute("update dragen_sample_metadata set is_merged = 47 where pseudo_prepid = {}".format(self.prep_id))
                     seqdb.commit()
                     seqdb.close()
                 finally:
@@ -626,7 +627,7 @@ class ImportSample(luigi.Task):
                     cur.execute( "UPDATE sample SET sample_failure = 1 WHERE sample_id = " "{sample_id}".format(sample_id=self.sample_id) )
                     db.commit()
                     db.close()
-                    raise ValueError( "{sample_name} appears to be a genome sample".format(sample_name=self.sample_name) )
+                    raise ValueError( "{sample_name} appears to be a genome sample ({bored}/{limit})".format(sample_name=self.sample_name,bored=os.path.getsize(self.vcf),limit=limit) )
                 finally:
                     if db.open:
                         db.close()

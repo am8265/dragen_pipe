@@ -20,6 +20,7 @@ class WrapperEthnicity(luigi.WrapperTask):
         super(WrapperEthnicity,self).__init__(*args,**kwargs)
         
     def requires(self):
+        # for f' sake...?!?
         for sample_name, prepid, sample_type, align_loc, priority in get_samples_to_predict():
             yield PredictAndUpdate(
                 sample_name=sample_name, prepid=prepid, sample_type=sample_type,
@@ -119,7 +120,9 @@ class CreatePed(SGEJobTask):
         self.log_file = os.path.join(self.output_directory,"{0}.{1}.createped.log".format(self.sample_name,self.prepid))
         self.famid = get_familyid(self.sample_name)
         self.pedmap_script = "/nfs/seqscratch_ssd/bc2675/annodb_ethnicities/create_ped_map.py"
-        self.cmd="/nfs/goldstein/software/python2.7.7/bin/python {0} --vcf {1} --sample_id {2} --markers {3} --seqtype {4} --pseudo_prepid {5} --bam {6} --stem {2}.{5} -out {7} --logfile {8} --family_id {9}".format(self.pedmap_script,self.vcf,self.sample_name,self.markers,self.sample_type,self.prepid,self.bam,self.output_directory,self.log_file,self.famid)
+        self.cmd="/nfs/goldstein/software/python2.7.7/bin/python {0} --vcf {1} --sample_id {2} --markers {3} --seqtype {4} --pseudo_prepid {5} --bam {6} --stem {2}.{5} -out {7} --logfile {8} --family_id {9}".format(
+          self.pedmap_script,self.vcf,self.sample_name,self.markers,self.sample_type,self.prepid,self.bam,self.output_directory,self.log_file,self.famid
+        )
         
     @property
     def priority(self):

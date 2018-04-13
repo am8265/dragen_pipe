@@ -23,6 +23,7 @@ class WrapperEthnicity(luigi.WrapperTask):
         super(WrapperEthnicity,self).__init__(*args,**kwargs)
         
     def requires(self):
+        # for f' sake?!?
         for sample_name, pseudo_prepid, sample_type, align_loc in get_samples_to_predict():
             yield self.clone(PredictAndUpdate, sample_name=sample_name,
                              pseudo_prepid=pseudo_prepid,
@@ -52,6 +53,8 @@ class PredictAndUpdate(SGEJobTask):
     
     def __init__(self,*args,**kwargs):
         super(PredictAndUpdate,self).__init__(*args,**kwargs)
+        self.run_locally=True
+        os.mkdir(self.output_directory)
         self.output_probs = os.path.join(
             self.output_directory ,"ethnicity.probs.txt")
         self.input_ped = os.path.join(
@@ -62,7 +65,7 @@ class PredictAndUpdate(SGEJobTask):
         """
         Run the python script to predict ethnicities
         """
-        cmd = ( """ python {0} --output-prob-file {1}"""
+        cmd = ( """ /nfs/goldstein/software/python2.7.7/bin/python {0} --output-prob-file {1}"""
                 """ --testing-ped {2} --mapfile {3}"""
                 """ --input-model {4} """.format(
                     self.ethnicity_wrapper, self.output_probs,self.input_ped,

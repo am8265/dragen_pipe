@@ -33,7 +33,7 @@ class MyExtTask(luigi.ExternalTask):
     def output(self):
         return luigi.LocalTarget(self.file_loc)
 
-def get_connection(config_file="/nfs/seqscratch09/rp2801/ethnicity_predictions/scripts/automated_ethnicity/database.cfg",db="seqdb"):
+def get_connection(config_file="/nfs/goldstein/software/dragen_pipe/master/automated_ethnicity_relatedness/database.cfg",db="seqdb"):
     """ Return a connection to seqdb
     """
     
