@@ -29,6 +29,11 @@ def get_samples_to_predict():
     Get samples to predict
     """
 
+################ FOR SOME REASON IT KEEPS SELECTING THE SAME SAMPLES!?!? 
+################ i.e. NEED TO SELECT AGAINST THOSE WITH QC_METRICS AND/OR WITH ENTRIES ALREADY IN dragen_ped_status
+################ OR AT VERY LEAST NOT ALREADY RUN!?! - using : where Q.genotyping_rate is null for now?!?
+################ JUST MAKE IT TAKE A LIST OF EXPERIMENT IDS!?!?
+
 # WHERE d1.pipeline_step_id = 31 AND d1.finished = 1 ) as O
 
     query = """
@@ -38,10 +43,14 @@ FROM (SELECT O.pseudo_prepid, O.sample_name, O.sample_type, O.capture_kit, Q.Ali
             FROM dragen_sample_metadata as D
             INNER JOIN dragen_pipeline_step as d1 ON d1.pseudo_prepid = D.pseudo_prepid
             WHERE d1.pipeline_step_id = 31 AND d1.step_status = 'completed' ) as O
-      INNER JOIN dragen_qc_metrics as Q ON O.pseudo_prepid = Q.pseudo_prepid) as S
+      INNER JOIN dragen_qc_metrics as Q ON O.pseudo_prepid = Q.pseudo_prepid 
+      where Q.genotyping_rate is null
+      ) as S
 LEFT JOIN dragen_ped_status as P ON S.pseudo_prepid = P.pseudo_prepid
-ORDER BY S.priority
+ORDER BY S.pseudo_prepid desc
 """
+# where S.sample_name like 'aa%'
+
     db = get_connection(db="seqdb")
     cur = db.cursor()
     cur.execute(query)
@@ -49,7 +58,7 @@ ORDER BY S.priority
     ##### dragen_ped_status is JUST a pipeline table for each of the stages and separate cols!?!?!?!?!?!?
     ##### presumably populates in one go and then tries to run them in one batch and if anything happens it all breaks.
     ##### may need to wipe --base-output-directory and truncate table!?!?
-    max_samples = 100
+    max_samples = 30000
     # max_samples = 8000
     i = 0 
     for res in result[0:max_samples]:
