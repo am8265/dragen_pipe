@@ -1824,7 +1824,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         ## The qc table to update
         self.qc_table = "dragen_qc_metrics"
         ## The new lean equivalent of seqdbClone 
-        self.master_table = "seqdbClone"
+        # self.master_table = "seqdbClone"
         self.cvg_parse = {"EXOME":{
             "all":{"mean":qc_metrics().mean_cvg, "granular_median":qc_metrics().median_cvg,
                    "%_bases_above_5":qc_metrics().pct_bases5X, "%_bases_above_10":qc_metrics().pct_bases10X,
@@ -1847,8 +1847,22 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         try:
             self.db = get_connection("seqdb")
             self.cur = self.db.cursor()
+
+            self.cur.execute("select d.sample_name,s.chgvid,s.origid,d.is_external from dragen_sample_metadata d "
+              + "join prepT p on d.pseudo_prepid=p.p_prepid "
+              + "join Experiment e on p.experiment_id=e.id "
+              + "join SampleT s on e.sample_id=s.sample_id "
+              + "where d.pseudo_prepid = {}".format(self.pseudo_prepid))
+            out = self.cur.fetchall()
+            if len(out)!=1 or out[0][0]!=out[0][1]:
+                raise ValueError("what is going on?")
+            vcf_sample_name = self.sample_name
+            if int(out[0][3])>1 and out[0][0]!=out[0][2]:
+                print("updating vcf sample from '{}' to '{}'".format(vcf_sample_name,out[0][2]))
+                vcf_sample_name=out[0][2]
+
             with open(self.log_file, "w") as self.log_fh:
-                self.get_variant_counts()
+                self.get_variant_counts(vcf_sample_name)
                 self.add_sample_to_qc()
                 self.update_alignment_metrics()
                 self.update_coverage_metrics('all')
@@ -2197,7 +2211,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         elif contamination_value >= 0.08:
             return False
 
-    def get_variant_counts(self):
+    def get_variant_counts(self,vcf_sample_name):
         """Set the number of het & hom variant counts, divided up by X vs.
         others
         Additionally require X to have MQ >= 40, QD > 1, and GQ >= 20 to
@@ -2223,11 +2237,12 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
                     variants["all"]["snv"]["het"] += nsnvs
                     variants["all"]["indel"]["het"] += (2 - nsnvs)
                 else:
-                    variant_type = (
-                        "snv" if lREF == len(fields["ALT"]) else "indel")
-                    call_dict = dict(
-                        zip(fields["FORMAT"].split(":"),
-                            fields[self.sample_name].split(":")))
+                    variant_type = ("snv" if lREF == len(fields["ALT"]) else "indel")
+                    # try:
+                    call_dict = dict(zip(fields["FORMAT"].split(":"),fields[vcf_sample_name].split(":")))
+                    # call_dict = dict(zip(fields["FORMAT"].split(":"),fields[self.sample_name].split(":")))
+                    # except:
+                        # raise ValueError("\n\nproblem with '{}' : '{}'\n".format(self.annotated_vcf_gz,fields["FORMAT"],fields))
                     if len(set(call_dict["GT"].split("/"))) == 1:
                         call = "hom"
                     else:
