@@ -1040,6 +1040,7 @@ class PreArchiveChecks(GATKFPipelineTask):
     def requires(self):
         if self.sample_name.upper().startswith('SRR'):
             yield self.clone(SubsetVCF)
+        # yield self.clone(SplitAndSubsetDPBins)
         yield self.clone(UpdateSeqdbMetrics)
 
     def __init__(self, *args, **kwargs):
@@ -1165,6 +1166,10 @@ class ArchiveSample(GATKFPipelineTask):
         self.cvg_tarball        = ( "{cov_dir}/coverage.tar.gz".format(cov_dir=self.cov_dir) )
         self.gq_tarball         = ( "{gq_dir}/gq.tar.gz".format(gq_dir=self.gq_dir) )
         self.raw_coverage       = os.path.join( self.scratch_dir, "{}.coverage_bins".format(self.name_prep) )
+
+        if os.path.isdir(self.base_dir): #### self.base_dir aka archive dir
+            print("so bored of the messes - wiping for now but really ought to rsync again at min but really check WTF is going on!?!?")
+            rmtree(self.base_dir)
 
         ###### just go straight to post_shell_commands checks...
         if not os.path.isdir(self.base_dir): #### self.base_dir aka archive dir
@@ -1394,6 +1399,16 @@ class CoverageBinning(GATKFPipelineTask):
              "stderr":self.log_file})
         self.commands = [self.format_string(
             "{bin_program} {recal_bam} {mmq} {mmb} {mbd}")]
+
+    # def post_shell_commands(self):
+
+        # self.set_dsm_status(1) 
+
+        # if os.system("gzip -t {}".format(self.gvcf))!=0:
+            # self.set_dsm_status(3) 
+            # raise VCFCheckException("\n".join(errors))
+
+        # self.set_dsm_status(2) 
 
     def requires(self):
         return self.clone(PrintReads)
@@ -1857,9 +1872,14 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             if len(out)!=1 or out[0][0]!=out[0][1]:
                 raise ValueError("what is going on?")
             vcf_sample_name = self.sample_name
-            if int(out[0][3])>1 and out[0][0]!=out[0][2]:
-                print("updating vcf sample from '{}' to '{}'".format(vcf_sample_name,out[0][2]))
-                vcf_sample_name=out[0][2]
+            if int(out[0][3])>1 and out[0][0]!=out[0][2]: # has is_external > 1 i.e. newer flavour and origid differs so need to use it
+                print("updating vcf sample from chgvid '{}' to origid '{}'".format(vcf_sample_name,out[0][2]))
+                # X=out[0][2].split('.')
+                vcf_sample_name=out[0][2].split('.')[0] # seems gatk or something removes suffix following .?!?
+                # Y=vcf_sample_name.split('.')
+                # print(X)
+                # print(Y)
+                # vcf_sample_name=out[0][2]
 
             with open(self.log_file, "w") as self.log_fh:
                 self.get_variant_counts(vcf_sample_name)
@@ -2239,10 +2259,10 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
                 else:
                     variant_type = ("snv" if lREF == len(fields["ALT"]) else "indel")
                     # try:
-                    call_dict = dict(zip(fields["FORMAT"].split(":"),fields[vcf_sample_name].split(":")))
-                    # call_dict = dict(zip(fields["FORMAT"].split(":"),fields[self.sample_name].split(":")))
+                        # call_dict = dict(zip(fields["FORMAT"].split(":"),fields[self.sample_name].split(":")))
                     # except:
-                        # raise ValueError("\n\nproblem with '{}' : '{}'\n".format(self.annotated_vcf_gz,fields["FORMAT"],fields))
+                        # raise ValueError("\n\nproblem with '{}' : '{}'\n".format(self.annotated_vcf_gz,fields,fields["FORMAT"],fields))
+                    call_dict = dict(zip(fields["FORMAT"].split(":"),fields[vcf_sample_name].split(":")))
                     if len(set(call_dict["GT"].split("/"))) == 1:
                         call = "hom"
                     else:

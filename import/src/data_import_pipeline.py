@@ -442,6 +442,7 @@ class LoadBinData(SGEJobTask):
                 statement = INSERT_BIN_STATEMENT.format(
                     data_file=self.fn, data_type=self.data_type,
                     chromosome=self.chromosome, sample_id=self.sample_id)
+                print("using '{}'".format(statement))
                 cur.execute(statement)
                 db.commit()
                 seq_cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
