@@ -1400,15 +1400,12 @@ class CoverageBinning(GATKFPipelineTask):
         self.commands = [self.format_string(
             "{bin_program} {recal_bam} {mmq} {mmb} {mbd}")]
 
-    # def post_shell_commands(self):
-
-        # self.set_dsm_status(1) 
-
-        # if os.system("gzip -t {}".format(self.gvcf))!=0:
-            # self.set_dsm_status(3) 
-            # raise VCFCheckException("\n".join(errors))
-
-        # self.set_dsm_status(2) 
+    def post_shell_commands(self):
+        self.set_dsm_status(1) 
+        if os.system('perl -ne "exit 1 if(\$_=~/[\\x00-\\x08\\x7F-\\xFF]/)" {}.coverage_bins'.format(self.name_prep))!=0:
+            self.set_dsm_status(3) 
+            raise VCFCheckException("\n".join(errors))
+        self.set_dsm_status(2) 
 
     def requires(self):
         return self.clone(PrintReads)
