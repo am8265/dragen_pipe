@@ -1371,6 +1371,8 @@ class ArchiveSample(GATKFPipelineTask):
 #                rmtree(self.base_dir)
 #            raise
 
+################## fixing this is trivial. just untar the coverage.tar.gz and run nfs/seqscratch09/dsth/BedPatch/DP1KbBins_rc1 sn.ppid.realn.recal.bam 20 10 c | tee sn.ppid.coverage_bins.2
+################## grep -P '^prob_chr\t' ... > ... and re-load...
 class CoverageBinning(GATKFPipelineTask):
     """Call Dan's program to bin coverage where we require some minimum
     standards in base quality and mapping quality, and only output records for
@@ -1400,11 +1402,25 @@ class CoverageBinning(GATKFPipelineTask):
         self.commands = [self.format_string(
             "{bin_program} {recal_bam} {mmq} {mmb} {mbd}")]
 
+        print("scratch_dir='{}'".format(self.name_prep))
+
     def post_shell_commands(self):
         self.set_dsm_status(1) 
-        if os.system('perl -ne "exit 1 if(\$_=~/[\\x00-\\x08\\x7F-\\xFF]/)" {}.coverage_bins'.format(self.name_prep))!=0:
+        ################## fixing this is trivial. just untar the coverage.tar.gz and run nfs/seqscratch09/dsth/BedPatch/DP1KbBins_rc1 sn.ppid.realn.recal.bam 20 10 c | tee sn.ppid.coverage_bins.2
+        ################## grep -P '^prob_chr\t' ... > ... and re-load...
+        of=os.path.join(self.scratch_dir,"{}.coverage_bins".format(self.name_prep))
+        print("using '{}".format(of))
+        if os.system('perl -ne "exit 1 if(\$_=~/[\\x00-\\x08\\x7F-\\xFF]/)" {}'.format(of))!=0:
+        # if os.system('perl -ne "exit 1 if(\$_=~/[\\x00-\\x08\\x7F-\\xFF]/)" {}.coverage_bins'.format(self.name_prep))!=0:
             self.set_dsm_status(3) 
-            raise VCFCheckException("\n".join(errors))
+            raise ValueError("\n\nthere appears to be an issue with the output file {}\n".format(of))
+
+        p = subprocess.Popen('grep -c -P "[\\x00-\\x08\\x7F-\\xFF]" {}'.format(of), shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        probs=p.stdout.readline().rstrip()
+        # print("we got a count of '{}'".format(probs))
+        if probs != "0":
+            raise ValueError("\n\nthere appears to be an issue with the output file {}\n".format(of))
+
         self.set_dsm_status(2) 
 
     def requires(self):
@@ -1906,6 +1922,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             if self.db.open:
                 self.db.close()
 
+################ ProgrammingError: (1064, "You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near '?\n        WHERE pseudo_prepid = 42340' at line 1")
     def execute_query(self, query):
         self.log_fh.write(query + "\n")
         self.cur.execute(query)
@@ -1969,6 +1986,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
                                       "PCT_PF_READS_ALIGNED":qc_metrics().pct_reads_aligned,
                                       "PF_MISMATCH_RATE":qc_metrics().pct_mismatch_rate}
 
+################## IOError: [Errno 2] No such file or directory: '/nfs/seqscratch_ssd/ALIGNMENT/BUILD37/DRAGEN/CUSTOM_CAPTURE/MZ200700899.5388/MZ200700899.5388.alignment.metrics.txt'
         with open(self.alignment_metrics) as alignment_metrics_fh:
             for line in alignment_metrics_fh:
                 contents = line.strip().split(" ")
@@ -2001,6 +2019,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         sample_type = "GENOME" if self.sample_type == "GENOME" else "EXOME"
         metrics_hash = self.cvg_parse[sample_type][file_type]
 
+##### File "/nfs/goldstein/software/dragen_pipe/master/dragen/python/gatk_pipe.py", line 2004, in update_coverage_metrics
         with open(metrics_file) as metrics_fh:
             for line in metrics_fh:
                 contents = line.strip().split(" ")
@@ -2036,15 +2055,19 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             "TOTAL_SNPS":qc_metrics().total_snps, "PCT_DBSNP":qc_metrics().pct_dbsnp_snps,
             "TOTAL_INDELS":qc_metrics().total_indels, "PCT_DBSNP_INDELS":qc_metrics().pct_dbsnp_indels}
         temp = {}
+################ IOError: [Errno 2] No such file or directory: '/nfs/seqscratch_ssd/ALIGNMENT/BUILD37/DRAGEN/CUSTOM_CAPTURE/nimhscz04C30271og3.15069/nimhscz04C30271og3.15069.variant_calling_summary_metrics.txt'
         with open(self.variant_call_out) as variant_call_metrics_fh:
             for line in variant_call_metrics_fh:
                 field, value = line.strip().split(" ")[:2]
                 if field in variant_call_parse:
                     db_field = variant_call_parse[field]
                     self.update_database(self.qc_table, db_field, value)
+############ these are probably all conected!?!
+####### this gives ValueError: could not convert string to float: ?
                 temp[field] = float(value)
 
         overall_titv = (
+####### KeyError: 'NOVEL_SNPS'
             (temp["NOVEL_SNPS"] * temp["NOVEL_TITV"] + temp["NUM_IN_DB_SNP"] * temp["DBSNP_TITV"]) /
             temp["TOTAL_SNPS"])
         self.update_database(self.qc_table, qc_metrics().titv, overall_titv)
@@ -2056,7 +2079,11 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         snv_homhet_ratio = float(self.all_snv_hom) / self.all_snv_het
         self.update_database(self.qc_table, qc_metrics().snv_homhet_ratio, snv_homhet_ratio)
 
-        indel_homhet_ratio = float(self.all_indel_hom) / self.all_indel_het
+##### this gives ZeroDivisionError: float division by zero
+        if self.all_indel_het == 0.0:
+            indel_homhet_ratio = 100.0
+        else:
+            indel_homhet_ratio = float(self.all_indel_hom) / self.all_indel_het
         self.update_database(self.qc_table, qc_metrics().indel_homhet_ratio, indel_homhet_ratio)
 
         x_homhet_ratio = 0.0
@@ -2070,6 +2097,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         self.update_database(self.qc_table, qc_metrics().x_homhet_ratio, x_homhet_ratio)
 
     def update_contamination_metrics(self):
+################ IOError: [Errno 2] No such file or directory: '/nfs/seqscratch_ssd/ALIGNMENT/BUILD37/DRAGEN/CUSTOM_CAPTURE/MZ200809564.5425/MZ200809564.5425.contamination.selfSM.txt'
         with open(self.contamination_out) as contamination_fh:
             for line in contamination_fh:
                 field, value = line.strip().split(' ')[:2]
