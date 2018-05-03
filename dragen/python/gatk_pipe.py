@@ -1990,9 +1990,13 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         with open(self.alignment_metrics) as alignment_metrics_fh:
             for line in alignment_metrics_fh:
                 contents = line.strip().split(" ")
-                if len(contents) == 4:
+                #################### dipshits!?!?! this is hard-coded for bams that have no unpaired reads!?!?
+                #################### dipshits!?!?! this is hard-coded for bams that have no unpaired reads!?!?
+                #################### dipshits!?!?! this is hard-coded for bams that have no unpaired reads!?!?
+                if len(contents) == 4 or len(contents) == 5:
                     field = contents[0]
-                    value = contents[-1]
+                    # value = contents[-1]
+                    value = contents[-1 if len(contents) == 4 else -2]
                     if field in self.alignment_metrics_map:
                         db_field = self.alignment_metrics_map[field]
                         self.update_database(self.qc_table, db_field, value)
@@ -2179,6 +2183,8 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             FROM {qc_table}
             WHERE pseudo_prepid = {pseudo_prepid}""")
         result = self.get_metrics(query)
+        from pprint import pprint as pp
+        pp(result)
         perc_reads_aligned = float(result[0][0])
         return (perc_reads_aligned >= 0.70)
 
