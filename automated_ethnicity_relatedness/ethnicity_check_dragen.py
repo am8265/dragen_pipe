@@ -8,6 +8,7 @@ import luigi
 from luigi.contrib.sge import SGEJobTask
 from datetime import datetime
 import logging
+from luigi.task import Task
 ### Modules from other scripts in this directory
 # from automated_ethnicity_dragen import get_samples_to_predict, update_probs
 from automated_relatedness import MyExtTask,get_connection,get_familyid,run_shellcmd, update_ped_status
@@ -35,7 +36,9 @@ def update_probs(output_prob_file,pseudo_prepid):
         
 def get_samples_to_predict():
     max_samples = 1
-    query = "select sample_name, d.pseudo_prepid, sample_type, alignseqfileloc from dragen_sample_metadata d join dragen_qc_metrics q on d.pseudo_prepid=q.pseudo_prepid where genotyping_rate is null and is_merged in (40,100) order by pseudo_prepid desc limit {}".format(max_samples);
+    query = "select sample_name, d.pseudo_prepid, sample_type, alignseqfileloc from dragen_sample_metadata d join dragen_qc_metrics q on d.pseudo_prepid=q.pseudo_prepid \
+      where genotyping_rate is null and is_merged in (40,100) order by pseudo_prepid desc limit {}".format(max_samples);
+    # print("\n\n{}\n\n".format(query))
     # query = "select sample_name, d.pseudo_prepid, sample_type, is_merged, alignseqfileloc, genotyping_rate from dragen_sample_metadata d join dragen_qc_metrics q on d.pseudo_prepid=q.pseudo_prepid where genotyping_rate is null and is_merged in (40,100) order by pseudo_prepid desc limit {}".format(max_samples);
     db = get_connection(db="seqdb")
     cur = db.cursor()
@@ -53,62 +56,85 @@ def get_samples_to_predict():
 
 ###################### end of automated_ethnicity_dragen.py
 
-class WrapperEthnicity(luigi.WrapperTask):
-    """ Update the database with ethnicity probabilities
-    """
-
-    base_output_directory = luigi.OutputDirectoryParameter()
-
-    def __init__(self,*args,**kwargs):
-        super(WrapperEthnicity,self).__init__(*args,**kwargs)
-        
-    def requires(self):
-        # for f' sake?!?
-        for sample_name, pseudo_prepid, sample_type, align_loc in get_samples_to_predict():
-            yield self.clone( PredictAndUpdate, sample_name=sample_name, pseudo_prepid=pseudo_prepid, sample_type=sample_type, 
-                              align_loc=os.path.join(align_loc, "{sample_name}.{pseudo_prepid}".format(
-                                sample_name=sample_name, pseudo_prepid=pseudo_prepid)),
-                                output_directory=os.path.join( 
-                                  self.base_output_directory, "{sample_name}.{pseudo_prepid}.{sample_type}".format(
-                                    sample_name=sample_name, pseudo_prepid=pseudo_prepid, sample_type=sample_type )
-                                )
-                            )
-
+# class PredictAndUpdate(Task):
 class PredictAndUpdate(SGEJobTask):
-    sample_name = luigi.Parameter()
+
+    # Elements outside the __init__ method are static elements
+    base_output_directory = luigi.OutputDirectoryParameter()
+    # output_directory = luigi.OutputDirectoryParameter()
     pseudo_prepid = luigi.IntParameter()
-    sample_type = luigi.Parameter()
-    align_loc = luigi.InputDirectoryParameter()
-    output_directory = luigi.OutputDirectoryParameter()
-    training_model = luigi.InputFileParameter( default=os.path.join(
-      base_directory, "data", "37MB_markers_model.obj") )
-    markers = luigi.InputFileParameter( default=os.path.join(
-      base_directory, "data", "filtered.37MB.master.training.map") )
-    ethnicity_wrapper = luigi.InputFileParameter( default=os.path.join(
-      base_directory, "model_ancestry.py") )
+
+
+    training_model      = luigi.InputFileParameter( default=os.path.join( base_directory, "data", "37MB_markers_model.obj") )
+    markers             = luigi.InputFileParameter( default=os.path.join( base_directory, "data", "filtered.37MB.master.training.map") )
+    ethnicity_wrapper   = luigi.InputFileParameter( default=os.path.join( base_directory, "model_ancestry.py") )
     
+    # Elements inside the __init__ method are elements of the object (self)
     def __init__(self,*args,**kwargs):
+
         super(PredictAndUpdate,self).__init__(*args,**kwargs)
+
+        query="select sample_name, d.pseudo_prepid, sample_type, alignseqfileloc from dragen_sample_metadata d join dragen_qc_metrics q on d.pseudo_prepid=q.pseudo_prepid \
+          where genotyping_rate is null and is_merged in (40,100) "
+        if self.pseudo_prepid!=0 :
+            query += "and d.pseudo_prepid = {}".format(self.pseudo_prepid)
+        else:
+            query += "order by pseudo_prepid desc limit 1"
+
+        print("using {}".format(query))
+
+        db = get_connection(db="seqdb")
+        cur = db.cursor()
+        cur.execute(query)
+        if cur.rowcount==0:
+            print("there are no matching samples")
+            exit(1)
+
+        # self.run_locally=True
+        # from pprint import pprint as pp
+        # pp(vars(self))
+
+        self.sample_name, self.pseudo_prepid, self.sample_type, align_loc = cur.fetchone()
+
+        self.align_loc  =   os.path.join( align_loc, "{sample_name}.{pseudo_prepid}".format( sample_name=self.sample_name, pseudo_prepid=self.pseudo_prepid ) )
+
+        self.output_directory=os.path.join( self.base_output_directory, "{sample_name}.{pseudo_prepid}.{sample_type}".format( 
+          sample_name=self.sample_name, pseudo_prepid=self.pseudo_prepid, sample_type=self.sample_type ) ) 
+        # sample_name = luigi.Parameter()
+        # pseudo_prepid = luigi.IntParameter()
+        # sample_type = luigi.Parameter()
+        # align_loc = luigi.InputDirectoryParameter()
+
         self.run_locally=True
+
         if not os.path.isdir(self.output_directory):
             os.mkdir(self.output_directory)
         else:
             print("warning: dir '{}' already exists".format(self.output_directory))
+
+        cur.execute("update dragen_qc_metrics set genotyping_rate = -1.0 where genotyping_rate is null and pseudo_prepid = {}".format(self.pseudo_prepid))
+        print("we modified {} rows".format(cur.rowcount))
+        if cur.rowcount != 1:
+            print("unable to get lock on pseudo_prepid = {}".format(self.pseudo_prepid))
+        db.commit()
+
         self.output_probs = os.path.join( self.output_directory ,"ethnicity.probs.txt")
         self.input_ped = os.path.join( self.output_directory, "{sample_name}.{pseudo_prepid}.ped".format(
-          sample_name=self.sample_name, pseudo_prepid=self.pseudo_prepid)
-        )
+          sample_name=self.sample_name, pseudo_prepid=self.pseudo_prepid ) )
         
     def work(self):
         """Run the python script to predict ethnicities"""
         cmd = ( " /nfs/goldstein/software/python2.7.7/bin/python {0} --output-prob-file {1} --testing-ped {2} --mapfile {3} --input-model {4} """.format(
           self.ethnicity_wrapper, self.output_probs,self.input_ped, self.markers, self.training_model ) )        
+        print("ethnicity_check_dragen.py '{}'".format(cmd))
         run_shellcmd(cmd)
         update_probs(self.output_probs, self.pseudo_prepid)
         update_ped_status(self.pseudo_prepid, "predict")
         
     def requires(self):
-        return self.clone(CreatePed)
+        # return self.clone(CreatePed)
+        return CreatePed(sample_name=self.sample_name, pseudo_prepid=self.pseudo_prepid, sample_type=self.sample_type, 
+          align_loc=self.align_loc, output_directory=self.output_directory, markers=self.markers)
     
     def output(self):
         return SQLTarget(self.pseudo_prepid,"predict")       
