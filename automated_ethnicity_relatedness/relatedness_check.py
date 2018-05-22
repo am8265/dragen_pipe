@@ -122,6 +122,9 @@ class UpdateDBRelatedness(SGEJobTask):
         Update database with the statement 
         """
 
+        print("using '{}'".format(statement))
+        return
+
         db = get_connection()
         try:
             cur = db.cursor()
@@ -197,21 +200,16 @@ class UpdateDBRelatedness(SGEJobTask):
                 if sample_name != proband and related_sample_name != proband:
                     if self.is_repcon_fam_mem(sample_name) and self.is_repcon_fam_mem(related_sample_name):
                         if coef >= 0.1:
-                            self.update_db(statement.format(family_id,sample_name,
-                                                       pseudo,related_sample_name,
-                                                       related_pseudo,coef))
+                            self.update_db( statement.format( family_id, sample_name, pseudo,related_sample_name, related_pseudo,coef ) )
+
                 elif sample_name == proband:
                     relation = self.get_relation_to_proband(related_sample_name)
                     if not check_relation(relation,coef):
-                        self.update_db(statement.format(family_id,sample_name,
-                                                       pseudo,related_sample_name,
-                                                       related_pseudo,coef))
+                        self.update_db( statement.format( family_id,sample_name, pseudo,related_sample_name, related_pseudo,coef ) )
                 elif proband != None:
                     relation = self.get_relation_to_proband(sample_name)
                     if not check_relation(relation,coef):
-                        self.update_db(statement.format(family_id,sample_name,
-                                                       pseudo,related_sample_name,
-                                                       related_pseudo,coef))
+                        self.update_db(statement.format(family_id,sample_name, pseudo,related_sample_name, related_pseudo,coef) )
     
                     
                 
