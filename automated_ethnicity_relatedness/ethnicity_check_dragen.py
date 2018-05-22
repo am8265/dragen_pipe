@@ -11,7 +11,7 @@ import logging
 from luigi.task import Task
 ### Modules from other scripts in this directory
 # from automated_ethnicity_dragen import get_samples_to_predict, update_probs
-from automated_relatedness import MyExtTask,get_connection,get_familyid,run_shellcmd, update_ped_status
+from automated_relatedness import run_shellcmd, update_ped_status
 from create_ped_luigi_dragen import CreatePed, SQLTarget
 
 base_directory = os.path.dirname(os.path.abspath(__file__))
@@ -128,7 +128,9 @@ class PredictAndUpdate(SGEJobTask):
           self.ethnicity_wrapper, self.output_probs,self.input_ped, self.markers, self.training_model ) )        
         print("ethnicity_check_dragen.py '{}'".format(cmd))
         run_shellcmd(cmd)
+
         update_probs(self.output_probs, self.pseudo_prepid)
+
         update_ped_status(self.pseudo_prepid, "predict")
         
     def requires(self):

@@ -8,9 +8,6 @@ from luigi.contrib.sge import SGEJobTask
 from datetime import datetime
 
 def get_familyid(sample_name):
-    """
-    """
-    
     query = "SELECT FamilyID FROM SampleT WHERE CHGVID = '{0}'".format(sample_name)
     db = get_connection(db="seqdb")
     try:
@@ -25,18 +22,13 @@ def get_familyid(sample_name):
     finally:
         db.close()
 
+##### pointless...
 class MyExtTask(luigi.ExternalTask):
-    """Check for files
-    """
-
     file_loc = luigi.Parameter()
     def output(self):
         return luigi.LocalTarget(self.file_loc)
 
 def get_connection(config_file="/nfs/goldstein/software/dragen_pipe/master/automated_ethnicity_relatedness/database.cfg",db="seqdb"):
-    """ Return a connection to seqdb
-    """
-    
     try:
         cfg = ConfigParser()
         cfg.read(config_file)
@@ -64,31 +56,28 @@ def get_samples_append():
     ((chgvid,pseudo_prepid,seqtype,alignseqfileloc),(...),(...))
     """
 
-    query = (
-        """ SELECT Q.CHGVID,Q.pseudo_prepid,Q.SeqType,Q.AlignSeqFileLoc FROM"""
-        """ dragen_qc_metrics as Q INNER JOIN dragen_pipeline_step as D"""
-        """ INNER JOIN dragen_ped_status as P"""
-        """ ON Q.pseudo_prepid = D.pseudo_prepid AND"""
-        """ P.pseudo_prepid = D.pseudo_prepid AND"""
-        """ D.pipeline_step_id = 31 AND D.finished = 1 AND"""
-        """ P.append_ped = 0"""
-        )
+# wtf?!? no reason for dps 31 - i.e. it's just off of alignseqfileloc?!
+# """ SELECT Q.CHGVID,Q.pseudo_prepid,Q.SeqType,Q.AlignSeqFileLoc FROM"""
+    query = ("SELECT sample_name, d.pseudo_prepid, sample_type from dragen_sample_metadata d \
+      JOIN dragen_ped_status p on d.pseudo_prepid=p.pseudo_prepid \
+      where p.create_ped = 1 and p.append_ped = 0 order by pseudo_prepid desc" )
+
+    print("using '{}'".format(query))
     db = get_connection(db="seqdb")
     cur = db.cursor()
     cur.execute(query)
     result = cur.fetchall()
     return result
 
+# f'ing pointless - CreatePed is dependency of PredictAndUpdate and sets create_ped while PredictAndUpdate does predict and AppendMasterPed does append_ped
 def update_ped_status(pseudo_prepid,field):
     """ Update status 
 
     pseudo_prepid : str 
     field : str
     """
-    update_statement = (""" UPDATE dragen_ped_status SET {0} = 1"""
-                        """ WHERE pseudo_prepid = {1}""".format(
-                            field,pseudo_prepid)
-                        )    
+    update_statement = ("UPDATE dragen_ped_status SET {0} = 1 WHERE pseudo_prepid = {1}""".format(
+      field,pseudo_prepid ) )    
     db = get_connection(db="seqdb")
     try:
         cur = db.cursor()
@@ -98,12 +87,8 @@ def update_ped_status(pseudo_prepid,field):
         db.close()
 
 def run_shellcmd(cmd):
-    """Use subprocess to run commands
-    """
-
     proc = subprocess.Popen(cmd,shell=True)
     proc.wait()
     if proc.returncode: ## Non zero return code
-        raise Exception(subprocess.CalledProcessError(proc.returncode,
-                                                                  cmd))
+        raise Exception( subprocess.CalledProcessError( proc.returncode, cmd ) )
         

@@ -8,31 +8,48 @@ import luigi
 from luigi.contrib.sge import SGEJobTask
 from datetime import datetime
 ### Modules from other scripts in this directory
-from automated_relatedness import MyExtTask,get_connection,get_samples_append,update_ped_status,run_shellcmd,get_familyid
+from automated_relatedness import get_connection, get_samples_append, update_ped_status, run_shellcmd
 from create_ped_luigi_dragen import CreatePed, SQLTarget
 
+###### UpdateDBRelatedness & RunKing use silly brute-force (not accomodating sample list...) touch files while AppendMasterPed uses the append_ped field
+###### question is how do we go about running this stuff - all of it, by batch, all newer samples?!?
+###### perhaps just load the .ped data?!?
+######
+###### cp /nfs/goldstein/software/dragen_pipe/master/automated_ethnicity_relatedness/data/filtered.37MB.master.training.map /nfs/fastq_temp/dsth/relatedness/combined.map
+###### :> /nfs/fastq_temp/dsth/relatedness/combined.ped 
+###### rm /nfs/fastq_temp/dsth/relatedness/*.success
+###### mysql_seqdb_q "update dragen_ped_status set append_ped = 0"
+######
+###### need to re-set create_ped where appropriate!?!?
+######
+###### 'should' run on ALL non-custom_capture samples?!?
+######
+
 class UpdateDBRelatedness(SGEJobTask):
-    """ Update the database 
-    with the king fields
-    """
 
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    # n_cpu           = 1
+    # parallel_env    = "threaded"
+    # shared_tmp_dir  = "/nfs/seqscratch09/tmp/luigi_test"
 
-    masterped = luigi.Parameter(default="/nfs/seqscratch09/rp2801/relatedness_check/masterped.ped")
-    output_dir = luigi.Parameter()
-    markers = luigi.Parameter(default="{0}/filtered.37MB.master.training.map".format(os.getcwd()))
+    batch_size = luigi.IntParameter()
+    ######## the f'ing map?!
+    masterped       = luigi.Parameter(default="/nfs/fastq_temp/dsth/relatedness/combined.ped")
+    output_directory= luigi.Parameter()
+    markers         = luigi.Parameter(default="{0}/filtered.37MB.master.training.map".format(os.getcwd()))
+    genotyping_dir  = luigi.Parameter()
 
     def __init__(self,*args,**kwargs):
+
         super(UpdateDBRelatedness,self).__init__(*args,**kwargs)
-        self.log_file = os.path.join(self.output_dir,"update_db_relatedness.log")
-        self.temp_bed = os.path.join(self.output_dir,"temp_masterped")
-        self.output_prefix = os.path.join(self.output_dir,"relatedness")
-        self.king1 = self.output_prefix+".kin0"
-        self.king2 = self.output_prefix+".kin"
-        self.verification_file = os.path.join(self.output_dir,"update_db.success")
-        self.btw_fam_threshold = 0.1
+
+        self.log_file           = os.path.join( self.output_directory,"update_db_relatedness.log" )
+        self.temp_bed           = os.path.join( self.output_directory,"temp_masterped" )
+        self.output_prefix      = os.path.join( self.output_directory,"relatedness" )
+        self.king_btw           = self.output_prefix+".kin0"
+        self.king_wtn           = self.output_prefix+".kin"
+        self.verification_file  = os.path.join( self.output_directory,"update_db.success" )
+        self.btw_fam_threshold  = 0.1
+        self.run_locally=True
         
     def work(self):
         self.update_between_family()
@@ -40,8 +57,8 @@ class UpdateDBRelatedness(SGEJobTask):
         os.system("touch {0}".format(self.verification_file))
         
     def requires(self):
-        return RunKing(masterped=self.masterped,output_dir=self.output_dir,
-                       markers=self.markers,run_locally=True)
+        return self.clone(RunKing)
+        # return RunKing( masterped=self.masterped,output_directory=self.output_directory, markers=self.markers, run_locally=True, genotyping_dir=self.genotyping_dir )
         
     def output(self):
         #return MyExtTask(self.verification_file)
@@ -58,9 +75,9 @@ class UpdateDBRelatedness(SGEJobTask):
                      """ VALUES ('{0}',{1},'{2}','{3}',{4},'{5}',{6}) ON DUPLICATE KEY """
                      """ UPDATE coef = {6} """)
         
-        if self.parse_kin_btw(self.king1): ## The file was not empty , an empty file means no relatedness was inferred in
+        if self.parse_kin_btw(self.king_btw): ## The file was not empty , an empty file means no relatedness was inferred in
             ## individuals between families 
-            for sample_name,pseudo,family_name,related_sample_name,related_pseudo,related_family_name,coef in self.parse_kin_btw(self.king1):
+            for sample_name,pseudo,family_name,related_sample_name,related_pseudo,related_family_name,coef in self.parse_kin_btw(self.king_btw):
                 self.update_db(statement.format(sample_name,pseudo,family_name,related_sample_name,
                                            related_pseudo,related_family_name,coef))
 
@@ -173,8 +190,8 @@ class UpdateDBRelatedness(SGEJobTask):
                      """ UPDATE coef = {5} """)
         
 
-        if self.parse_kin_within(self.king2):
-            for family_id,sample_name,pseudo,related_sample_name,related_pseudo,coef in self.parse_kin_within(self.king2):
+        if self.parse_kin_within(self.king_wtn):
+            for family_id,sample_name,pseudo,related_sample_name,related_pseudo,coef in self.parse_kin_within(self.king_wtn):
                 proband = self.get_proband(family_id)
                 ## Try making the code below more elegant , it's a mess now ! 
                 if sample_name != proband and related_sample_name != proband:
@@ -270,112 +287,94 @@ class RunKing(SGEJobTask):
     shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
 
     masterped = luigi.Parameter(default="/nfs/seqscratch09/rp2801/relatedness_check/masterped.ped")
-    output_dir = luigi.Parameter()
+    output_directory = luigi.Parameter()
     markers = luigi.Parameter(default="{0}/filtered.37MB.master.training.map".format(os.getcwd()))
+    genotyping_dir  = luigi.Parameter()
+    batch_size = luigi.IntParameter()
         
     def __init__(self,*args,**kwargs):
         super(RunKing,self).__init__(*args,**kwargs)
-        self.log_file = os.path.join(self.output_dir,"relatedness_check.log")
-        self.temp_bed = os.path.join(self.output_dir,"temp_masterped")
-        self.output_prefix = os.path.join(self.output_dir,"relatedness")
-        self.king1 = self.output_prefix+"king.kin0"
-        self.king2 = self.output_prefix+"king.kin"
-        self.verification_file = os.path.join(self.output_dir,"king.success")
+        self.log_file = os.path.join(self.output_directory,"relatedness_check.log")
+        self.temp_bed = os.path.join(self.output_directory,"temp_masterped")
+        self.output_prefix = os.path.join(self.output_directory,"relatedness")
+        self.king_btw           = self.output_prefix+".kin0"
+        self.king_wtn           = self.output_prefix+".kin"
+        self.verification_file = os.path.join(self.output_directory,"king.success")
         self.masterped_stem = self.masterped[0:-4]
-        
+        self.run_locally=True
         
     def work(self):
-        """
-        """
 
-        ## Create the output directory if it does not exist yet :
-        if not os.path.exists(self.output_dir):
-            os.makedirs(self.output_dir)
+        if not os.path.exists(self.output_directory):
+            os.makedirs(self.output_directory)
 
+        plink_cmd = (" /nfs/seqscratch11/rp2801/bin_seqscratch/plink --make-bed --file {0} --out {1} &> {2}""".format(
+          self.masterped_stem, self.temp_bed, self.log_file ) )
         
-        ## Create binary plink files
-        plink_cmd = (
-            """ /nfs/seqscratch11/rp2801/bin_seqscratch/plink"""
-            """ --make-bed --file {0} --out {1} &> {2}""".format(
-                self.masterped_stem,self.temp_bed,self.log_file)
-            )
-        
+        print("\n\nrunning '{}'\n\n".format(plink_cmd))
         run_shellcmd(plink_cmd)
         
-        ## Run king 
-        king_cmd = (
-            """ /nfs/goldstein/software/sh/king -b {0}.bed --kinship --related"""
-            """ --degree 3 --prefix {1} &> {2}""".format(
-                self.temp_bed,self.output_prefix,self.log_file)
-            )
+        king_cmd = (" /nfs/goldstein/software/sh/king -b {0}.bed --kinship --related --degree 3 --prefix {1} &> {2}""".format(
+          self.temp_bed, self.output_prefix, self.log_file ) )
 
+        print("\n\nrunning '{}'\n\n".format(king_cmd))
         run_shellcmd(king_cmd)
         
-        ## Create a verification file
         verification_cmd = """ touch {0}""".format(self.verification_file)
+
         run_shellcmd(verification_cmd)
             
     def requires(self):
-        """
-        """
-
-        return AppendMasterPed(masterped=self.masterped,output_dir=self.output_dir,
-                               markers=self.markers,run_locally=True)
+        ###### this is where 'clone' is usefull - i.e. don't need to re-provide the mutliply specified output_directory=luigi.Parameter when used in both this and dep?!?
+        return self.clone(AppendMasterPed)
+        # return AppendMasterPed( masterped=self.masterped, output_directory=self.output_directory, markers=self.markers, run_locally=True, genotyping_dir=self.genotyping_dir )
 
     def output(self):
-        """
-        """
-        
         return luigi.LocalTarget(self.verification_file)
 
 
 class AppendMasterPed(SGEJobTask):
 
-    n_cpu = 1
-    parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
+    # n_cpu = 1
+    # parallel_env = "threaded"
+    # shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
 
     masterped = luigi.Parameter()
-    output_dir = luigi.Parameter()
+    output_directory = luigi.Parameter()
     markers = luigi.Parameter(default="{0}/filtered.37MB.master.training.map".format(os.getcwd()))
+    genotyping_dir  = luigi.Parameter()
+    batch_size = luigi.IntParameter()
     
     def __init__(self,*args,**kwargs):
+
         super(AppendMasterPed,self).__init__(*args,**kwargs)
-        ## Get samples to append
 
-        self.samples_to_append = get_samples_append()[0:10]
-        self.log = os.path.join(self.output_dir,"append_masterped.log")
+        self.samples_to_append = get_samples_append()[0:self.batch_size]
+        self.log = os.path.join(self.output_directory,"append_masterped.log")
         self.cmd = "cat {0} >> {1} 2>> {2}"
+        self.run_locally=True
         
-        ## Create the output directory if it does not exist yet :
-        if not os.path.exists(self.output_dir):
-            os.makedirs(self.output_dir)
-
+        if not os.path.exists(self.output_directory):
+            os.makedirs(self.output_directory)
         
     def work(self):
-        """
-        """
         
-        for chgvid,pseudo,seq,alignloc in self.samples_to_append:
-            #seqdir = os.path.join(alignloc,seq.upper())
-            pedfile = os.path.join(alignloc,"{0}.{1}/{0}.{1}.ped".format(
-                chgvid,pseudo))
-            run_shellcmd(self.cmd.format(pedfile,self.masterped,self.log))
-            ## Update the database
-            update_ped_status(pseudo,"append_ped")
+        for sample_name, pseudo_prepid, sample_type in self.samples_to_append:
+
+            pedfile = os.path.join(self.genotyping_dir, "{0}.{1}.{2}/{0}.{1}.ped".format( sample_name, pseudo_prepid, sample_type ) )
+
+            run_shellcmd( self.cmd.format( pedfile, self.masterped,self.log ) )
+
+            update_ped_status( pseudo_prepid, "append_ped" )
                     
     def requires(self):
-        """
-        """
-        for chgvid,pseudo,seq,alignloc in self.samples_to_append:
-            yield CreatePed(pseudo_prepid=pseudo,sample_name=chgvid,
-                            alignseqfile=alignloc,sample_type=seq,
-                            markers=self.markers,run_locally=True)
+        for chgvid, pseudo, seq in self.samples_to_append:
+            # yield self.clone(CreatePed) 
+            yield CreatePed( pseudo_prepid=pseudo, sample_name=chgvid, align_loc='irrelevant', sample_type=seq, 
+                             output_directory=self.output_directory, markers=self.markers, run_locally=True )
         
     def output(self):
-        """
-        """
-        for chgvid,pseudo,seq,alignloc in self.samples_to_append:
+        for chgvid,pseudo,seq in self.samples_to_append:
             yield SQLTarget(pseudo,"append_ped")
 
   
