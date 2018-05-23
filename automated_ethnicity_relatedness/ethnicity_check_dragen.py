@@ -35,6 +35,9 @@ def update_probs(output_prob_file,pseudo_prepid):
         db.close()
         
 def get_samples_to_predict():
+    ######## CLEARLY, do NOT use the silly ped table!?!
+    ######## CLEARLY, do NOT use the silly ped table!?!
+    ######## CLEARLY, do NOT use the silly ped table!?!
     max_samples = 1
     query = "select sample_name, d.pseudo_prepid, sample_type, alignseqfileloc from dragen_sample_metadata d join dragen_qc_metrics q on d.pseudo_prepid=q.pseudo_prepid \
       where genotyping_rate is null and is_merged in (40,100) order by pseudo_prepid desc limit {}".format(max_samples);

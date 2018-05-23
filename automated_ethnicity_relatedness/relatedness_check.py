@@ -48,7 +48,7 @@ class UpdateDBRelatedness(SGEJobTask):
         self.king_btw           = self.output_prefix+".kin0"
         self.king_wtn           = self.output_prefix+".kin"
         self.verification_file  = os.path.join( self.output_directory,"update_db.success" )
-        self.btw_fam_threshold  = 0.1
+        # self.btw_fam_threshold  = 0.1
         self.run_locally=True
         
     def work(self):
@@ -65,22 +65,69 @@ class UpdateDBRelatedness(SGEJobTask):
         return luigi.LocalTarget(self.verification_file)
 
     def update_between_family(self):
-        """ Check and update relatedness table
-        between families/unrealated individuals
-        """
-
-        statement = ("""INSERT INTO between_fam_relatedness """
-                     """(sample_name1, pseudo_prepid1, FamilyID1 """
-                     """,sample_name2, pseudo_prepid2, FamilyID2, coef) """
-                     """ VALUES ('{0}',{1},'{2}','{3}',{4},'{5}',{6}) ON DUPLICATE KEY """
-                     """ UPDATE coef = {6} """)
-        
+        print("\n\n> between\n\n")
+        statement = ("INSERT INTO between_fam_relatedness (sample_name1, pseudo_prepid1, FamilyID1,sample_name2, pseudo_prepid2, FamilyID2, coef) \
+                     VALUES ('{0}',{1},'{2}','{3}',{4},'{5}',{6}) ON DUPLICATE KEY UPDATE coef = {6} ")
         if self.parse_kin_btw(self.king_btw): ## The file was not empty , an empty file means no relatedness was inferred in
-            ## individuals between families 
-            for sample_name,pseudo,family_name,related_sample_name,related_pseudo,related_family_name,coef in self.parse_kin_btw(self.king_btw):
-                self.update_db(statement.format(sample_name,pseudo,family_name,related_sample_name,
-                                           related_pseudo,related_family_name,coef))
 
+            # why bother naming them?!?
+            for sample_name,pseudo,family_name,related_sample_name,related_pseudo,related_family_name,coef in self.parse_kin_btw(self.king_btw):
+
+                self.update_db( statement.format( sample_name,pseudo,family_name,related_sample_name,related_pseudo,related_family_name,coef ) )
+
+######### ONLY RUN WES & WGS!?!?
+
+#### ped format : #Family  Subject  Father  Mother  Sex Phenotype Marker1 M2      Markr3  
+
+####### OLD VERSION SEEMS TO IGNORE FAMILYID 
+
+################ presumably repconfam is the 'unique' control for a family - i.e. not supposed to be closely related to one another e.g. parents?!?
+################ presumably repconfam is the 'unique' control for a family - i.e. not supposed to be closely related to one another e.g. parents?!?
+################ presumably repconfam is the 'unique' control for a family - i.e. not supposed to be closely related to one another e.g. parents?!?
+
+# from form : Representative 'Control' Family Member : The Project Lead must select one sample per family to be used as a control in other projects; 
+# this is not related to affectation status. Control = '1' and all other relatives = '0'. 
+# For TRIOS only: label both parents as 1 (not related to each other and thus can both be used as controls).
+
+####### goes through 'within' family (.kin) output : FID     ID1     ID2     N_SNP   Z0      Phi     HetHet  IBS0    Kinship Error                                          
+####### THE WITHIN FAMILY FORMAT .kin GIVES ALL PAIR-WISE RELATIONSHIPS WITHIN A FAMILYID i.e. single-member->0,2->1,3->3...
+
+####### checks samples that 'should' be identical i.e. 'chgvid' are within thresholds for 'Proband-other_tissue'... - else is screwed on 'identity' check - i.e. kinship wrt., min/max message
+####### else checks if both are 'repconfam' then issues 'repconfam' error if kinship is > 0.1?!? - i.e. they are NEVER supposed to be related!?!
+####### else it's 'assumed' same family when one or other is proband - then compares the relationship - via pulling from first and then second individual in sequence
+#######     to it's thresholds and gives problem 'relationship' kinship (thresholds)
+####### else complains the relationship is unknown
+
+####### goes through 'between' family members .kin0 file - i.e. presumably all pairwise relations between non-family members - i.e. famid1 & famid2 should differ?!?
+####### if kingship is above 0.1 (cryptic) then get cryptic-check error with the sample/kinship/threshold - seems NOT to be list i.e. just over-writes errors as opposed to giving count!?!
+
+####### overall has 3 fields RelatednessCheck=Pass/Fail/Not_Checked, FamilyRelatedness=appears-to-be-concatenation-of-relatives, RelatednessError=concatenation-of-problems?!?
+####### this is just the expectedrelatedness_06222014.txt info - that ONLY uses cut -f1-3 : 'relationship','min','max'...
+####### this is just the expectedrelatedness_06222014.txt info - that ONLY uses cut -f1-3 : 'relationship','min','max'...
+####### this is just the expectedrelatedness_06222014.txt info - that ONLY uses cut -f1-3 : 'relationship','min','max'...
+
+# mysql -udh2880 -p1qaz@WSX -h10.73.50.38 sequenceDB -P53306 -e 'select RelatednessCheck,RelatednessError,FamilyRelatedness from seqdbClone where RelatednessError != "None" or FamilyRelatedness != "None"'
+# Pass    None    38254.palmfree01.exome:0.5000;
+# Pass    None    38585.palmfree06.exome:0.4996;
+# Pass    None    38255.palmfree09.exome:0.4997;
+# Pass    None    38256.palmfree10.exome:0.5000;
+# Pass    None    38350.palmfree12.exome:0.5000;
+# Fail    Failed Cryptic Check 31960.epifam01301bip4.exome (0.1206>0.100);        15.irishepiep01303b1.exome:0.0949;
+# Fail    Failed Cryptic Check 31960.epifam01301bip4.exome (0.2285>0.100);        14.irishepiep01297b2.exome:0.0949;
+#...
+# Pass    None    57.isnd26080ac3.exome:0.2532;56.isnd26079ac2.exome:0.2471;
+# Pass    None    57.isnd26080ac3.exome:-0.0230;55.isnd25793ac1.exome:0.2471;
+# Pass    None    56.isnd26079ac2.exome:-0.0230;55.isnd25793ac1.exome:0.2532;
+# mysql -udh2880 -p1qaz@WSX -h10.73.50.38 sequenceDB -P53306 -e 'select RelatednessCheck,RelatednessError,FamilyRelatedness from seqdbClone where RelatednessError != "None" or FamilyRelatedness != "None" and RelatednessCheck != "Pass"' | grep -v 'Failed Cryptic Check' | grep -v 'Not checked'
+# Fail    Failed 598.pngn026.exome Proband 0.2815 not (0.4500,0.5000);    598.pngn026.exome:0.2815;
+# Fail    Failed 623.pngn0044a1.exome Proband 0.2613 not (0.4500,0.5000); 623.pngn0044a1.exome:0.2613;
+# Fail    Failed 622.pngn0045a2.exome Proband 0.2613 not (0.4500,0.5000); 622.pngn0045a2.exome:0.2613;
+# Fail    Failed 631.pngn0034.exome Proband 0.2505 not (0.4500,0.5000);   631.pngn0034.exome:0.2505;
+# Fail    Failed 630.pngn0035.exome Proband 0.2505 not (0.4500,0.5000);   630.pngn0035.exome:0.2505;
+# Fail    Failed 27184.KCTN059e5.exome Sibling -0.0211 not (0.1768,0.3536);Failed 22328.kctn012e3.exome Sibling -0.0397 not (0.1768,0.3536);      27213.KCTN055e1.exome:-0.
+# Fail    Failed 27213.KCTN055e1.exome Aunt-Uncle -0.0148 not (0.0884,0.1768);Failed 27194.KCTN057e3.exome Parent 0.0026 not (0.1768,0.3536);Failed 27189.KCTN058e4.exome P
+# Fail    Failed 27195.KCTN049c1.exome Proband -0.0085 not (0.4500,0.5000);Failed 27190.KCTN050c2.exome Sibling -0.0126 not (0.1768,0.3536);Failed 22334.kctn003c1.exome Pa
+# Fail    Failed 27195.KCTN049c1.exome Sibling 0.0083 not (0.1768,0.3536);Failed 22324.kctn005c3.exome Sibling -0.0102 not (0.1768,0.3536)
 
     def check_relation(self,relation,coef):
         """
@@ -122,7 +169,7 @@ class UpdateDBRelatedness(SGEJobTask):
         Update database with the statement 
         """
 
-        print("using '{}'".format(statement))
+        # print("using '{}'".format(statement))
         return
 
         db = get_connection()
@@ -180,82 +227,91 @@ class UpdateDBRelatedness(SGEJobTask):
                 
         
     def update_within_family(self):
-        """ Check and update within family relatedness table
-        """
-
+        print("\n\n> within\n\n")
         prev_family_id = None
-
-
-        statement = ("""INSERT INTO within_fam_relatedness """
-                     """(FamilyID, sample_name1, pseudo_prepid1 """
-                     """,sample_name2, pseudo_prepid2, coef) """
-                     """ VALUES ('{0}','{1}',{2},'{3}',{4},{5}) ON DUPLICATE KEY """
-                     """ UPDATE coef = {5} """)
-        
-
+        statement = ("INSERT INTO within_fam_relatedness FamilyID, sample_name1, pseudo_prepid1,sample_name2, pseudo_prepid2, coef) \
+                     VALUES ('{0}','{1}',{2},'{3}',{4},{5}) ON DUPLICATE KEY UPDATE coef = {5} ")
         if self.parse_kin_within(self.king_wtn):
             for family_id,sample_name,pseudo,related_sample_name,related_pseudo,coef in self.parse_kin_within(self.king_wtn):
+
+                ##### this surely can't be right?!?
+                ##### this surely can't be right?!?
+                ##### this surely can't be right?!?
                 proband = self.get_proband(family_id)
+
                 ## Try making the code below more elegant , it's a mess now ! 
                 if sample_name != proband and related_sample_name != proband:
+
                     if self.is_repcon_fam_mem(sample_name) and self.is_repcon_fam_mem(related_sample_name):
+
                         if coef >= 0.1:
                             self.update_db( statement.format( family_id, sample_name, pseudo,related_sample_name, related_pseudo,coef ) )
 
                 elif sample_name == proband:
+
                     relation = self.get_relation_to_proband(related_sample_name)
+
                     if not check_relation(relation,coef):
                         self.update_db( statement.format( family_id,sample_name, pseudo,related_sample_name, related_pseudo,coef ) )
+
                 elif proband != None:
+
                     relation = self.get_relation_to_proband(sample_name)
+
                     if not check_relation(relation,coef):
                         self.update_db(statement.format(family_id,sample_name, pseudo,related_sample_name, related_pseudo,coef) )
     
-                    
                 
     def parse_kin_within(self,f):
-        """ Parse within family king output 
-        """
-        
+        print(" > checking file '{}'".format(f))
         i = 0
         with open(f,'r') as IN:
+            ### not actually using Phi - i.e. set to 0 - so all will be in error unless not related...?!?
             for line in IN:
+                # FID     ID1     ID2     N_SNP   Z0      Phi     HetHet  IBS0    Kinship Error
                 line=line.strip('\n')
                 contents = line.split('\t')
                 if contents[0] == 'FID':
                     continue
                 else:
                     i+=1
+
                     coef = float(contents[-2])
+                    print("within family relation '{}'".format(coef))
+
                     family_id = contents[0]
                     sample_name = contents[1].split('_')[0]
                     pseudo = contents[1].split('_')[1]
+
                     related_sample_name = contents[2].split('_')[0]
                     related_pseudo = contents[2].split('_')[1]
+
                     yield [family_id,sample_name,pseudo,related_sample_name,related_pseudo,coef]
                 
 
                     
     def parse_kin_btw(self,f):
-        """ Parse between family king output 
-        """
-
+        print(" > checking file '{}'".format(f))
         i = 0
         with open(f,'r') as IN:
             for line in IN:
                 line=line.strip('\n')
+                # FID1    ID1     FID2    ID2     N_SNP   HetHet  IBS0    Kinship                                                        
                 contents=line.split('\t')
-                #print contents
                 if contents[0] == 'FID1': # header
                     continue
                 else:
                     i+=1
                     coef = float(contents[-1])
-                    if coef > self.btw_fam_threshold: # sample is above cryptic relatedness threshold
+                    if coef > 0.1: 
+                        print("they're related '{}'".format(coef))
+
                         sample_name = contents[1].split('_')[0]
                         pseudo = contents[1].split('_')[1]
-                        if contents[1] == contents[0]: # if family name is the same as the sample name,
-                            ## use the parsed output from above, else use the actual value.
+
+                        ##### wtf?!? : why not just treat everything systematically instead?!?
+                        # if family name is the same as the sample name, use the parsed output from above, else use the actual value.
+                        if contents[1] == contents[0]: 
                             family_id = sample_name
                         else:
                             family_id = contents[0]
@@ -268,6 +324,7 @@ class UpdateDBRelatedness(SGEJobTask):
                             
                         related_sample_name = contents[3].split('_')[0]
                         related_pseudo = contents[3].split('_')[1]
+
                         if contents[2] == contents[3]: ## same logic as above
                             related_family_id = related_sample_name
                         else:
