@@ -4,6 +4,30 @@ use lib '/home/dh2880/.bin';
 use ARGH;
 use POSIX qw(strftime);
 
+###### do we use ATAV for forced calls/ped generation?!?
+###### should we use a higher threshold for cryptic_relatedness?!?
+
+###### currently ped file creation checks ped table - put ped file location into qc table and use that instead,
+###### ethrnicity also uses ped table and should instead use qc genotyping_rate > 0 and relatedness should just check combined list itself 
+###### once back log of ped is done update - HOWEVER, may be better to go with ATAV for ped file?!?
+###### should speed this up!?!?
+###### should speed this up!?!?
+###### should speed this up!?!?
+###### ONLY CHECK NEW SAMPLES EXCEPT FOR ONCE A WEEK FULL UPDATE!?! - i.e. AVOID ALL BUT 'Not Checked'
+###### DON'T STORE THE STRINGS?!?
+
+##### http://people.virginia.edu/~wc9c/KING/manual.html
+#####   >0.354              duplicate/MZ twin, 
+#####   [0.177, 0.354],     1st-degree, 
+#####   [0.0884, 0.177]     2nd-degree, and 
+#####   [0.0442, 0.0884]    3rd-degree relationships
+
+my$cryptic_low=0.1;
+my$cryptic_med=0.15;
+my$dups_low=0.3; # bit low?!?
+
+my$run_full=1;
+
 ###### wtf are dups doing in there?!?
 # sort -u /nfs/fastq_temp/dsth/relatedness/combined.ped > x && mv x /nfs/fastq_temp/dsth/relatedness/combined.ped
 
@@ -50,19 +74,6 @@ sub rel_prob {
     push(@{$PROBS->{$pp2}{$s2}},[ $pp->{$pp2}{FamilyRelationProband}.'_'.$pp->{$pp1}{FamilyRelationProband}, $s1,$kin,$pp1,$l]);
 }
 
-###### do we use ATAV for forced calls/ped generation?!?
-###### should we use a higher threshold for cryptic_relatedness?!?
-
-##### http://people.virginia.edu/~wc9c/KING/manual.html
-#####   >0.354              duplicate/MZ twin, 
-#####   [0.177, 0.354],     1st-degree, 
-#####   [0.0884, 0.177]     2nd-degree, and 
-#####   [0.0442, 0.0884]    3rd-degree relationships
-
-my$cryptic_low=0.1;
-my$cryptic_med=0.15;
-my$dups_low=0.3; # bit low?!?
-
 ######## for now we use create_ped=1 but once backlog is dealt with merge ped&predict and key off of genotyping_rate=null
 ######## then just pull all with genotyping_rate>0.0 except customcapture and run here
 # my@list=&ARGH::mq("select * from dragen_sample_metadata d "
@@ -79,6 +90,8 @@ my%pp;
 for my$p (@list) { ##### wasteful...
     $pp{$p->{pseudo_prepid}}=$p;
 }
+
+if($run_full){
 
 # print Dumper \%pp;
 # print Dumper \@list;
@@ -135,6 +148,8 @@ my$cmd=q{/nfs/goldstein/software/PLINK/PLINK_1.90_3.38/plink --make-bed --file  
 system($cmd) && die;
 $cmd=q{/nfs/goldstein/software/king_relatedness/king -b tmp.bed --kinship --related --degree 3 --prefix output};
 system($cmd) && die;
+
+} #### run_full
 
 # clearly remove any previous files if byte size is same as combined and exit completely...?!?
 # clearly remove any previous files if byte size is same as combined and exit completely...?!?
@@ -287,6 +302,7 @@ while(my$l=<$wfh>){
               &check_pair(\%pp,$pp1,$pp2,'Grandparent','Aunt-Uncle')  || &check_pair(\%pp,$pp1,$pp2,'Sibling','Great great aunt-uncle')   ||
               &check_pair(\%pp,$pp1,$pp2,'Sibling','Niece-Nephew')    || &check_pair(\%pp,$pp1,$pp2,'Sibling','Great aunt-uncle')         ||
               &check_pair(\%pp,$pp1,$pp2,'Parent','Great aunt-uncle') || &check_pair(\%pp,$pp1,$pp2,'Half sibling','Parent')              ||
+              &check_pair(\%pp,$pp1,$pp2,'Half sibling','Grandparent') || 
               &check_pair(\%pp,$pp1,$pp2,'N/A') ##### leave this for sample_id matches above?!?
     ) { 
         next; 
@@ -298,6 +314,8 @@ while(my$l=<$wfh>){
 
     }elsif( $pp{$pp1}{FamilyRelationProband} ne 'Proband' && $pp{$pp2}{FamilyRelationProband} ne 'Proband' ) { 
 
+        print Dumper $pp{$pp1};
+        print Dumper $pp{$pp2};
         die; ##### all rest require a proband - so this is wasteful!?!?!? should have been handled by silly bit above?!?
 
     }elsif( &check_for_either(\%pp,$pp1,$pp2,['First cousin once removed','First cousin twice removed','Fourth cousin','Great-great grandchild',
@@ -393,8 +411,8 @@ for my$K (keys%PROBS){
     print qq{summary=$summary\nshort=$short\nfull=$full\n};
 
     if(
-        $pp{$K}->{relatedness_summary} ne 'Pass' ||
-        $pp{$K}->{relatedness_report} ne 'N/A' 
+        $pp{$K}->{relatedness_summary} ne $summary ||
+        $pp{$K}->{relatedness_report} ne $short
     ) {
         &ARGH::mu("update dragen_qc_metrics set relatedness_summary = '$summary', relatedness_report = '$short' where pseudo_prepid = $K");
     }
