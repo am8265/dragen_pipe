@@ -11,6 +11,10 @@ from datetime import datetime
 from automated_relatedness import get_connection, get_samples_append, update_ped_status, run_shellcmd
 from create_ped_luigi_dragen import CreatePed, SQLTarget
 
+################## this entire things seems pointless. running ethnicity as part of pipeline and just pre-check the combined ped for whether something 
+################## has been integrated and concatenate any/all missing. the questions are really more about consistency checks, counts for categories,
+################## ignoring things for which the value doesn't change e.g. some form of md5sum?!?
+
 ###### UpdateDBRelatedness & RunKing use silly brute-force (not accomodating sample list...) touch files while AppendMasterPed uses the append_ped field
 ###### question is how do we go about running this stuff - all of it, by batch, all newer samples?!?
 ###### perhaps just load the .ped data?!?
