@@ -4,6 +4,8 @@ use lib '/home/dh2880/.bin';
 use ARGH;
 use POSIX qw(strftime);
 
+###### NEED TO OPTIMISE AND THOROUGH TESTSING!?!? BUT RIGHT NOW IMMEDIATE POST-SEQ QC INCL CONTAMINATION AND EXPERIMENTID ARE THE PRIORISTIES
+
 ###### do we use ATAV for forced calls/ped generation?!?
 ###### should we use a higher threshold for cryptic_relatedness?!?
 
@@ -22,14 +24,16 @@ use POSIX qw(strftime);
 #####   [0.0884, 0.177]     2nd-degree, and 
 #####   [0.0442, 0.0884]    3rd-degree relationships
 
+###### wtf are dups doing in there?!?
+# grep 'n/a ' /nfs/fastq_temp/dsth/relatedness/combined.ped -v > x && mv x /nfs/fastq_temp/dsth/relatedness/combined.ped
+# sort -u /nfs/fastq_temp/dsth/relatedness/combined.ped > x && mv x /nfs/fastq_temp/dsth/relatedness/combined.ped
+
 my$cryptic_low=0.1;
 my$cryptic_med=0.15;
 my$dups_low=0.3; # bit low?!?
 
-my$run_full=1;
-
-###### wtf are dups doing in there?!?
-# sort -u /nfs/fastq_temp/dsth/relatedness/combined.ped > x && mv x /nfs/fastq_temp/dsth/relatedness/combined.ped
+my$run_full=0;
+my$pk=1; # my$pk=1;
 
 sub parse_w {
     ###### we don't actually bother putting in phi (known kinship)
@@ -77,7 +81,7 @@ sub rel_prob {
 ######## for now we use create_ped=1 but once backlog is dealt with merge ped&predict and key off of genotyping_rate=null
 ######## then just pull all with genotyping_rate>0.0 except customcapture and run here
 # my@list=&ARGH::mq("select * from dragen_sample_metadata d "
-my@list=&ARGH::mq("select relatedness_summary,relatedness_report,FamilyRelationProband,RepConFamMem,SelfDeclGender,FamilyID,d.sample_type,upper(d.sample_type) lazy,d.pseudo_prepid,experiment_id,st.sample_id,BroadPhenotype,is_external,pt.chgvid,d.sample_name,is_merged,pt.exomekit from dragen_sample_metadata d "
+my@list=&ARGH::mq("select PercentContamination,relatedness_summary,relatedness_report,FamilyRelationProband,RepConFamMem,SelfDeclGender,FamilyID,d.sample_type,upper(d.sample_type) lazy,d.pseudo_prepid,experiment_id,st.sample_id,BroadPhenotype,is_external,pt.chgvid,d.sample_name,is_merged,pt.exomekit from dragen_sample_metadata d "
   ." join dragen_ped_status p on d.pseudo_prepid=p.pseudo_prepid "
   ." join dragen_qc_metrics q on d.pseudo_prepid=q.pseudo_prepid "
   ." join prepT pt on d.pseudo_prepid=pt.p_prepid "
@@ -144,13 +148,13 @@ for my$eligible (@list) {
 }
 
 # print Dumper \@list;
+} #### run_full
+if($pk){
 my$cmd=q{/nfs/goldstein/software/PLINK/PLINK_1.90_3.38/plink --make-bed --file  /nfs/fastq_temp/dsth/relatedness/combined --out tmp};
 system($cmd) && die;
 $cmd=q{/nfs/goldstein/software/king_relatedness/king -b tmp.bed --kinship --related --degree 3 --prefix output};
 system($cmd) && die;
-
-} #### run_full
-
+}
 # clearly remove any previous files if byte size is same as combined and exit completely...?!?
 # clearly remove any previous files if byte size is same as combined and exit completely...?!?
 # clearly remove any previous files if byte size is same as combined and exit completely...?!?
@@ -287,10 +291,17 @@ while(my$l=<$wfh>){
     # }elsif(&check_pair(\%pp,$pp1,$pp2,'Proband')) {
 
     ######## this 'might' be excessive but it doesn't make sense not to apply half-sibling/sibling range?!?
-    }elsif(&check_pair(\%pp,$pp1,$pp2,'Parent','Sibling')) {
+    }elsif(
+        &check_pair(\%pp,$pp1,$pp2,'Parent','Sibling') ||
+        #### this should 'really' be Aunt-Uncle 0.088388348 0.176776695
+        &check_pair(\%pp,$pp1,$pp2,'Sibling','Child')
+    ) {
 
         &rel_prob(\%PROBS,\%pp,$pp1,$pp2,$s1,$s2,$kin,__LINE__) if($kin < 0.088388348 || $kin > 0.353553391 );       next;
         # &rel_prob(\%PROBS,\%pp,$pp1,$pp2,$s1,$s2,$kin,__LINE__) if($kin < 0.088388348 || $kin > 0.176776695 );       next;
+    }elsif(&check_pair(\%pp,$pp1,$pp2,'Parent','Sibling')) {
+
+        &rel_prob(\%PROBS,\%pp,$pp1,$pp2,$s1,$s2,$kin,__LINE__) if($kin < 0.088388348 || $kin > 0.353553391 );       next;
 
     ######## again 'might' be excessive but it doesn't make sense not to apply sibling
     }elsif(&check_pair(\%pp,$pp1,$pp2,'Sibling')) {
@@ -303,6 +314,12 @@ while(my$l=<$wfh>){
               &check_pair(\%pp,$pp1,$pp2,'Sibling','Niece-Nephew')    || &check_pair(\%pp,$pp1,$pp2,'Sibling','Great aunt-uncle')         ||
               &check_pair(\%pp,$pp1,$pp2,'Parent','Great aunt-uncle') || &check_pair(\%pp,$pp1,$pp2,'Half sibling','Parent')              ||
               &check_pair(\%pp,$pp1,$pp2,'Half sibling','Grandparent') || 
+              ### whatever?!? some we should 'perhaps' check?!?
+              &check_pair(\%pp,$pp1,$pp2,'Sibling','First cousin') || 
+              &check_pair(\%pp,$pp1,$pp2,'Grandparent','Great aunt-uncle') || 
+              &check_pair(\%pp,$pp1,$pp2,'Aunt-Uncle','Great aunt-uncle') || 
+              &check_pair(\%pp,$pp1,$pp2,'Great niece-nephew','Grandchild') || 
+              &check_pair(\%pp,$pp1,$pp2,'Child','First cousin') ||  
               &check_pair(\%pp,$pp1,$pp2,'N/A') ##### leave this for sample_id matches above?!?
     ) { 
         next; 
@@ -417,7 +434,8 @@ for my$K (keys%PROBS){
         &ARGH::mu("update dragen_qc_metrics set relatedness_summary = '$summary', relatedness_report = '$short' where pseudo_prepid = $K");
     }
 
-    print $ffh qq{$K\t$K2\t$silly\t$summary\t$short\t$full\n};
+
+    print $ffh qq{$K\t$K2\t$silly\t}.$pp{$K}{PercentContamination}.qq{\t$summary\t$short\t$full\n};
 
     print Dumper $pp{$K};
     # print Dumper \%warnings;
@@ -436,4 +454,5 @@ for my$K (@OKAY){
     }
 }
 
+print qq{bye\n};
 # print Dumper \%PROBS;
