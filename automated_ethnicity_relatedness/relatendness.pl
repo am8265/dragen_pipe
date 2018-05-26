@@ -28,12 +28,18 @@ use POSIX qw(strftime);
 # grep 'n/a ' /nfs/fastq_temp/dsth/relatedness/combined.ped -v > x && mv x /nfs/fastq_temp/dsth/relatedness/combined.ped
 # sort -u /nfs/fastq_temp/dsth/relatedness/combined.ped > x && mv x /nfs/fastq_temp/dsth/relatedness/combined.ped
 
-my$cryptic_low=0.1;
-my$cryptic_med=0.15;
+################## EITHER USE 0.125 - i.e. 3rd-gen?!?, 1.5 is almost utterly arbitrary - BUT - REALLY DOES CLEAN IT UP?!?
+################## EITHER USE 0.125 - i.e. 3rd-gen?!?, 1.5 is almost utterly arbitrary - BUT - REALLY DOES CLEAN IT UP?!?
+################## EITHER USE 0.125 - i.e. 3rd-gen?!?, 1.5 is almost utterly arbitrary - BUT - REALLY DOES CLEAN IT UP?!?
+################## try using one of the other ped files - or both?!?
+my$cryptic_low=0.125;
+my$cryptic_med=0.125;
 my$dups_low=0.3; # bit low?!?
 
+# sort -u /nfs/fastq_temp/dsth/relatedness/combined.ped | grep 'n/a ' > x && mv x
+# /nfs/fastq_temp/dsth/relatedness/combined.ped
 my$run_full=0;
-my$pk=1; # my$pk=1;
+my$pk=0; # my$pk=1;
 
 sub parse_w {
     ###### we don't actually bother putting in phi (known kinship)
@@ -294,7 +300,9 @@ while(my$l=<$wfh>){
     }elsif(
         &check_pair(\%pp,$pp1,$pp2,'Parent','Sibling') ||
         #### this should 'really' be Aunt-Uncle 0.088388348 0.176776695
-        &check_pair(\%pp,$pp1,$pp2,'Sibling','Child')
+        &check_pair(\%pp,$pp1,$pp2,'Sibling','Child') ||
+        #### this should Grandparent
+        &check_pair(\%pp,$pp1,$pp2,'Parent','Child')
     ) {
 
         &rel_prob(\%PROBS,\%pp,$pp1,$pp2,$s1,$s2,$kin,__LINE__) if($kin < 0.088388348 || $kin > 0.353553391 );       next;
@@ -317,6 +325,13 @@ while(my$l=<$wfh>){
               ### whatever?!? some we should 'perhaps' check?!?
               &check_pair(\%pp,$pp1,$pp2,'Sibling','First cousin') || 
               &check_pair(\%pp,$pp1,$pp2,'Grandparent','Great aunt-uncle') || 
+              &check_pair(\%pp,$pp1,$pp2,'Great grandparent','Great aunt-uncle') || 
+              &check_pair(\%pp,$pp1,$pp2,'Great grandparent','Grandparent') || 
+              &check_pair(\%pp,$pp1,$pp2,'Great grandparent','Aunt-Uncle') || 
+              &check_pair(\%pp,$pp1,$pp2,'Great grandparent','Parent') || 
+              &check_pair(\%pp,$pp1,$pp2,'Great grandparent','Sibling') || 
+              &check_pair(\%pp,$pp1,$pp2,'Grandparent','Sibling') || 
+              &check_pair(\%pp,$pp1,$pp2,'Aunt-Uncle','Sibling') || 
               &check_pair(\%pp,$pp1,$pp2,'Aunt-Uncle','Great aunt-uncle') || 
               &check_pair(\%pp,$pp1,$pp2,'Great niece-nephew','Grandchild') || 
               &check_pair(\%pp,$pp1,$pp2,'Child','First cousin') ||  
@@ -325,7 +340,10 @@ while(my$l=<$wfh>){
         next; 
 
     ####### don't allow for Proband-Proband-other or Proband-Proband as they SHOULD have same sample_id/chgvid!?!
-    }elsif( &check_pair(\%pp,$pp1,$pp2,'Monozygotic twin','Proband') ) {
+    }elsif( 
+        &check_pair(\%pp,$pp1,$pp2,'Monozygotic twin','Proband') || 
+        &check_pair(\%pp,$pp1,$pp2,'Proband-other tissue','Proband')
+    ) {
 
         &rel_prob(\%PROBS,\%pp,$pp1,$pp2,$s1,$s2,$kin,__LINE__) if($kin < 0.45 || $kin > 0.5 );                      next;
 
@@ -333,8 +351,9 @@ while(my$l=<$wfh>){
 
         print Dumper $pp{$pp1};
         print Dumper $pp{$pp2};
-        die; ##### all rest require a proband - so this is wasteful!?!?!? should have been handled by silly bit above?!?
-
+        die; 
+        
+    ##### all rest require a proband - so this is wasteful!?!?!? should have been handled by silly bit above?!?
     }elsif( &check_for_either(\%pp,$pp1,$pp2,['First cousin once removed','First cousin twice removed','Fourth cousin','Great-great grandchild',
               'Great-great grandparent','Half first cousin','Second cousin','Second cousin once removed','Second cousin twice removed',
               'Spouse','Step child','Step parent','Step sibiling','Third cousin','Third cousin once removed'])
@@ -352,7 +371,7 @@ while(my$l=<$wfh>){
 
         &rel_prob(\%PROBS,\%pp,$pp1,$pp2,$s1,$s2,$kin,__LINE__) if($kin < 0.088388348 || $kin > 0.176776695 );       next;
 
-    }elsif( &check_for_either(\%pp,$pp1,$pp2,['Child','Dizygotic twin','Parent','Sibling-other tissue','Sibling']) ) {
+    }elsif( &check_for_either(\%pp,$pp1,$pp2,['Child','Consanguineous parent','Dizygotic twin','Parent','Sibling-other tissue','Sibling']) ) {
 
         &rel_prob(\%PROBS,\%pp,$pp1,$pp2,$s1,$s2,$kin,__LINE__) if( $kin < 0.176776695 || $kin > 0.353553391 );      next;
 
