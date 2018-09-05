@@ -111,3 +111,100 @@ Step 2: Use helper_functions.py predict_new_samples function and the trained mod
     using the trained model, and the encoding vector above, get the prediction probability for each ethnicity class and insert it into dragen_qc_metrics.
 
 NOTE: The maximum number of samples for which it can predict ethnicity at a time is 10k. (hard-coded)
+
+
+###############################
+
+TO RUN OUTSIDE OF PIPELINE:
+
+Requirements - Need to install the following:
+
+For create ped:
+pysam
+/nfs/goldstein/software/python2.7.7/lib/python2.7/site-packages/pysam
+pyfaidx
+/nfs/goldstein/software/python2.7.7/lib/python2.7/site-packages/pyfaidx
+python2.7.7
+/nfs/goldstein/software/python2.7.7/bin/python2.7
+file: /scratch/HS_Build37/BWA_INDEX_hs37d5/hs37d5.fa
+marker file: /nfs/goldstein/software/dragen_pipe/master/automated_ethnicity_relatedness/data/filtered.37MB.master.training.map
+
+For running the predict_new_samples code:
+numpy
+/nfs/goldstein/software/python2.7.7/lib/python2.7/site-packages/numpy
+allel (for hyperparameter tuning, not required here, can comment it out if you dont want to install allel)
+/nfs/goldstein/software/python2.7.7/lib/python2.7/site-packages/allel
+sklearn
+/nfs/goldstein/software/python2.7.7/lib/python2.7/site-packages/sklearn
+
+
+
+Create_ped_command: 
+
+usage: Create a ped file from a vcf file and a bam file [-h] --sample_id
+                                                        SAMPLE_ID
+                                                        [--family_id FAMILY_ID]
+                                                        --vcf VCF --markers
+                                                        MARKERS [--sex {M,F}]
+                                                        [--pheno {1,2}] --bam
+                                                        BAM --seqtype SEQ
+                                                        --pseudo_prepid
+                                                        PSEUDO_PREPID --outdir
+                                                        OUT --stem STEM
+                                                        [--ref REF_FASTA]
+                                                        [--logfile LOG_FILE]
+
+Takes as input : 1. A valid vcf file 2. Marker loci Output : A ped file
+containing genotype information at the appropriate marker loci
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --sample_id SAMPLE_ID, -sample_id SAMPLE_ID
+                        CHGVID (default: None)
+  --family_id FAMILY_ID, -family_id FAMILY_ID
+                        The family id (if not given then we use the sample_id
+                        as the family id) (default: dummy)
+  --vcf VCF, -vcf VCF   The input vcf (default: None)
+  --markers MARKERS, -markers MARKERS
+                        The input genetic loci, the file should adhere to the
+                        plink map format : http://pngu.mgh.harvard.edu/~purcel
+                        l/plink/data.shtml#map In short there should be
+                        exactly 4 columns : 1.Chromosome 2.Snp identifier
+                        3.Genetic distance 4.Base-pair position (bp units) For
+                        this program it is enough if you have the 1st and 4th
+                        column filed in correctly, just fill in the other 2
+                        columns with dummy data if you do not have that
+                        information (default: None)
+  --sex {M,F}, -sex {M,F}
+                        M/F (default: M)
+  --pheno {1,2}, -pheno {1,2}
+                        1/2 (default: 1)
+  --bam BAM, -bam BAM   Path to the bam file (default: None)
+  --seqtype SEQ, -seq SEQ
+                        The type of sequencing, i.e. Exome or Genome (default:
+                        None)
+  --pseudo_prepid PSEUDO_PREPID, -pseudo_prepid PSEUDO_PREPID
+                        The prepid for your sample (default: None)
+  --outdir OUT, -out OUT
+                        Output dir, can give full path, output directories
+                        will be created if it doesnt exist (default: None)
+  --stem STEM, -stem STEM
+                        The stem for the output file, a .ped and .map will be
+                        appended to this for the output files (default: None)
+  --ref REF_FASTA, -ref REF_FASTA
+                        The reference genome (default:
+                        /scratch/HS_Build37/BWA_INDEX_hs37d5/hs37d5.fa)
+  --logfile LOG_FILE, -log LOG_FILE
+                        The full path to the logfile (default: log.txt)
+
+The ones with default = NULL are the mandatory arguments
+                        
+Example:
+Create ped                      
+python2.7 create_ped_map.py --sample_id wcarpAUT001722Ao1 --family_id AUT0017 --vcf /nfs/seqscratch_ssd/ALIGNMENT/BUILD37/DRAGEN/EXOME/wcarpAUT001722Ao1.98517/wcarpAUT001722Ao1.98517.analysisReady.vcf.gz --markers /nfs/goldstein/software/dragen_pipe/master/automated_ethnicity_relatedness/data/filtered.37MB.master.training.map --sex M --bam /nfs/seqscratch_ssd/ALIGNMENT/BUILD37/DRAGEN/EXOME/wcarpAUT001722Ao1.98517/wcarpAUT001722Ao1.98517.realn.recal.bam --seqtype Exome --pseudo_prepid 98517 --outdir /nfs/seqscratch10/mml2204/TEST_eth --stem out --ref /scratch/HS_Build37/BWA_INDEX_hs37d5/hs37d5.fa
+
+
+Model ancestry:
+python2.7 "model_ancestry.py" --testing-ped /nfs/seqscratch10/mml2204/TEST_eth/out.ped --mapfile /nfs/goldstein/software/dragen_pipe/master/automated_ethnicity_relatedness/data/filtered.37MB.master.training.map  --reference /scratch/HS_Build37/BWA_INDEX_hs37d5/hs37d5.fa --output-prob-file /nfs/seqscratch10/mml2204/TEST_eth/out_prob  --input-model /nfs/goldstein/software/dragen_pipe/master/automated_ethnicity_relatedness/data/37MB_markers_model.obj
+
+
