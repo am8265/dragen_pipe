@@ -208,3 +208,9 @@ Model ancestry:
 python2.7 "model_ancestry.py" --testing-ped /nfs/seqscratch10/mml2204/TEST_eth/out.ped --mapfile /nfs/goldstein/software/dragen_pipe/master/automated_ethnicity_relatedness/data/filtered.37MB.master.training.map  --reference /scratch/HS_Build37/BWA_INDEX_hs37d5/hs37d5.fa --output-prob-file /nfs/seqscratch10/mml2204/TEST_eth/out_prob  --input-model /nfs/goldstein/software/dragen_pipe/master/automated_ethnicity_relatedness/data/37MB_markers_model.obj
 
 
+The output file looks like:
+mml2204@atav04:/nfs/seqscratch10/mml2204/TEST_eth$ cat out_prob
+0.999997545134  2.28522716274e-06       1.53465149496e-07       1.45620408425e-10       1.6028177114e-08        3.03295301304e-15       0.490186915888
+
+The values in order are:
+caucasian,middleeast,hispanic,eastasian,southasian,african,genotyping_rate
