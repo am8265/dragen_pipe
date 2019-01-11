@@ -1,4 +1,12 @@
 #!/nfs/goldstein/software/python2.7.7/bin/python
+
+######### must sync sample table before AND after!?!
+######### for WalDB.sample deprecation ALWAYS use fin/fai=2 as min to stop unique constraint on 1!?!?
+######### absolutely must ensure prep_id is always set to -prep_id!?!?
+##### load vs with replace vs with ignore?!!?!? : IF HAVING TO ACTUALLY RELOAD MUST BOTH DEPRECATE/WIPE WalDB.sample AND sequence.dragen_pipeline_step >31 && != 51
+##### load vs with replace vs with ignore?!!?!? : IF HAVING TO ACTUALLY RELOAD MUST BOTH DEPRECATE/WIPE WalDB.sample AND sequence.dragen_pipeline_step >31 && != 51
+##### load vs with replace vs with ignore?!!?!? : IF HAVING TO ACTUALLY RELOAD MUST BOTH DEPRECATE/WIPE WalDB.sample AND sequence.dragen_pipeline_step >31 && != 51
+
 """
 Run pipeline to:
     1. Copy the VCF and its index to scratch space
@@ -596,6 +604,7 @@ class ImportSample(luigi.Task):
                 logger.debug("The following still need to be loaded: {}".format(
                     get_task_list_to_run(seq_cur, self.prep_id)))
             seq_cur.execute(GET_PIPELINE_FINISHED_ID)
+            # print("wtf is going on here?!? : '{}'".format(GET_PIPELINE_FINISHED_ID))
             self.pipeline_step_id = seq_cur.fetchone()[0]
         finally:
             if db.open:

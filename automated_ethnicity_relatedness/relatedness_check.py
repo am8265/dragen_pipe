@@ -37,7 +37,7 @@ class UpdateDBRelatedness(SGEJobTask):
 
     batch_size = luigi.IntParameter()
     ######## the f'ing map?!
-    masterped       = luigi.Parameter(default="/nfs/fastq_temp/dsth/relatedness/combined.ped")
+    masterped       = luigi.Parameter(default="/nfs/fastq_temp2/dsth/relatedness/combined.ped")
     output_directory= luigi.Parameter()
     markers         = luigi.Parameter(default="{0}/filtered.37MB.master.training.map".format(os.getcwd()))
     genotyping_dir  = luigi.Parameter()

@@ -32,8 +32,18 @@ use POSIX qw(strftime);
 ################## EITHER USE 0.125 - i.e. 3rd-gen?!?, 1.5 is almost utterly arbitrary - BUT - REALLY DOES CLEAN IT UP?!?
 ################## EITHER USE 0.125 - i.e. 3rd-gen?!?, 1.5 is almost utterly arbitrary - BUT - REALLY DOES CLEAN IT UP?!?
 ################## try using one of the other ped files - or both?!?
+################## try using one of the other ped files - or both?!?
+################## try using one of the other ped files - or both?!?
+################## NEED GENUINE 'CRYPTIC' RELATIONSHIPS - i.e. LOOK AT VALUES FOR GREAT-GRANDPARENTS AND GO LOWER FOR THRESHOLD?!?
+#
+#
+################## do we try running 10K with each of the other ped files?!?!?
+################## do we try running 10K with each of the other ped files?!?!?
+################## do we try running 10K with each of the other ped files?!?!?
+#
+#
 my$cryptic_low=0.125;
-my$cryptic_med=0.125;
+my$cryptic_med=0.15;
 my$dups_low=0.3; # bit low?!?
 
 # sort -u /nfs/fastq_temp/dsth/relatedness/combined.ped | grep 'n/a ' > x && mv x

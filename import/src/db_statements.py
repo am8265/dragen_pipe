@@ -75,7 +75,7 @@ WHERE step_name = "Imported Chromosome {chromosome} {data_type}"
 GET_PIPELINE_FINISHED_ID = """
 SELECT id
 FROM dragen_pipeline_step_desc
-WHERE step_name = "Sample Finished"
+WHERE step_name = "In DragenDB"
 """
 GET_STEP_STATUS = """
 SELECT step_status

@@ -46,6 +46,9 @@ class BAMCheckException(Exception):
 class RsyncException(Exception):
     pass
 
+class QCError(Exception):
+    pass
+
 def owner(fn):
     """Return the user name of the owner of the specified file
     """
@@ -155,6 +158,96 @@ class GATKFPipelineTask(GATKPipelineTask):
     # don't delete temp dirs ever for any Task other than ArchiveSample,
     # as the directories are shared across Tasks
 
+    def arseholes(self):
+
+        if self.pipeline_step_id > 12: # if self.pipeline_step_id >= 23:
+
+            check='/nfs/goldstein/software/tabix-0.2.6/tabix {} 22 | head -10 | wc -l'.format(self.gvcf)
+
+            chr22check = subprocess.Popen(check,shell=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+            count = chr22check.stdout.readline().rstrip();
+
+            if count == '10': # f'ing lazy
+            # if chr22check.stdout.readline().rstrip() == '10': # f'ing lazy
+                print ('g.vcf seems fine')
+            else:
+                db = get_connection("seqdb")
+                cur = db.cursor()
+                wtf = "update prepT set status = 'gVCF Truncated', status_time = UNIX_TIMESTAMP(CURRENT_TIMESTAMP()) where experiment_id = {}".format(self.pseudo_prepid)
+                cur.execute(wtf)
+                wtf = "update dragen_sample_metadata set is_merged = 90124 where experiment_id = {}".format(self.pseudo_prepid)
+                cur.execute(wtf)
+                db.commit()
+                os._exit(1) 
+
+        if self.pipeline_step_id > 23:
+
+            check='/nfs/goldstein/software/tabix-0.2.6/tabix {}/{}.{}.analysisReady.vcf.gz 22 | head -10 | wc -l'.format(
+              self.scratch_dir,self.sample_name,self.pseudo_prepid
+            )
+            chr22check = subprocess.Popen(check,shell=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+            if chr22check.stdout.readline().rstrip()=="10":
+                print("analysis vcf seems fine");
+            else:
+                db = get_connection("seqdb")
+                cur = db.cursor()
+                wtf = "update prepT set status = 'VCF Truncated', status_time = UNIX_TIMESTAMP(CURRENT_TIMESTAMP()) where experiment_id = {}".format(self.pseudo_prepid)
+                cur.execute(wtf)
+                wtf = "update dragen_sample_metadata set is_merged = 90234 where experiment_id = {}".format(self.pseudo_prepid)
+                cur.execute(wtf)
+                db.commit()
+                os._exit(1) 
+
+        if self.pipeline_step_id < 14:
+            return
+
+        metrics = os.path.join(self.scratch_dir, self.name_prep + ".cvg.metrics.txt")
+        mean=-0.0
+
+        with open(metrics,"r") as f:
+            for l in f:
+                s=l.split(' ') 
+                if s[0] == 'mean':
+                    meany=float(s[1])
+                    if meany==float(s[2]):
+                        mean=meany
+
+                    break
+                else:
+                    continue 
+        if mean < 23.0:
+
+            db = get_connection("seqdb")
+            cur = db.cursor()
+
+            # try:
+            wtf = "update dragen_sample_metadata set is_merged = -2 where experiment_id = {}".format(self.pseudo_prepid)
+            cur.execute(wtf)
+            wtf = "update prepT set is_released = 0, status = 'Failed/Low-Qual Sample; Should never have been released ({}x) - will require deprecation', status_time = UNIX_TIMESTAMP(CURRENT_TIMESTAMP()) where experiment_id = {}".format(mean,self.pseudo_prepid)
+            cur.execute(wtf)
+            wtf = "update Experiment set is_released = 'release_rejected' where id = {}".format(self.pseudo_prepid)
+            try:
+                cur.execute(wtf)
+            except:
+                print("this is prolly cos there's nothing to change")
+
+            db.commit()
+
+            os._exit(1)
+
+            # raise Exception("\n\nthis sample shouldn't be in the pipeline at all - mean cov = {}\n\n".format(mean))
+            # exit(1)
+
+            # cur.execute("update prepT set status = '{}', status_time = CURRENT_TIMESTAMP() where p_prepid = {}".format(status,self.pseudo_prepid))
+            # except MySQLdb.Error, e:
+                # raise Exception("ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1]))
+            # finally:
+                # if db.open:
+                    # db.close()
+
+        else:
+            print("YAY")
+
     def __init__(self, *args, **kwargs):
         self.config_parameters = {}
         for cls in (programs, locations, pipeline_files, gatk_resources, qc_metrics):
@@ -181,8 +274,6 @@ class GATKFPipelineTask(GATKPipelineTask):
         self.config_parameters.update(kwargs)
         return s.format(**self.config_parameters)
 
-##################################################################
-
     def archive_helper(self):
 
         self.data_to_copy = [ "{pipeline_tarball}", "{recal_bam}", "{recal_bam_index}", "{annotated_vcf_gz}", 
@@ -197,27 +288,15 @@ class GATKFPipelineTask(GATKPipelineTask):
         if self.sample_type == "GENOME_AS_FAKE_EXOME":
             self.data_to_copy.extend(["{scratch_bam}", "{scratch_bam}.bai"])
 
-##################################################################
-
-    ##### really ought to put this higher in the hierachy...!?! make it take arg for whether to to db status too?!?
     def update_sample_status(self, status):
-    # def update_sample_status(self, status, prept=False):
 
-        # status = 'Pipeline ({})'.format(status)
-        # from warnings import filterwarnings
-        # filterwarnings('ignore', category = db.Warning)
-        # if prept==True:
         status = 'Pipeline ('+status+')'
         db = get_connection("seqdb")
         try:
             cur = db.cursor()
             try:
-                print("updating status to {} for {}".format(status,self.pseudo_prepid))
-                #### should check row count...?!?
                 wtf = "update prepT set status = '{}', status_time = UNIX_TIMESTAMP(CURRENT_TIMESTAMP()) where p_prepid = {}".format(status,self.pseudo_prepid)
-                print(wtf)
                 cur.execute(wtf)
-                # cur.execute("update prepT set status = '{}', status_time = CURRENT_TIMESTAMP() where p_prepid = {}".format(status,self.pseudo_prepid))
             except MySQLdb.Error, e:
                 raise Exception("ERROR %d IN CONNECTION: %s" % (e.args[0], e.args[1]))
             db.commit()
@@ -226,9 +305,7 @@ class GATKFPipelineTask(GATKPipelineTask):
                 db.close()
 
     def log_jid(self):
-        # jf=re.sub("[ ]", "_", self.__class__.__name__))
         jf="{}/.worker_{}.txt".format( self.scratch_dir, self.__class__.__name__) 
-        print("using {}".format(jf));
         msg = "run_locally=\t{}\njid=\t{}\nuser=\t{}@{}\npid=\t{}\npsid=\t{}\ndt=\t{}".format( 
           self.run_locally, (os.getenv("JOB_ID") if ("JOB_ID" in os.environ) else 'NULL'), 
           getpass.getuser(), socket.gethostname(), os.getpid(), self.pipeline_step_id, 
@@ -236,10 +313,6 @@ class GATKFPipelineTask(GATKPipelineTask):
         )
         with open(jf,"w") as f:
             f.write(msg)
-
-##### put in jid for individual job...?!?
-# seqscratch_drive, sample_type, sample_name = row
-##################################################################
 
     def set_dsm_status(self, status=0):
 
@@ -259,8 +332,6 @@ class GATKFPipelineTask(GATKPipelineTask):
             if db.open:
                 db.close()
                 
-##################################################################
-
 class JavaPipelineTask(GATKFPipelineTask):
     """Handle java's potentially large memory requirements by for example
     specifying that if one slot is requested, we get 24 GB memory/slot, or if 4
@@ -283,80 +354,10 @@ class FileExists(luigi.ExternalTask):
     def output(self):
         return luigi.LocalTarget(self.fn)
 
-### change this to go via dragenpipelinetask...?!?
-#class ValidateBAM(GATKFPipelineTask):
-## class ValidateBAM(PipelineTask):
-## class ValidateBAM(SGEJobTask):
-#
-#    def __init__(self, *args, **kwargs):
-#        super(ValidateBAM, self).__init__(*args, **kwargs)
-#        self.run_locally=True
-#
-#    # forces parameter to be supplied by
-#    # return ValidateBAM(bam=self.scratch_bam, check_counts=self.sample_type != "CUSTOM_CAPTURE") #, FileExists(self.dragen_log)
-#    bam = luigi.Parameter(description="the expected path to the BAM to check")
-#
-#    check_counts = luigi.BoolParameter( default=False, description="check read counts by chromosome" )
-#    dont_remove_tmp_dir = False # remove the temporary directory iff this task succeeds
-#    dont_remove_tmp_dir_if_failure = True # don't remove if it fails
-#
-#    def pre_shell_commands(self):
-#    # def work(self):
-#
-#        # bam=self.scratch_bam
-#        # from pprint import pprint
-#        # pprint(vars(self))
-#
-#        self.log_jid()
-#        self.set_dsm_status(0) 
-#
-#        # jf="/{}/.worker_{}.txt".format( '/'.join(self.bam.split('/')[1:-1]), self.__class__.__name__) 
-#        # print("using {}".format(jf));
-#        # msg = "jid=\t{}\nuser=\t{}@{}\npid=\t{}".format( (os.getenv("JOB_ID") if ("JOB_ID" in os.environ) else 'NULL'), getpass.getuser(), socket.gethostname(), os.getpid() )
-#        # with open(jf,"w") as f:
-#        #    f.write(msg)
-#
-#        #### okay, enough is enough...
-#        if os.path.exists(self.scratch_bam):
-#            self.set_dsm_status(3) 
-#            with open(os.devnull, "w") as devnull:
-#                with self.output().open("w"): pass
-#        else:
-#            self.set_dsm_status(2) 
-#            # dsth : oct, 11
-#            # so this is a bit pointless as is - i.e. it's just decompressing without checking so all 
-#            # it really does it check the for EOF block - which samtools will do even when only checking 
-#            # the header - but it makes quick tests run slowly without truncating the bam so for now
-#            # it whould either use -H or MT alone...
-#            # MT check doesn't work properly, just check for 'EOF marker is # absent' message
-#            #p = subprocess.Popen(["samtools", "view", "-H", self.bam],
-#            #                     stdout=devnull, stderr=subprocess.PIPE)
-#
-######## this is causing so many issues and nothing should get here anyway - centralised messages as dispatchng jobs but also wasn't updating status!?!?
-#            #errors = check_bam(self.bam, self.check_counts)
-#            #if errors:
-#            #    if "DEBUG_INTERVALS" not in os.environ:
-#            #        with open(self.bam + ".corrupted", "w"): pass
-#            #        raise BAMCheckException("\n".join(errors))
-#            #    else:
-#            #        with self.output().open("w"): pass
-#            #else:
-#            #    with self.output().open("w"): pass
-#
-##### this is truelly unhelpful and doesn't do shite for status or is_merged!?!
-#    # def requires(self):
-#        # return FileExists(self.scratch_bam)
-#        # return FileExists(self.bam)
-#
-#    # def output(self):
-#        # return luigi.LocalTarget(self.scratch_bam+ ".validated")
-#        # return luigi.LocalTarget(self.bam + ".validated")
-
 
 class RealignerTargetCreator(JavaPipelineTask):
     priority = 1 # run before other competing steps with no requirement
-    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 2
-    # n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
+    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
     max_mem = 24
 
     def pre_shell_commands(self):
@@ -371,12 +372,14 @@ class RealignerTargetCreator(JavaPipelineTask):
             "-known {dbSNP} -nt {n_cpu} {intervals_param} {silly_arg}")]
 
     def requires(self):
-        return self.clone(EntryChecks)
         # return ValidateBAM(bam=self.scratch_bam, check_counts=self.sample_type != "CUSTOM_CAPTURE")
+        return self.clone(EntryChecks)
+
+    # def output(self):
+        # luigi.LocalTarget(self.interval_list) 
 
 class IndelRealigner(JavaPipelineTask):
-    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 2
-    # n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
+    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
     max_mem = 24
     def pre_shell_commands(self):
 
@@ -392,9 +395,11 @@ class IndelRealigner(JavaPipelineTask):
     def requires(self):
         return self.clone(RealignerTargetCreator)
 
+    # def output(self):
+        # luigi.LocalTarget(self.realn_bam) 
+
 class BaseRecalibrator(JavaPipelineTask):
-    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 2
-    # n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
+    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
     max_mem = 24
     def pre_shell_commands(self):
 
@@ -412,8 +417,7 @@ class BaseRecalibrator(JavaPipelineTask):
         return self.clone(IndelRealigner)
 
 class PrintReads(JavaPipelineTask):
-    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 2
-    # n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
+    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
     max_mem = 24
     def pre_shell_commands(self):
 
@@ -432,20 +436,23 @@ class PrintReads(JavaPipelineTask):
     def requires(self):
         return self.clone(BaseRecalibrator)
 
+    # def output(self):
+        # luigi.LocalTarget(self.recal_bam) 
+    # luigi.LocalTarget(self.realn_bam), luigi.LocalTarget(self.recal_table) ] 
+
 class HaplotypeCaller(JavaPipelineTask):
     priority = 1 # run before other steps needing the recalibrated BAM
-    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 9
-    # n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 6
+    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 8
     max_mem = 24
     def pre_shell_commands(self):
+
+        self.arseholes()
 
         self.update_sample_status('Variant Calling')
         self.log_jid()
         self.set_dsm_status(0) 
 
         self.commands = [self.format_string(
-            # samples exiting with -Xmx24g so specifying initial and max - still running with 6 slots - i.e. max of 4/node of 128MB so...
-            # "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T HaplotypeCaller "
             "{java} -Xms16g -Xmx34g -jar {gatk} -R {ref_genome} -T HaplotypeCaller "
             # dsth: making this sensible to avoid the bounds condition in 3.6...
             # dsth: updated gatk 3.6 to 2016-08-27-g667f78b
@@ -461,7 +468,12 @@ class HaplotypeCaller(JavaPipelineTask):
 
         if os.system("gzip -t {}".format(self.gvcf))!=0:
             self.set_dsm_status(3) 
-            raise VCFCheckException("\n".join(errors))
+            raise VCFCheckException('corrupted block compression file')
+
+        chr22check = subprocess.Popen('/nfs/goldstein/software/tabix-0.2.6/tabix {} 22 | head -10 | wc -l'.format(self.gvcf),shell=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+        if chr22check.stdout.readline().rstrip() != '10': # f'ing lazy
+            self.set_dsm_status(3) 
+            raise VCFCheckException('truncated file')
 
         ##### this clearly isn't very exhaustive...
         errors = check_vcf(self.gvcf)
@@ -478,6 +490,8 @@ class GenotypeGVCFs(GATKFPipelineTask):
     priority = 1
     def pre_shell_commands(self):
 
+        self.arseholes()
+
         self.update_sample_status('Genotyping')
         self.log_jid()
         self.set_dsm_status(0) 
@@ -493,7 +507,11 @@ class GenotypeGVCFs(GATKFPipelineTask):
         errors = check_vcf(self.vcf, self.check_variant_counts)
         if errors:
             self.set_dsm_status(3) 
-            raise VCFCheckException("\n".join(errors))
+            msg="{} QC Errors ({}) : Last Error {}".format(len(errors),self.pipeline_step_id,errors[-1])
+            self.set_dsm_status(10000) 
+            self.update_sample_status(msg)
+            exit(0)
+            raise QCError(msg)
         self.set_dsm_status(2) 
 
     def requires(self):
@@ -502,6 +520,8 @@ class GenotypeGVCFs(GATKFPipelineTask):
 class SelectVariantsSNP(GATKFPipelineTask):
     priority = 1
     def pre_shell_commands(self):
+
+        self.arseholes()
 
         self.log_jid()
         self.set_dsm_status(0) 
@@ -579,6 +599,8 @@ class VariantRecalibratorSNP(JavaPipelineTask):
 class VariantFiltrationSNP(GATKFPipelineTask):
     def pre_shell_commands(self):
 
+        self.arseholes()
+
         self.log_jid()
         self.set_dsm_status(0) 
 
@@ -605,6 +627,8 @@ class VariantRecalibratorINDEL(JavaPipelineTask):
     max_mem = 16
     def pre_shell_commands(self):
 
+        self.arseholes()
+
         self.log_jid()
         self.set_dsm_status(0) 
 
@@ -622,6 +646,8 @@ class VariantRecalibratorINDEL(JavaPipelineTask):
 
 class ApplyRecalibrationSNP(GATKFPipelineTask):
     def pre_shell_commands(self):
+
+        self.arseholes()
 
         self.log_jid()
         self.set_dsm_status(0) 
@@ -648,6 +674,8 @@ class ApplyRecalibrationSNP(GATKFPipelineTask):
 class ApplyRecalibrationINDEL(GATKFPipelineTask):
     def pre_shell_commands(self):
 
+        self.arseholes()
+
         self.log_jid()
         self.set_dsm_status(0) 
 
@@ -673,6 +701,8 @@ class ApplyRecalibrationINDEL(GATKFPipelineTask):
 class VariantFiltrationINDEL(GATKFPipelineTask):
     def pre_shell_commands(self):
 
+        self.arseholes()
+
         self.log_jid()
         self.set_dsm_status(0) 
 
@@ -697,6 +727,8 @@ class VariantFiltrationINDEL(GATKFPipelineTask):
 
 class CombineVariants(GATKFPipelineTask):
     def pre_shell_commands(self):
+
+        self.arseholes()
 
         self.log_jid()
         self.set_dsm_status(0) 
@@ -785,6 +817,8 @@ class CombineVariants(GATKFPipelineTask):
 class RBP(GATKFPipelineTask):
     priority = 1
     def pre_shell_commands(self):
+
+        self.arseholes()
 
         self.log_jid()
         self.set_dsm_status(0) 
@@ -953,7 +987,10 @@ class FixMergedMNPInfo(GATKFPipelineTask):
         return self.clone(RBP)
 
 class AnnotateVCF(GATKFPipelineTask):
+
     def pre_shell_commands(self):
+
+        self.arseholes()
 
         self.update_sample_status('Annotating Variants')
         self.log_jid()
@@ -1029,7 +1066,7 @@ class SubsetVCF(GATKFPipelineTask):
 ####### there's some pretty strange ordering here?!?
 class PreArchiveChecks(GATKFPipelineTask):
 
-    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 4
+    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 2
     prept_start_message = "PreArchiveChecks"
     prept_completed_message = "PreArchiveChecks"
     # prept_start_message = prept_completed_message = __class__.__name__
@@ -1066,13 +1103,31 @@ class PreArchiveChecks(GATKFPipelineTask):
         self.gq_tarball         = ( "{gq_dir}/gq.tar.gz".format(gq_dir=self.gq_dir) )
         self.raw_coverage       = os.path.join( self.scratch_dir, "{}.coverage_bins".format(self.name_prep) )
 
-        if os.path.isdir(self.base_dir): #### self.base_dir aka archive dir
-            self.set_dsm_status(3) 
+        ####### DISABLE_ME
+        # if ( datetime.datetime.now().strftime('%Y-%m-%d')=='2018-06-01' or datetime.datetime.now().strftime('%Y-%m-%d')=='2014-01-02' ) and os.path.isdir(self.base_dir): 
+        print(datetime.datetime.now().strftime('%Y-%m-%d'))
+
+        if ( os.path.isdir(self.base_dir) ): 
+        # if ( datetime.datetime.now().strftime('%Y-%m-%d')=='2018-07-08') and os.path.isdir(self.base_dir): 
+            print("disable this : so bored of the messes - wiping for now but really ought to rsync again at min but really check WTF is going on!?!?")
+            cmd = "echo '{}' >> /home/dh2880/arseholes_wipe_these.txt".format(self.base_dir)
+            os.system(cmd)
+            try:
+                print("attempting to remove '{}'".format(self.base_dir))
+                rmtree(self.base_dir)
+            except:
+                print("unable to clean up archive dir : {} ".format(self.base_dir))
+                self.set_dsm_status(10001) 
+                exit(0)
+
+        if os.path.isdir(self.base_dir): 
+            ### hacky but just don't care anymore!?!
+            print("archive dir exists : {} ".format(self.base_dir))
+            self.set_dsm_status(10000) 
+            exit(0)
             raise ArchiveDirectoryAlreadyExists( "the archive location, '{}', already exists".format(self.base_dir) )
 
-        ##### checks
         frameinfo = getframeinfo(currentframe())
-        print('checking vcf', frameinfo.filename, frameinfo.lineno)
         vcf_errors = check_vcf(self.annotated_vcf_gz, self.check_variant_counts)
         if vcf_errors:
             if "DEBUG_INTERVALS" not in os.environ:
@@ -1080,26 +1135,22 @@ class PreArchiveChecks(GATKFPipelineTask):
                 raise VCFCheckException( "\n".join(vcf_errors) )
 
         frameinfo = getframeinfo(currentframe())
-        print('checking bam', frameinfo.filename, frameinfo.lineno)
+        # try:
         bam_errors = check_bam( self.recal_bam, self.check_counts )
         if bam_errors:
             if "DEBUG_INTERVALS" not in os.environ:
                 self.set_dsm_status(3) 
                 raise BAMCheckException( "\n".join(bam_errors) )
 
-        ##### tar-up the bits
         frameinfo = getframeinfo(currentframe())
 
-        ######## check tar doesn't exist else clean it up!?!?
         if os.path.exists(self.pipeline_tarball):
             # raise ValueError("\n\ntar file already exists '{}'".format(self.pipeline_tarball))
-            print("tar file already exists '{}'".format(self.pipeline_tarball))
             try:
                 os.remove(self.pipeline_tarball)
             except:
                 raise ValueError("\n\nunable to remove old tar file '{}'".format(self.pipeline_tarball))
 
-        print('taring ', frameinfo.filename, frameinfo.lineno, self.pipeline_tarball)
         with tarfile.open(  self.pipeline_tarball, "w:gz"   ) as tar:
             for d in (self.script_dir, self.log_dir):
                 tar.add( d, arcname=os.path.basename(d) )
@@ -1115,7 +1166,6 @@ class PreArchiveChecks(GATKFPipelineTask):
                 tar.add( gq_file, arcname=os.path.basename(gq_file) )
 
         frameinfo = getframeinfo(currentframe())
-        print('bye', frameinfo.filename, frameinfo.lineno)
 
     def run(self):
         try:
@@ -1125,14 +1175,16 @@ class PreArchiveChecks(GATKFPipelineTask):
                 and os.path.isdir(self.base_dir)):
                 # clean up the directory if it was created and an error was
                 # generated
-                rmtree(self.base_dir)
-            raise
+                try:
+                    rmtree(self.base_dir)
+                except:
+                    print("unable to clean up archive dir : {} ".format(self.base_dir))
+                    self.set_dsm_status(10001) 
+                    exit(0)
 
 class ArchiveSample(GATKFPipelineTask):
 
-    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 4
-    # n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 7
-    # prept_start_message = prept_completed_message = self.__class__.__name__
+    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 2
     prept_start_message = "ArchiveSample"
     prept_completed_message = "ArchiveSample" 
 
@@ -1167,38 +1219,21 @@ class ArchiveSample(GATKFPipelineTask):
         self.gq_tarball         = ( "{gq_dir}/gq.tar.gz".format(gq_dir=self.gq_dir) )
         self.raw_coverage       = os.path.join( self.scratch_dir, "{}.coverage_bins".format(self.name_prep) )
 
-        if os.path.isdir(self.base_dir): #### self.base_dir aka archive dir
-            print("so bored of the messes - wiping for now but really ought to rsync again at min but really check WTF is going on!?!?")
-            rmtree(self.base_dir)
-
-        ###### just go straight to post_shell_commands checks...
-        if not os.path.isdir(self.base_dir): #### self.base_dir aka archive dir
-            # self.set_dsm_status(3) 
-            # raise ArchiveDirectoryAlreadyExists( "the archive location, '{}', already exists".format(self.base_dir) )
-
-            ##################################################################
+        if not os.path.isdir(self.base_dir): 
 
             frameinfo = getframeinfo(currentframe())
-            print('will archive', frameinfo.filename, frameinfo.lineno)
 
             self.archive_helper() # just get the proper list
 
-            ##################################################################
-
-            if not os.path.isdir(self.base_dir): #### self.base_dir aka archive dir
+            if not os.path.isdir(self.base_dir): 
                 os.makedirs(self.base_dir)
 
-            ##### okay, seems pre_shell overrite is where you prep things including commands, then run_shell is not over-riden executes them...
-            ##### for f' sake, guess commands are executed at exit/in run...
-            ##### use of external routines that do sys calls in pre_shell makes this all a bit pointless?!?
             for data_file in self.data_to_copy:
                 f = self.format_string("{}".format(data_file))
                 ### WTF : suffix changed for some dragen initial bams - merging?!?
                 if data_file=="{scratch_bam}.bai" and not os.path.isfile(f):
                     n=f.replace('bam.bai','bai')
-                    print("rename suffix {} to {} ?!?".format(n,f))
                     os.rename(n,f)
-                print("\ncopy\n\t{} : {}\n\tto {}\n".format(data_file,self.base_dir,f))
                 if not os.path.isfile(f):
                     raise ValueError("\n\nfile {} does not exist\n".format(f))
                 # print(self.format_string("copy {} to {}".format(data_file,self.base_dir)))
@@ -1211,9 +1246,9 @@ class ArchiveSample(GATKFPipelineTask):
             print('will copy', frameinfo.filename, frameinfo.lineno)
         else:
             frameinfo = getframeinfo(currentframe())
-            print('something odd is going on. just to checks', frameinfo.filename, frameinfo.lineno)
-            ##### should just delete pre-archive step entry?!?
-            raise ValueError('\n\nthe archive dir is present {}'.format(self.base_dir))
+            self.set_dsm_status(10000) 
+            exit(0)
+            # raise ValueError('\n\nthe archive dir is present {}'.format(self.base_dir))
 
     def post_shell_commands(self):
 
@@ -1229,8 +1264,6 @@ class ArchiveSample(GATKFPipelineTask):
 ##################################################################
 # this really shouldn't be here but i just don't want the bother...
 ##################################################################
-
-        # self.set_dsm_status(5)
 
         ## Change folder permissions of base directory
         uid = os.getuid()
@@ -1278,101 +1311,19 @@ class ArchiveSample(GATKFPipelineTask):
         try:
             super(ArchiveSample, self).run()
         except Exception, e:
-            ####### duh: if there was an issue clean up the 'archive' - i.e. 'not' scratch...
             if (type(e) is not ArchiveDirectoryAlreadyExists
                 and os.path.isdir(self.base_dir)):
                 # clean up the directory if it was created and an error was
                 # generated
                 print("something went wrong so cleaning up archive dir '{}'".format(self.base_dir))
-                rmtree(self.base_dir)
+                try:
+                    rmtree(self.base_dir)
+                except:
+                    print("unable to clean up archive dir : {} ".format(self.base_dir))
+                    self.set_dsm_status(10001) 
+                    exit(0)
             raise
 
-#class PostArchiveChecks(GATKFPipelineTask):
-#
-#    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 7
-#    n_cpu = int(os.getenv("DEBUG_SLOTS")) if "DEBUG_SLOTS" in os.environ else 7
-#    # prept_start_message = prept_completed_message = self.__class__.__name__
-#    prept_start_message = "PostArchiveChecks"
-#    prept_completed_message = "PostArchiveChecks" 
-#
-#    dont_remove_tmp_dir = False # remove the temporary directory iff this task succeeds
-#    dont_remove_tmp_dir_if_failure = True # don't remove if it fails
-#
-#    def requires(self):
-#        yield self.clone(ArchiveSample)
-#
-#    def __init__(self, *args, **kwargs):
-#        super(PostArchiveChecks, self).__init__(*args, **kwargs)
-#        if (self.sample_name.upper().startswith('PGMCLIN') or
-#            self.sample_name.upper().startswith('PGMVIP')):
-#            self.base_dir = os.path.join(
-#                "/nfs/pgmclin/ALIGNMENT/BUILD37/DRAGEN/",
-#                self.sample_type, self.name_prep)
-#        else:
-#            self.base_dir = os.path.join(
-#                self.config_parameters["base"], self.sample_type, self.name_prep)
-#        self.check_counts = self.sample_type != "CUSTOM_CAPTURE"
-#
-#    def pre_shell_commands(self):
-#
-#        ## Change folder permissions of base directory
-#        uid = os.getuid()
-#        gid = grp.getgrnam("bioinfo").gr_gid
-#        os.chown(self.base_dir, uid, gid)
-#        user = getuser()
-#        for root, dirs, files in os.walk(self.base_dir):
-#            for d in dirs:
-#                d = os.path.join(root, d)
-#                if not os.path.islink(d) and owner(d) == user:
-#                    os.chmod(d, 0775)
-#                    os.chown(d, uid, gid)
-#            for f in files:
-#                f = os.path.join(root, f)
-#                if not os.path.islink(f) and owner(f) == user:
-#                    os.chmod(f, 0664)
-#                    os.chown(f, uid, gid)
-#
-#        vcf_errors = check_vcf(
-#            os.path.join(self.base_dir, os.path.basename(self.annotated_vcf_gz)),
-#            self.check_variant_counts)
-#        if vcf_errors:
-#            if "DEBUG_INTERVALS" not in os.environ:
-#                raise VCFCheckException("\n".join(vcf_errors))
-#        bam_errors = check_bam(
-#            os.path.join(self.base_dir, os.path.basename(self.recal_bam)),
-#            self.check_counts)
-#        if bam_errors:
-#            if "DEBUG_INTERVALS" not in os.environ:
-#                raise BAMCheckException("\n".join(bam_errors))
-#        location = "{0}/{1}".format(
-#            self.config_parameters["base"], self.sample_type)
-#        db = get_connection("seqdb")
-#        try:
-#            cur = db.cursor()
-#            update_alignseqfile(cur, location, self.pseudo_prepid)
-#            db.commit()
-#        finally:
-#            if db.open:
-#                db.close()
-#
-#    def post_shell_commands(self):
-#
-#        #### no, no, no
-#        rmtree(self.scratch_dir)
-#
-#    def run(self):
-#        try:
-#            super(PostArchiveChecks, self).run()
-#        except Exception, e:
-#            if (type(e) is not ArchiveDirectoryAlreadyExists
-#                and os.path.isdir(self.base_dir)):
-#                # clean up the directory if it was created and an error was
-#                # generated
-#                rmtree(self.base_dir)
-#            raise
-
-################## fixing this is trivial. just untar the coverage.tar.gz and run nfs/seqscratch09/dsth/BedPatch/DP1KbBins_rc1 sn.ppid.realn.recal.bam 20 10 c | tee sn.ppid.coverage_bins.2
-################## grep -P '^prob_chr\t' ... > ... and re-load...
 class CoverageBinning(GATKFPipelineTask):
     """Call Dan's program to bin coverage where we require some minimum
     standards in base quality and mapping quality, and only output records for
@@ -1406,18 +1357,13 @@ class CoverageBinning(GATKFPipelineTask):
 
     def post_shell_commands(self):
         self.set_dsm_status(1) 
-        ################## fixing this is trivial. just untar the coverage.tar.gz and run nfs/seqscratch09/dsth/BedPatch/DP1KbBins_rc1 sn.ppid.realn.recal.bam 20 10 c | tee sn.ppid.coverage_bins.2
-        ################## grep -P '^prob_chr\t' ... > ... and re-load...
         of=os.path.join(self.scratch_dir,"{}.coverage_bins".format(self.name_prep))
-        print("using '{}".format(of))
         if os.system('perl -ne "exit 1 if(\$_=~/[\\x00-\\x08\\x7F-\\xFF]/)" {}'.format(of))!=0:
-        # if os.system('perl -ne "exit 1 if(\$_=~/[\\x00-\\x08\\x7F-\\xFF]/)" {}.coverage_bins'.format(self.name_prep))!=0:
             self.set_dsm_status(3) 
             raise ValueError("\n\nthere appears to be an issue with the output file {}\n".format(of))
 
         p = subprocess.Popen('grep -c -P "[\\x00-\\x08\\x7F-\\xFF]" {}'.format(of), shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         probs=p.stdout.readline().rstrip()
-        # print("we got a count of '{}'".format(probs))
         if probs != "0":
             raise ValueError("\n\nthere appears to be an issue with the output file {}\n".format(of))
 
@@ -1713,6 +1659,7 @@ class EntryChecks(GATKFPipelineTask):
         self.dragen_log = os.path.join( self.log_dir, self.name_prep + ".dragen.out" )
         self.picard_log = os.path.join( self.scratch_dir, self.name_prep + ".metrics_duplication.txt" )
         self.duplicates_file = os.path.join( self.scratch_dir, self.name_prep + ".duplicates.txt" )
+        self.merge_intermdiate = os.path.join( self.scratch_dir, self.name_prep + ".merge.bam" )
 
     def pre_shell_commands(self):
 
@@ -1723,6 +1670,9 @@ class EntryChecks(GATKFPipelineTask):
             self.set_dsm_status(3) 
             raise ValueError("There's no bam file ({})".format(self.scratch_bam))
             # with self.output().open("w"): pass
+
+        if os.path.isfile(self.merge_intermdiate):
+            os.remove(self.merge_intermdiate)
 
         perc_duplicates = None
         if os.path.isfile(self.picard_log):
@@ -1735,7 +1685,6 @@ class EntryChecks(GATKFPipelineTask):
                 fields = log_fh.next().strip().split("\t")
                 perc_duplicates = float(fields[duplication_idx]) * 100
         elif os.path.isfile(self.dragen_log):
-            # doesn't handle older dragen flavours that are still lingering...
             with open(self.dragen_log) as d:
                 for line in d:
                     line = line.strip()
@@ -1746,6 +1695,7 @@ class EntryChecks(GATKFPipelineTask):
                           "Number of duplicate reads (marked)" in line):
                         perc_duplicates = float(line.split(" ")[-1])
                         break
+
         if perc_duplicates:
             with open(self.duplicates_file, "w") as out:
                 out.write(str(perc_duplicates) + "\n")
@@ -1754,7 +1704,7 @@ class EntryChecks(GATKFPipelineTask):
             raise ValueError("Could not find duplicate metrics in dragen log ({})".format(self.dragen_log))
 
         self.set_dsm_status(2) 
-    # should this be dependent at all?!?
+
     # def requires(self):
         # return self.clone(CombineVariants), self.clone(PrintReads)
         # return self.clone(ValidateBAM)
@@ -1876,23 +1826,22 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             self.db = get_connection("seqdb")
             self.cur = self.db.cursor()
 
-            self.cur.execute("select d.sample_name,s.chgvid,s.origid,d.is_external from dragen_sample_metadata d "
-              + "join prepT p on d.pseudo_prepid=p.p_prepid "
-              + "join Experiment e on p.experiment_id=e.id "
+            self.cur.execute("select d.sample_name,s.chgvid,s.origid,d.is_external,p.externaldata,capture_kit from dragen_sample_metadata d "
+              # + "join prepT p on d.pseudo_prepid=p.p_prepid "
+              + "join Experiment e on d.experiment_id=e.id "
               + "join SampleT s on e.sample_id=s.sample_id "
+              + "join prepT p on p.experiment_id=d.experiment_id "
               + "where d.pseudo_prepid = {}".format(self.pseudo_prepid))
             out = self.cur.fetchall()
-            if len(out)!=1 or out[0][0]!=out[0][1]:
-                raise ValueError("what is going on?")
+            print(out)
+            if ( len(out)!=1 and out[0][4] != None) or out[0][0]!=out[0][1]: 
+                if out[0][5] == 'MCDMTOR':
+                    print("i just don't care anymore")
+                else:
+                    raise ValueError("what is going on? : {}".format(out))
             vcf_sample_name = self.sample_name
-            if int(out[0][3])>1 and out[0][0]!=out[0][2]: # has is_external > 1 i.e. newer flavour and origid differs so need to use it
-                print("updating vcf sample from chgvid '{}' to origid '{}'".format(vcf_sample_name,out[0][2]))
-                # X=out[0][2].split('.')
+            if int(out[0][3])>1 and int(out[0][3])!=3439 and out[0][0]!=out[0][2] and out[0][4] != None: # ignoring internal pushed through this way
                 vcf_sample_name=out[0][2].split('.')[0] # seems gatk or something removes suffix following .?!?
-                # Y=vcf_sample_name.split('.')
-                # print(X)
-                # print(Y)
-                # vcf_sample_name=out[0][2]
 
             with open(self.log_file, "w") as self.log_fh:
                 self.get_variant_counts(vcf_sample_name)
@@ -1970,6 +1919,8 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         self.update_database(self.qc_table,'QCMessage',final_message)
 
     def update_database(self, table, field, value):
+        if value == '?':
+            value = float("0.0")
         self.execute_query(self.format_string(
             self.update_statement, table=table, field=field, value=value))
 
@@ -1986,17 +1937,26 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
                                       "PCT_PF_READS_ALIGNED":qc_metrics().pct_reads_aligned,
                                       "PF_MISMATCH_RATE":qc_metrics().pct_mismatch_rate}
 
-################## IOError: [Errno 2] No such file or directory: '/nfs/seqscratch_ssd/ALIGNMENT/BUILD37/DRAGEN/CUSTOM_CAPTURE/MZ200700899.5388/MZ200700899.5388.alignment.metrics.txt'
         with open(self.alignment_metrics) as alignment_metrics_fh:
+            first = True
+            offset=0
             for line in alignment_metrics_fh:
+
                 contents = line.strip().split(" ")
-                #################### dipshits!?!?! this is hard-coded for bams that have no unpaired reads!?!?
-                #################### dipshits!?!?! this is hard-coded for bams that have no unpaired reads!?!?
-                #################### dipshits!?!?! this is hard-coded for bams that have no unpaired reads!?!?
-                if len(contents) == 4 or len(contents) == 5:
+
+                if first:
+                    first = False
+                    if len(contents) == 2 and contents[-1] != "UNPAIRED":
+                        raise ValueError("this should be simple unpaired reads")
+                    elif len(contents) == 5 and ( contents[-2] != "PAIR" or contents[-1] != "UNPAIRED" ):
+                        raise ValueError("this should be simple paired with unpaired reads (we should 'really' sum the paired&unpaired)")
+                    elif len(contents) == 4 and contents[-1] != "PAIR":
+                        raise ValueError("this should be simple paired only reads")
+
+                if len(contents)==4 or len(contents)==5 or len(contents)==2:
                     field = contents[0]
-                    # value = contents[-1]
-                    value = contents[-1 if len(contents) == 4 else -2]
+                    value = contents[-2 if len(contents) == 5 else -1]
+
                     if field in self.alignment_metrics_map:
                         db_field = self.alignment_metrics_map[field]
                         self.update_database(self.qc_table, db_field, value)
@@ -2031,8 +1991,6 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
                     field, value  = contents[:2]
                     if field in metrics_hash:
                         db_field = metrics_hash[field]
-                        # print("updating '{}' with '{}' of '{}'".format(db_field,value,type(value)))
-                        #### it's a string?!?
                         if value == "NaN": # if math.isnan(value):
                             value="0.0"
                         self.update_database(self.qc_table, db_field, value)
@@ -2066,24 +2024,29 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
                 if field in variant_call_parse:
                     db_field = variant_call_parse[field]
                     self.update_database(self.qc_table, db_field, value)
-############ these are probably all conected!?!
-####### this gives ValueError: could not convert string to float: ?
+                if value == '?':
+                    value = float("0.0")
                 temp[field] = float(value)
 
         overall_titv = (
-####### KeyError: 'NOVEL_SNPS'
             (temp["NOVEL_SNPS"] * temp["NOVEL_TITV"] + temp["NUM_IN_DB_SNP"] * temp["DBSNP_TITV"]) /
             temp["TOTAL_SNPS"])
         self.update_database(self.qc_table, qc_metrics().titv, overall_titv)
 
-        homhet_ratio = (float(self.all_snv_hom + self.all_indel_hom) /
-                        (self.all_snv_het + self.all_indel_het))
+        # homhet_ratio = (float(self.all_snv_hom + self.all_indel_hom) /
+                        # (self.all_snv_het + self.all_indel_het))
+        homhet_ratio=0.0
+        if self.all_snv_het + self.all_indel_het > 0.0:
+            homhet_ratio = (float(self.all_snv_hom + self.all_indel_hom) /
+                            (self.all_snv_het + self.all_indel_het))
+
         self.update_database(self.qc_table, qc_metrics().homhet_ratio, homhet_ratio)
 
-        snv_homhet_ratio = float(self.all_snv_hom) / self.all_snv_het
+        snv_homhet_ratio = 0.0
+        if self.all_snv_het > 0.0:
+            snv_homhet_ratio = float(self.all_snv_hom) / self.all_snv_het
         self.update_database(self.qc_table, qc_metrics().snv_homhet_ratio, snv_homhet_ratio)
 
-##### this gives ZeroDivisionError: float division by zero
         if self.all_indel_het == 0.0:
             indel_homhet_ratio = 100.0
         else:
@@ -2137,9 +2100,10 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
                         ratio = X_cvg / Y_cvg
                         self.update_database(
                             self.qc_table, qc_metrics().xy_avg_ratio, ratio)
-                    if isclose(0.0, Y_cvg) or ratio > 5:
+                    # https://redmine.igm.cumc.columbia.edu/issues/3022?issue_count=39&issue_position=24&next_issue_id=3179&prev_issue_id=3099
+                    if isclose(0.0, Y_cvg) or ratio > 30:   # if isclose(0.0, Y_cvg) or ratio > 5:
                         seq_gender = "F"
-                    elif ratio < 2:
+                    elif ratio < 5:                         # elif ratio < 2:
                         seq_gender = "M"
                     else:
                         seq_gender = "Ambiguous"
@@ -2152,8 +2116,6 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             het = self.X_snv_het + self.X_indel_het
             hom = self.X_snv_hom + self.X_indel_hom
 
-            #### v. tired and not sure what the objetive is here but since it seems to be avoiding div-by-0 just set to 1
-            #### for now let elif not het handle the extreme
             ratio = 1.0
             if hom:
                 ratio = float(het) / hom
@@ -2184,6 +2146,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             WHERE pseudo_prepid = {pseudo_prepid}""")
         result = self.get_metrics(query)
         from pprint import pprint as pp
+        print("using dumbass query to retrieve transaction results?!? = {}".format(query))
         pp(result)
         perc_reads_aligned = float(result[0][0])
         return (perc_reads_aligned >= 0.70)
@@ -2275,7 +2238,6 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
                 if line.startswith("#CHROM"):
                     break
             header_fields = line[1:].strip().split("\t")
-            # strip off .pseudo_prepid suffix if present
             header_fields[9] = header_fields[9].split(".")[0] 
             for line in vcf_fh:
                 fields = dict(zip(header_fields, line.strip().split("\t")))
