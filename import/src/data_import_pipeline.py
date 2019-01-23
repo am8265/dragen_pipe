@@ -620,6 +620,8 @@ class ImportSample(luigi.Task):
             kwargs["version"] = get_pipeline_version()
         super(ImportSample, self).__init__(*args, **kwargs)
         if os.path.isfile(self.vcf):
+            ##### they've never filtered variants and it's best not too bloat indexes...
+            # limit = 648000000
             limit = 348000000
             if self.sequencing_type == "exome" and os.path.getsize(self.vcf) > limit: # 248000000:
                 seqdb = get_connection("seqdb")
