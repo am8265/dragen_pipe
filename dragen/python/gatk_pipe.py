@@ -1775,6 +1775,8 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
 
         self.set_dsm_status(0) 
 
+        ########## dqm doesn't yet exist...
+
         ## Generic query to be used for updates 
         self.update_statement = """
         UPDATE {table} SET {field} = {value}
@@ -1870,6 +1872,51 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         finally:
             if self.db.open:
                 self.db.close()
+
+        ######## I HATE ALL THIS NONSENSE SO MUCH THAT I JUST DON'T CARE ATM..
+        if self.sample_type == "GENOME_AS_FAKE_EXOME":
+
+            ###### no need for locking anything anymore!?!
+            ########## just gonna hack it for now and integrate the newer pre-release and release intermediates in a completely non-systematic manner (these were new features patched on as separate pipelines...)
+            gvcf_lazy="/nfs/informatics/production/gvcf/{}.{}/{}.{}.gvcf.gz.md5sum".format(self.sample_name,self.pseudo_prepid,self.sample_name,self.pseudo_prepid)
+            metrics_lazy="/nfs/seqscratch_ssd/dsth/alignstats/PostReleaseMerge_PrePipelineEntry/{}.{}.txt".format(self.pseudo_prepid,self.sample_name)
+            if not os.path.exists(gvcf_lazy):
+                raise ValueError("we're missing the full wgs gvcf md5 file ({})".format(gvcf_lazy))
+            gvcf_lazy=gvcf_lazy[:-7]
+            if not os.path.exists(gvcf_lazy):
+                raise ValueError("we're missing the full wgs gvcf md5 file ({})".format(gvcf_lazy))
+            print("\n\nusing '{}'".format(gvcf_lazy))
+            print("\n\nusing '{}'".format(metrics_lazy))
+            if not os.path.exists(metrics_lazy):
+                raise ValueError("we're missing the wgs metrics file ({})".format(metrics_lazy))
+            r=re.compile("(WgsCoverageMe\w+)\": ([^,]+),")
+            mean=None # mean=int()
+            median=None # median=float()
+            with open(metrics_lazy) as fh:
+                for line in fh:
+                    z=r.search(line) # if r.match(line): #### match is full string match!?!
+                    if z: # print(z.groups())
+                        if z.group(1)=="WgsCoverageMean":
+                            mean=z.group(2)
+                        elif z.group(1)=="WgsCoverageMedian":
+                            median=z.group(2)
+            print ("finally have mean={} and median={}".format(mean,median))
+            q="update dragen_qc_metrics set WGS_Dragen_gVCF = '{}', WGS_Mean_Cov = {}, WGS_Median_Cov = {} where pseudo_prepid = {}".format(
+            gvcf_lazy,mean,median,self.pseudo_prepid
+            )
+            print("final update will be '{}'".format(q))
+            db = get_connection("seqdb")
+            cur = db.cursor()
+            cur.execute(q)
+            print("updated = '{}' entries".format(cur.rowcount))
+            if cur.rowcount!=1:
+                raise ValueError("unable to update wgs entries for sample!")
+            else:
+                print("update wgs metrics!")
+            db.commit()
+            # print("\n\n\nTHIS IS DISABLED UNTIL INTEGRATE SOME OF THE ADDITIONAL OUT OF PIPE WGS METRICS LATER TODAY - this is now much simplified as no longer back patching - just grab the metrics but perhaps for lazyness just grab the relevant bits from the external scripts that were used?!?\n\n\n")
+            # os._exit(1) 
+            # raise ValueError("THIS IS DISABLED UNTIL INTEGRATE SOME OF THE ADDITIONAL OUT OF PIPE WGS METRICS LATER TODAY - this is now much simplified as no longer back patching - just grab the metrics but perhaps for lazyness just grab the relevant bits from the external scripts that were used?!?")
 
 ################ ProgrammingError: (1064, "You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near '?\n        WHERE pseudo_prepid = 42340' at line 1")
     def execute_query(self, query):
