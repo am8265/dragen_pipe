@@ -1247,6 +1247,7 @@ class ArchiveSample(GATKFPipelineTask):
         else:
             frameinfo = getframeinfo(currentframe())
             self.set_dsm_status(10000) 
+            print("this shouldn't exist '{}'".format(self.base_dir))
             exit(0)
             # raise ValueError('\n\nthe archive dir is present {}'.format(self.base_dir))
 
