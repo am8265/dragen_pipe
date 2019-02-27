@@ -1825,6 +1825,19 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             "ccds":{"MEAN_COVERAGE":qc_metrics().mean_cvg, "PCT_5X":qc_metrics().pct_bases5X,
                     "PCT_10X":qc_metrics().pct_bases10X, "PCT_15X":qc_metrics().pct_bases15X,
                     "PCT_20X":qc_metrics().pct_bases20X}}}
+
+        # unbelieavable_wgs_hack=False
+
+        if self.sample_type == "GENOME_AS_FAKE_EXOME":
+            if not os.path.exists("/nfs/seqscratch_ssd/dsth/alignstats/PostReleaseMerge_PrePipelineEntry/{}.{}.txt".format(self.pseudo_prepid,self.sample_name)):
+                hack_for_incorrect_single_rg_wgs="/home/dh2880/tools/alignstats/alignstats -q 10 -i /nfs/seqscratch_ssd/ALIGNMENT/BUILD37/DRAGEN/GENOME_AS_FAKE_EXOME/{1}.{0}/{1}.{0}.bam \
+                    -t /nfs/seqscratch_ssd/PIPELINE_DATA/ccds_regions.bed  -o /nfs/seqscratch_ssd/dsth/alignstats/PostReleaseMerge_PrePipelineEntry/{0}.{1}.txt".format(self.pseudo_prepid,self.sample_name)
+                print("need to generate metrics for 'single rg' wgs - i.e. these don't really exist")
+                if os.system(hack_for_incorrect_single_rg_wgs)!=0:
+                #### single RG wgs samples - i.e. DON'T ACTUALLY EXISTS
+                    raise ValueError("unable to generate metrics for single rg wgs sample")
+                # unbelieavable_wgs_hack=True
+
         try:
             self.db = get_connection("seqdb")
             self.cur = self.db.cursor()
@@ -1889,6 +1902,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             print("\n\nusing '{}'".format(gvcf_lazy))
             print("\n\nusing '{}'".format(metrics_lazy))
             if not os.path.exists(metrics_lazy):
+                #### single RG wgs samples - i.e. DON'T ACTUALLY EXISTS
                 raise ValueError("we're missing the wgs metrics file ({})".format(metrics_lazy))
             r=re.compile("(WgsCoverageMe\w+)\": ([^,]+),")
             mean=None # mean=int()
@@ -1910,10 +1924,13 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             cur = db.cursor()
             cur.execute(q)
             print("updated = '{}' entries".format(cur.rowcount))
-            if cur.rowcount!=1:
-                raise ValueError("unable to update wgs entries for sample!")
+            if self.sample_name[0:6] != "sqcudn":
+                if cur.rowcount!=1: # and unbelieavable_wgs_hack==False:
+                    raise ValueError("unable to update wgs entries for sample ({})!".format(self.sample_name[0:6]))
+                else:
+                    print("update wgs metrics!")
             else:
-                print("update wgs metrics!")
+                print("please get rid of this appling hack for sqc single rg wgs")
             db.commit()
             # print("\n\n\nTHIS IS DISABLED UNTIL INTEGRATE SOME OF THE ADDITIONAL OUT OF PIPE WGS METRICS LATER TODAY - this is now much simplified as no longer back patching - just grab the metrics but perhaps for lazyness just grab the relevant bits from the external scripts that were used?!?\n\n\n")
             # os._exit(1) 
