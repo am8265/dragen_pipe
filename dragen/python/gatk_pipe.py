@@ -1892,14 +1892,16 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
 
             ###### no need for locking anything anymore!?!
             ########## just gonna hack it for now and integrate the newer pre-release and release intermediates in a completely non-systematic manner (these were new features patched on as separate pipelines...)
-            gvcf_lazy="/nfs/informatics/production/gvcf/{}.{}/{}.{}.gvcf.gz.md5sum".format(self.sample_name,self.pseudo_prepid,self.sample_name,self.pseudo_prepid)
+            gvcf_lazy=""
             metrics_lazy="/nfs/seqscratch_ssd/dsth/alignstats/PostReleaseMerge_PrePipelineEntry/{}.{}.txt".format(self.pseudo_prepid,self.sample_name)
-            if not os.path.exists(gvcf_lazy):
-                raise ValueError("we're missing the full wgs gvcf md5 file ({})".format(gvcf_lazy))
-            gvcf_lazy=gvcf_lazy[:-7]
-            if not os.path.exists(gvcf_lazy):
-                raise ValueError("we're missing the full wgs gvcf md5 file ({})".format(gvcf_lazy))
-            print("\n\nusing '{}'".format(gvcf_lazy))
+            if self.sample_name[0:6] != "sqcudn":
+                gvcf_lazy="/nfs/informatics/production/gvcf/{}.{}/{}.{}.gvcf.gz.md5sum".format(self.sample_name,self.pseudo_prepid,self.sample_name,self.pseudo_prepid)
+                if not os.path.exists(gvcf_lazy):
+                    raise ValueError("we're missing the full wgs gvcf md5 file ({})".format(gvcf_lazy))
+                gvcf_lazy=gvcf_lazy[:-7]
+                if not os.path.exists(gvcf_lazy):
+                    raise ValueError("we're missing the full wgs gvcf file ({})".format(gvcf_lazy))
+                print("\n\nusing '{}'".format(gvcf_lazy))
             print("\n\nusing '{}'".format(metrics_lazy))
             if not os.path.exists(metrics_lazy):
                 #### single RG wgs samples - i.e. DON'T ACTUALLY EXISTS
