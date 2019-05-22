@@ -1830,7 +1830,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
 
         if self.sample_type == "GENOME_AS_FAKE_EXOME":
             if not os.path.exists("/nfs/seqscratch_ssd/dsth/alignstats/PostReleaseMerge_PrePipelineEntry/{}.{}.txt".format(self.pseudo_prepid,self.sample_name)):
-                hack_for_incorrect_single_rg_wgs="/home/dh2880/tools/alignstats/alignstats -q 10 -i /nfs/seqscratch_ssd/ALIGNMENT/BUILD37/DRAGEN/GENOME_AS_FAKE_EXOME/{1}.{0}/{1}.{0}.bam \
+                hack_for_incorrect_single_rg_wgs="/nfs/goldstein/software/informatics/bin/alignstats -q 10 -i /nfs/seqscratch_ssd/ALIGNMENT/BUILD37/DRAGEN/GENOME_AS_FAKE_EXOME/{1}.{0}/{1}.{0}.bam \
                     -t /nfs/seqscratch_ssd/PIPELINE_DATA/ccds_regions.bed  -o /nfs/seqscratch_ssd/dsth/alignstats/PostReleaseMerge_PrePipelineEntry/{0}.{1}.txt".format(self.pseudo_prepid,self.sample_name)
                 print("need to generate metrics for 'single rg' wgs - i.e. these don't really exist")
                 if os.system(hack_for_incorrect_single_rg_wgs)!=0:
@@ -1856,8 +1856,31 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
                 else:
                     raise ValueError("what is going on? : {}".format(out))
             vcf_sample_name = self.sample_name
-            if int(out[0][3])>1 and int(out[0][3])!=3439 and out[0][0]!=out[0][2] and out[0][4] != None: # ignoring internal pushed through this way
-                vcf_sample_name=out[0][2].split('.')[0] # seems gatk or something removes suffix following .?!?
+
+            # dealing with messed up external samples as usual - the manifests are wrong!?!
+            ##### hack for some broken external samples that were loaded incorrectly into LIMS
+            # from pprint import pprint as pp; pp(out)
+            if int(out[0][3])>1 and int(out[0][3])==4466:
+                print("these are a real mess - we need to pull the key as is in the vcf but that gets truncated here anyway and it's already been purged from sampelt?!??!?")
+                # pp(vars(self))
+                vcf_format_name = subprocess.Popen('zcat {} | head -1000 | grep CHROM | cut -f10 '.format(self.annotated_vcf),shell=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT).stdout.readline().rstrip()
+                print("from vcf we get {}".format(vcf_format_name))
+                # vcf_format_name = subprocess.Popen('zcat {} | head -1000 | grep CHROM'.format(self.final_vcf),shell=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+                ##### the names were fucked up in the manifest so cannot use that!?!
+                if '.' in vcf_format_name:
+                    vcf_sample_name=vcf_format_name.split('.')[0] # something removes suffix following .?!?
+                elif '-' in vcf_format_name:
+                    vcf_sample_name=vcf_format_name
+                print("final name = {}".format(vcf_sample_name))
+                    # vcf_sample_name=out[0][2].split('.')[0] # seems gatk or something removes suffix following .?!?
+                    # print("updating key to '{}'".format(vcf_sample_name))
+            ##### sn=BELATWEP278501 vs. here=BELATWEP2785 vs., 
+            ##### > zcat /nfs/seqscratch_ssd/ALIGNMENT/BUILD37/DRAGEN/EXOME/BELATWEP278501.190927/BELATWEP278501.190927.analysisReady.vcf.gz | head -1000 | grep CHRO | cut -f10
+            ##### BELATWEP2785.01
+            ##### USANCH8771203 vs. USANCH8771-203
+
+            # if int(out[0][3])>1 and int(out[0][3])!=3439 and out[0][0]!=out[0][2] and out[0][4] != None: # ignoring internal pushed through this way
+                # vcf_sample_name=out[0][2].split('.')[0] # seems gatk or something removes suffix following .?!?
 
             with open(self.log_file, "w") as self.log_fh:
                 self.get_variant_counts(vcf_sample_name)
@@ -1894,7 +1917,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             ########## just gonna hack it for now and integrate the newer pre-release and release intermediates in a completely non-systematic manner (these were new features patched on as separate pipelines...)
             gvcf_lazy=""
             metrics_lazy="/nfs/seqscratch_ssd/dsth/alignstats/PostReleaseMerge_PrePipelineEntry/{}.{}.txt".format(self.pseudo_prepid,self.sample_name)
-            if self.sample_name[0:6] != "sqcudn":
+            if self.sample_name[0:6] != "sqcudn" and self.sample_name!="3fcmt2":
                 gvcf_lazy="/nfs/informatics/production/gvcf/{}.{}/{}.{}.gvcf.gz.md5sum".format(self.sample_name,self.pseudo_prepid,self.sample_name,self.pseudo_prepid)
                 if not os.path.exists(gvcf_lazy):
                     raise ValueError("we're missing the full wgs gvcf md5 file ({})".format(gvcf_lazy))
@@ -2318,6 +2341,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
                     variants["all"]["indel"]["het"] += (2 - nsnvs)
                 else:
                     variant_type = ("snv" if lREF == len(fields["ALT"]) else "indel")
+                    # from pprint import pprint as pp; pp(fields)
                     # try:
                         # call_dict = dict(zip(fields["FORMAT"].split(":"),fields[self.sample_name].split(":")))
                     # except:
