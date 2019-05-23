@@ -1859,14 +1859,15 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
 
             # dealing with messed up external samples as usual - the manifests are wrong!?!
             ##### hack for some broken external samples that were loaded incorrectly into LIMS
-            # from pprint import pprint as pp; pp(out)
             if int(out[0][3])>1 and int(out[0][3])==4466:
                 print("these are a real mess - we need to pull the key as is in the vcf but that gets truncated here anyway and it's already been purged from sampelt?!??!?")
+                # from pprint import pprint as pp; pp(out)
                 # pp(vars(self))
-                vcf_format_name = subprocess.Popen('zcat {} | head -1000 | grep CHROM | cut -f10'.format(self.annotated_vcf),shell=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT).stdout.readline().rstrip()
-                print("from vcf we get '{}' : '{}'".format(vcf_format_name,self.annotated_vcf))
+                vcf_format_name = subprocess.Popen('zcat {} | head -1000 | grep CHROM | cut -f10'.format(self.annotated_vcf_gz),shell=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT).stdout.readline().rstrip()
+                print("from vcf we get '{}' : '{}'".format(vcf_format_name,self.annotated_vcf_gz))
                 # vcf_format_name = subprocess.Popen('zcat {} | head -1000 | grep CHROM'.format(self.final_vcf),shell=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
                 ##### the names were fucked up in the manifest so cannot use that!?!
+                ################################ all this effectively turns off any checks anyway so should just grab the keys and use it directly...
                 if '.' in vcf_format_name:
                     vcf_sample_name=vcf_format_name.split('.')[0] # something removes suffix following .?!?
                 elif '-' in vcf_format_name or '_' in vcf_format_name:
