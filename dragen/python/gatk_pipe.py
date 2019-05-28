@@ -1863,17 +1863,30 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
                 print("these are a real mess - we need to pull the key as is in the vcf but that gets truncated here anyway and it's already been purged from sampelt?!??!?")
                 # from pprint import pprint as pp; pp(out)
                 # pp(vars(self))
-                cmd='zcat {} | head -1000 | grep CHROM | cut -f10'.format(self.annotated_vcf_gz)
+                ############# this is so odd. non-deterministic behaviour with cut?!?
+                ############# just use vcf_format_name.split("\t")
+                cmd='zcat {} | head -1000 | grep CHROM'.format(self.annotated_vcf_gz)
+                # cmd='zcat {} | head -1000 | grep CHROM | cut -f10'.format(self.annotated_vcf_gz)
                 wtf=subprocess.Popen(cmd,shell=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT);
                 vcf_format_name = wtf.stdout.readline().rstrip()
+                vcf_format_name = vcf_format_name.split("\t")[9]
                 print(cmd)
                 print("from vcf we get '{}' : '{}'".format(vcf_format_name,self.annotated_vcf_gz))
                 if vcf_format_name=="":
                     print("this is really creepy!?!")
+                    time.sleep(3);
                     wtf=subprocess.Popen(cmd,shell=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT);
                     vcf_format_name = wtf.stdout.readline().rstrip()
+                    vcf_format_name = vcf_format_name.split("\t")[9]
+                    if vcf_format_name=="":
+                        print("wtf!?!")
+                        os._exit(1) 
                     print("from vcf we get '{}' : '{}'".format(vcf_format_name,self.annotated_vcf_gz))
                     time.sleep(10);
+
+                    ################ if this is still annoying simply extract the key directly since it's a terrible hack that turns off the check anyway!?!
+                    ################ if this is still annoying simply extract the key directly since it's a terrible hack that turns off the check anyway!?!
+                    ################ if this is still annoying simply extract the key directly since it's a terrible hack that turns off the check anyway!?!
 
                 # vcf_format_name = subprocess.Popen('zcat {} | head -1000 | grep CHROM'.format(self.final_vcf),shell=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
                 ##### the names were fucked up in the manifest so cannot use that!?!
