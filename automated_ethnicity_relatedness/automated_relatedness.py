@@ -8,7 +8,7 @@ from luigi.contrib.sge import SGEJobTask
 from datetime import datetime
 
 def get_familyid(sample_name):
-    query = "SELECT FamilyID FROM SampleT WHERE CHGVID = '{0}'".format(sample_name)
+    query = "SELECT FamilyID FROM SampleT WHERE sample_internal_name = '{0}'".format(sample_name)
     db = get_connection(db="seqdb")
     try:
         cur = db.cursor()
