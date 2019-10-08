@@ -343,7 +343,6 @@ class ParseVCF(SGEJobTask):
                     ("matched_indels", self.matched_indels, False)):
                     load_statement = ( LOAD_TABLE_REPLACE if is_variant_table else LOAD_TABLE)
                     load_statement = load_statement.format( table_name=table_name, table_file=table_file )
-                    print("using this stupid ass cmd '{}'".format(load_statement))
                     try:
                         cur.execute(load_statement)
                     except (MySQLdb.IntegrityError, MySQLdb.OperationalError):
@@ -450,7 +449,6 @@ class LoadBinData(SGEJobTask):
                 statement = INSERT_BIN_STATEMENT.format(
                     data_file=self.fn, data_type=self.data_type,
                     chromosome=self.chromosome, sample_id=self.sample_id)
-                print("using '{}'".format(statement))
                 cur.execute(statement)
                 db.commit()
                 seq_cur.execute(UPDATE_PIPELINE_STEP_FINISH_TIME.format(
@@ -546,10 +544,8 @@ class ImportSample(luigi.Task):
             seqdb = get_connection("seqdb")
             seq_cur = seqdb.cursor()
             seq_cur.execute('select is_merged from dragen_sample_metadata where pseudo_prepid = {}'.format(self.prep_id))
-            print("using '{}'".format(self.prep_id))
             ##### horrid but in a hurry and just don't care!?!
             X=seq_cur.fetchone();
-            print("argh='{}'".format(X))
             if X[0]!=41:
             # if seq_cur.fetchone()[0]!=41:
                 raise ValueError("please don't run me directly ({})!?! ".format(self.prep_id))

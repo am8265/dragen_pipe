@@ -509,12 +509,22 @@ class GenotypeGVCFs(GATKFPipelineTask):
         errors = check_vcf(self.vcf, self.check_variant_counts)
         if errors:
             self.set_dsm_status(3) 
-            msg="{} QC Errors ({}) : Last Error {}".format(len(errors),self.pipeline_step_id,errors[-1])
-            self.set_dsm_status(10000) 
-            self.update_sample_status(msg)
-            exit(0)
-            raise QCError(msg)
-        self.set_dsm_status(2) 
+
+            db = get_connection("seqdb")
+            cur = db.cursor()
+            wtf = "update dragen_sample_metadata set is_merged = -2 where experiment_id = {}".format(self.pseudo_prepid)
+            cur.execute(wtf)
+            # msg="{} QC Errors ({}) : Last Error {}".format(len(errors),self.pipeline_step_id,errors[-1])
+            wtf = "update prepT set is_released = 0, status = 'Sample QC Errors ({}) e.g. {} ', status_time = UNIX_TIMESTAMP(CURRENT_TIMESTAMP()) where experiment_id = {}".format(len(errors),errors[-1],self.pseudo_prepid)
+            cur.execute(wtf)
+            db.commit()
+            os._exit(1)
+
+            # self.set_dsm_status(10000) 
+            # self.update_sample_status(msg)
+            # exit(0)
+            # raise QCError(msg)
+            # self.set_dsm_status(2) 
 
     def requires(self):
         return self.clone(HaplotypeCaller)
@@ -797,8 +807,17 @@ class CombineVariants(GATKFPipelineTask):
 
         errors = check_vcf(self.final_vcf_gz, self.check_variant_counts)
         if errors:
-            self.set_dsm_status(3) 
-            raise VCFCheckException("\n".join(errors))
+            db = get_connection("seqdb")
+            cur = db.cursor()
+            wtf = "update dragen_sample_metadata set is_merged = -2 where experiment_id = {}".format(self.pseudo_prepid)
+            cur.execute(wtf)
+            # msg="{} QC Errors ({}) : Last Error {}".format(len(errors),self.pipeline_step_id,errors[-1])
+            wtf = "update prepT set is_released = 0, status = 'Sample QC Errors ({}) e.g. {} ', status_time = UNIX_TIMESTAMP(CURRENT_TIMESTAMP()) where experiment_id = {}".format(len(errors),errors[-1],self.pseudo_prepid)
+            cur.execute(wtf)
+            db.commit()
+            os._exit(1)
+            # self.set_dsm_status(3) 
+            # raise VCFCheckException("\n".join(errors))
         self.set_dsm_status(2) 
 
     def requires(self):
@@ -1831,9 +1850,9 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         # unbelieavable_wgs_hack=False
 
         if self.sample_type == "GENOME_AS_FAKE_EXOME":
-            if not os.path.exists("/nfs/seqscratch_ssd/dsth/alignstats/PostReleaseMerge_PrePipelineEntry/{}.{}.txt".format(self.pseudo_prepid,self.sample_name)):
+            if not os.path.exists("/nfs/seqscratch09/informatics/logs/postmerge/{}.{}.txt".format(self.pseudo_prepid,self.sample_name)):
                 hack_for_incorrect_single_rg_wgs="/nfs/goldstein/software/informatics/bin/alignstats -q 10 -i /nfs/seqscratch_ssd/ALIGNMENT/BUILD37/DRAGEN/GENOME_AS_FAKE_EXOME/{1}.{0}/{1}.{0}.bam \
-                    -t /nfs/seqscratch_ssd/PIPELINE_DATA/ccds_regions.bed  -o /nfs/seqscratch_ssd/dsth/alignstats/PostReleaseMerge_PrePipelineEntry/{0}.{1}.txt".format(self.pseudo_prepid,self.sample_name)
+                    -t /nfs/seqscratch_ssd/PIPELINE_DATA/ccds_regions.bed  -o /nfs/seqscratch09/informatics/logs/postmerge/{0}.{1}.txt".format(self.pseudo_prepid,self.sample_name)
                 print("need to generate metrics for 'single rg' wgs - i.e. these don't really exist")
                 if os.system(hack_for_incorrect_single_rg_wgs)!=0:
                 #### single RG wgs samples - i.e. DON'T ACTUALLY EXISTS
@@ -1945,12 +1964,9 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             ###### no need for locking anything anymore!?!
             ########## just gonna hack it for now and integrate the newer pre-release and release intermediates in a completely non-systematic manner (these were new features patched on as separate pipelines...)
             gvcf_lazy=""
-            metrics_lazy="/nfs/seqscratch_ssd/dsth/alignstats/PostReleaseMerge_PrePipelineEntry/{}.{}.txt".format(self.pseudo_prepid,self.sample_name)
-            ####### yuck!?!
-            ####################### DON'T DO THIS!?! :
-            if self.sample_name[0:5] != "AZIPF" and self.sample_name[0:4] != "CGND" and self.sample_name[0:3] != "EGI" and self.sample_name[0:3] != "IPF" and self.sample_name[0:6] != "sqcudn" \
-              and self.sample_name[0:3] != "Pul" :
-              # and self.sample_name != "Diagseq2305f833" and self.sample_name!="3fcmt2" and self.sample_name!="ALSNEUKY504CW1":
+            metrics_lazy="/nfs/seqscratch09/informatics/logs/postmerge/{}.{}.txt".format(self.pseudo_prepid,self.sample_name)
+            # yuck!?!
+            if self.sample_name[0:3] == "ALS":
                 gvcf_lazy="/nfs/informatics/production/gvcf/{}.{}/{}.{}.gvcf.gz.md5sum".format(self.sample_name,self.pseudo_prepid,self.sample_name,self.pseudo_prepid)
                 if not os.path.exists(gvcf_lazy):
                     raise ValueError("we're missing the full wgs gvcf md5 file ({})".format(gvcf_lazy))
