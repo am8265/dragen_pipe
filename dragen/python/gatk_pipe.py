@@ -1966,6 +1966,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             gvcf_lazy=""
             metrics_lazy="/nfs/seqscratch09/informatics/logs/postmerge/{}.{}.txt".format(self.pseudo_prepid,self.sample_name)
             # yuck!?!
+            '''
             if self.sample_name[0:3] == "ALS":
                 gvcf_lazy="/nfs/informatics/production/gvcf/{}.{}/{}.{}.gvcf.gz.md5sum".format(self.sample_name,self.pseudo_prepid,self.sample_name,self.pseudo_prepid)
                 if not os.path.exists(gvcf_lazy):
@@ -1974,6 +1975,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
                 if not os.path.exists(gvcf_lazy):
                     raise ValueError("we're missing the full wgs gvcf file ({})".format(gvcf_lazy))
                 print("\n\nusing '{}'".format(gvcf_lazy))
+            '''
             print("\n\nusing '{}'".format(metrics_lazy))
             if not os.path.exists(metrics_lazy):
                 #### single RG wgs samples - i.e. DON'T ACTUALLY EXISTS
