@@ -2006,7 +2006,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             else:
                 print("please get rid of this appling hack for sqc single rg wgs")
             db.commit()
-            # print("\n\n\nTHIS IS DISABLED UNTIL INTEGRATE SOME OF THE ADDITIONAL OUT OF PIPE WGS METRICS LATER TODAY - this is now much simplified as no longer back patching - just grab the metrics but perhaps for lazyness just grab the relevant bits from the external scripts that were used?!?\n\n\n")
+            ## print("\n\n\nTHIS IS DISABLED UNTIL INTEGRATE SOME OF THE ADDITIONAL OUT OF PIPE WGS METRICS LATER TODAY - this is now much simplified as no longer back patching - just grab the metrics but perhaps for lazyness just grab the relevant bits from the external scripts that were used?!?\n\n\n")
             # os._exit(1) 
             # raise ValueError("THIS IS DISABLED UNTIL INTEGRATE SOME OF THE ADDITIONAL OUT OF PIPE WGS METRICS LATER TODAY - this is now much simplified as no longer back patching - just grab the metrics but perhaps for lazyness just grab the relevant bits from the external scripts that were used?!?")
 
