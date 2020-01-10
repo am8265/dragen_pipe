@@ -2002,7 +2002,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             print("updated = '{}' entries".format(cur.rowcount))
             if self.sample_name[0:6] != "sqcudn":
                 if cur.rowcount!=1: # and unbelieavable_wgs_hack==False:
-                    raise ValueError("unable to update wgs entries for sample ({})!".format(self.sample_name[0:6]))
+                    raise ValueError("unable to update wgs entries for sample ({})! the row count {}, query {}".format(self.sample_name, cur.rowcount, q) )
                 else:
                     print("update wgs metrics!")
             else:
