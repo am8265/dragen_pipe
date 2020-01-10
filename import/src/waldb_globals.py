@@ -6,6 +6,7 @@ import gzip
 import MySQLdb
 import argparse
 import sys
+import traceback
 import luigi
 from operator import lt, le
 from ConfigParser import ConfigParser, RawConfigParser
@@ -548,7 +549,11 @@ class PipelineTask(SGEJobTask):
             self._update_step_success()
             self._run_post_success()
         except:
-            self._update_step_failure()
+	    # print for debug purpose
+	    e = traceback.format_exc()            
+            with open("/nfs/seqscratch_ssd/pipe/pipeline_error.log", "a") as error_file:
+       	       error_file.write(e)
+	    self._update_step_failure()
             raise
 
     def _update_step_start_time(self):
