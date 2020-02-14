@@ -120,11 +120,10 @@ class PredictAndUpdate(SGEJobTask):
         if cur.rowcount != 1:
             print("unable to get lock on pseudo_prepid = {}".format(self.pseudo_prepid))
         db.commit()
-
         self.output_probs = os.path.join( self.output_directory ,"ethnicity.probs.txt")
         self.input_ped = os.path.join( self.output_directory, "{sample_name}.{pseudo_prepid}.ped".format(
           sample_name=self.sample_name, pseudo_prepid=self.pseudo_prepid ) )
-        
+ 
     def work(self):
         """Run the python script to predict ethnicities"""
         cmd = ( " /nfs/goldstein/software/python2.7.7/bin/python {0} --output-prob-file {1} --testing-ped {2} --mapfile {3} --input-model {4} """.format(

@@ -60,11 +60,11 @@ class CreatePed(SGEJobTask):
     bam = luigi.InputFileParameter(description="the sample's BAM")
     output_directory = luigi.Parameter(description="the output directory")
     markers = luigi.InputFileParameter(
-        default="/nfs/seqscratch_ssd/bc2675/annodb_ethnicities/"
+        default="/nfs/goldstein/software/dragen_pipe/master/automated_ethnicity_relatedness/data/"
         "filtered.37MB.master.training.map",
         description="the list of SNPs tested as part of the model")
     ped_script = luigi.InputFileParameter(
-        default="/nfs/seqscratch_ssd/bc2675/annodb_ethnicities/"
+        default="/nfs/goldstein/software/dragen_pipe/master/automated_ethnicity_relatedness/"
         "create_ped_map.py", description="the script used to create the PED file")
     task_name_format = luigi.Parameter(
         default="{task_family}.{sample_name}.{prep_id}.{sample_type}",
@@ -127,14 +127,14 @@ class CalculateProbabilities(SGEJobTask):
     bam = luigi.InputFileParameter(description="the sample's BAM")
     output_directory = luigi.Parameter(description="the output directory")
     training_model = luigi.InputFileParameter(
-        default="/nfs/seqscratch_ssd/bc2675/annodb_ethnicities/"
+        default="/nfs/goldstein/software/dragen_pipe/master/automated_ethnicity_relatedness/data/"
         "37MB_markers_model.obj", description="the already trained model")
     markers = luigi.InputFileParameter(
-        default="/nfs/seqscratch_ssd/bc2675/annodb_ethnicities/"
+        default="/nfs/goldstein/software/dragen_pipe/master/automated_ethnicity_relatedness/data/"
         "filtered.37MB.master.training.map",
         description="the list of SNPs tested as part of the model")
     ethnicity_script = luigi.InputFileParameter(
-        default="/nfs/seqscratch_ssd/bc2675/annodb_ethnicities/"
+        default="/nfs/goldstein/software/dragen_pipe/master/automated_ethnicity_relatedness/"
         "model_ancestry.py",
         description="the script used to calculate the probabilities")
     task_name_format = luigi.Parameter(
