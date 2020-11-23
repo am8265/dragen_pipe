@@ -97,7 +97,7 @@ class gatk_resources(luigi.Config):
     dbSNP = luigi.InputFileParameter()
     annotatedbSNP = luigi.InputFileParameter()
     exac = luigi.InputFileParameter()
-    roche_bed = luigi.InputFileParameter()
+    union_bed = luigi.InputFileParameter()
 
     def __init__(self, *args, **kwargs):
         if "DEBUG_INTERVALS" in os.environ:
@@ -259,7 +259,7 @@ class GATKFPipelineTask(GATKPipelineTask):
             if "DEBUG_BED" in os.environ:
                 kwargs["capture_kit_bed"] = os.getenv("DEBUG_BED")
         if self.sample_type == "GENOME_AS_FAKE_EXOME":
-            self.config_parameters["interval"] = self.config_parameters["roche_bed"]
+            self.config_parameters["interval"] = self.config_parameters["union_bed"]
         super(GATKFPipelineTask, self).__init__(*args, **kwargs)
         self.config_parameters.update(self.__dict__)
 
@@ -345,7 +345,7 @@ class JavaPipelineTask(GATKFPipelineTask):
         self.mem = int(ceil(self.max_mem / self.n_cpu))
         if self.sample_type == "GENOME_AS_FAKE_EXOME":
             self.intervals_param = self.format_string(
-                "-L {roche_bed}")
+                "-L {union_bed}")
         else:
             self.intervals_param = ""
 
