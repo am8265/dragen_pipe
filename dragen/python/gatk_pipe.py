@@ -595,7 +595,7 @@ class VariantRecalibratorSNP(JavaPipelineTask):
         self.commands = [self.format_string(
             "{java} -Xmx{mem}g -jar {gatk} -R {ref_genome} -T VariantRecalibrator "
             "-L {interval}  --input {snp_vcf} -an QD -an FS -an SOR -an MQ "
-            #"-L {interval}  --input {snp_vcf} -an QD -an FS -an SOR "
+            #"-L {interval}  --input {snp_vcf} -an QD -an FS -an SOR --minNumBadVariants 5000 "
             "-an MQRankSum -an ReadPosRankSum "
             "-mode SNP --maxGaussians 4 -tranche 100.0 -tranche 99.9 "
             "-tranche 99.0 -tranche 90.0 -recalFile {snp_recal} "
