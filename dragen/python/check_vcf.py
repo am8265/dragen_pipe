@@ -81,7 +81,9 @@ def check_vcf(vcf_fn, check_variant_counts=False, debug=False):
                 errors.append(msg)
                 if debug:
                     sys.stderr.write(msg + "\n")
-            elif ccds_variant_count > MAX_CCDS_VARIANTS:
+            # we increase the upper limit by 50% after the bed file replacement - 01/21/2021
+            # elif ccds_variant_count > MAX_CCDS_VARIANTS:
+            elif ccds_variant_count > (MAX_CCDS_VARIANTS + MAX_CCDS_VARIANTS // 2):
                 msg = ("Maximum # of CCDS variants ({}) exceeded: {}".
                        format(MAX_CCDS_VARIANTS, ccds_variant_count))
                 errors.append(msg)
@@ -89,6 +91,8 @@ def check_vcf(vcf_fn, check_variant_counts=False, debug=False):
                     sys.stderr.write(msg + "\n")
             for chromosome in CHROMOSOMES:
                 min_value, max_value = CCDS_VARIANTS_RANGE_BY_CHROMOSOME[chromosome]
+                # similarly, we increase the upper limit by 50% for each chrom after the bed file replacement - 01/21/2021
+                max_value = (max_value + max_value // 2)
                 msg = ("Variant count on chromosome {} {{}}in permissible "
                        "range [{}, {}]: {}".format(
                            chromosome, min_value, max_value,
