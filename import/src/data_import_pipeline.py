@@ -328,6 +328,8 @@ class ParseVCF(SGEJobTask):
                              "{vcf_count} in VCF, {table_count} in table".format(
                                  vcf_count=vcf_variants_count,
                                  table_count=calls_line_count))
+        #print("start to sleep...")
+        #sleep(60)
         if not self.dont_load_data:
             db = get_connection(self.database)
             seqdb = get_connection("seqdb")
@@ -617,8 +619,8 @@ class ImportSample(luigi.Task):
         super(ImportSample, self).__init__(*args, **kwargs)
         if os.path.isfile(self.vcf):
             ##### they've never filtered variants and it's best not too bloat indexes...
-            # limit = 648000000
-            limit = 348000000
+            limit = 648000000
+            #limit = 348000000
             if self.sequencing_type == "exome" and os.path.getsize(self.vcf) > limit: # 248000000:
                 seqdb = get_connection("seqdb")
                 try:
