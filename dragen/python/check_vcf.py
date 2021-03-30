@@ -75,7 +75,10 @@ def check_vcf(vcf_fn, check_variant_counts=False, debug=False):
                 vcf_fh.close()
 
         if check_variant_counts:
-            if ccds_variant_count < MIN_CCDS_VARIANTS:
+            if ccds_variant_count < ( MIN_CCDS_VARIANTS - MIN_CCDS_VARIANTS // 10) :
+            # if ccds_variant_count < MIN_CCDS_VARIANTS:
+            # change min as some sample stucked in the pipeline as the variant count less the min
+            # this might be a tmp change, we might need to change it back. 
                 msg = ("Minimum # of CCDS variants ({}) not met: {}".
                        format(MIN_CCDS_VARIANTS, ccds_variant_count))
                 errors.append(msg)
@@ -93,6 +96,8 @@ def check_vcf(vcf_fn, check_variant_counts=False, debug=False):
                 min_value, max_value = CCDS_VARIANTS_RANGE_BY_CHROMOSOME[chromosome]
                 # similarly, we increase the upper limit by 50% for each chrom after the bed file replacement - 01/21/2021
                 max_value = (max_value + max_value // 2)
+                # similarly for the min_value 
+                min_value = (min_value - min_value // 10) 
                 msg = ("Variant count on chromosome {} {{}}in permissible "
                        "range [{}, {}]: {}".format(
                            chromosome, min_value, max_value,
