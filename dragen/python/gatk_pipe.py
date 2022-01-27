@@ -1718,6 +1718,10 @@ class EntryChecks(GATKFPipelineTask):
                           "Number of duplicate reads (marked)" in line):
                         perc_duplicates = float(line.split(" ")[-1])
                         break
+                    elif (line.startswith("MAPPING/ALIGNING SUMMARY") and
+                          "Number of duplicate marked reads" in line):
+                        perc_duplicates = float(line.split(" ")[-1])
+                        break
 
         if perc_duplicates:
             with open(self.duplicates_file, "w") as out:
@@ -1854,6 +1858,9 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             if not os.path.exists("/nfs/seqscratch09/informatics/logs/postmerge/{}.{}.txt".format(self.pseudo_prepid,self.sample_name)):
                 hack_for_incorrect_single_rg_wgs="/nfs/goldstein/software/informatics/bin/alignstats -q 10 -i /nfs/seqscratch_ssd/ALIGNMENT/BUILD37/DRAGEN/GENOME_AS_FAKE_EXOME/{1}.{0}/{1}.{0}.bam \
                     -t /nfs/seqscratch_ssd/PIPELINE_DATA/ccds_regions.bed  -o /nfs/seqscratch09/informatics/logs/postmerge/{0}.{1}.txt".format(self.pseudo_prepid,self.sample_name)
+            # if not os.path.exists("/nfs/seqscratch_ssd/informatics/logs/postmerge/{}.{}.txt".format(self.pseudo_prepid,self.sample_name)):
+            #     hack_for_incorrect_single_rg_wgs="/nfs/goldstein/software/informatics/bin/alignstats -q 10 -i /nfs/seqscratch_ssd/ALIGNMENT/BUILD37/DRAGEN/GENOME_AS_FAKE_EXOME/{1}.{0}/{1}.{0}.bam \
+            #         -t /nfs/seqscratch_ssd/PIPELINE_DATA/ccds_regions.bed  -o /nfs/seqscratch_ssd/informatics/logs/postmerge/{0}.{1}.txt".format(self.pseudo_prepid,self.sample_name)
                 print("need to generate metrics for 'single rg' wgs - i.e. these don't really exist")
                 if os.system(hack_for_incorrect_single_rg_wgs)!=0:
                 #### single RG wgs samples - i.e. DON'T ACTUALLY EXISTS
@@ -1966,6 +1973,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             ########## just gonna hack it for now and integrate the newer pre-release and release intermediates in a completely non-systematic manner (these were new features patched on as separate pipelines...)
             gvcf_lazy=""
             metrics_lazy="/nfs/seqscratch09/informatics/logs/postmerge/{}.{}.txt".format(self.pseudo_prepid,self.sample_name)
+            # metrics_lazy="/nfs/seqscratch_ssd/informatics/logs/postmerge/{}.{}.txt".format(self.pseudo_prepid,self.sample_name)
             # yuck!?!
             '''
             if self.sample_name[0:3] == "ALS":
