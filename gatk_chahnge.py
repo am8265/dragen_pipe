@@ -1371,7 +1371,7 @@ class ArchiveSample(GATKFPipelineTask):
 #                rmtree(self.base_dir)
 #            raise
 
-################## fixing this is trivial. just untar the coverage.tar.gz and run nfs/seqscratch09/dsth/BedPatch/DP1KbBins_rc1 sn.ppid.realn.recal.bam 20 10 c | tee sn.ppid.coverage_bins.2
+################## fixing this is trivial. just untar the coverage.tar.gz and run /nfs/informatics/loading/DP_bin/DP1KbBins_rc1 sn.ppid.realn.recal.bam 20 10 c | tee sn.ppid.coverage_bins.2
 ################## grep -P '^prob_chr\t' ... > ... and re-load...
 class CoverageBinning(GATKFPipelineTask):
     """Call Dan's program to bin coverage where we require some minimum
@@ -1406,7 +1406,7 @@ class CoverageBinning(GATKFPipelineTask):
 
     def post_shell_commands(self):
         self.set_dsm_status(1) 
-        ################## fixing this is trivial. just untar the coverage.tar.gz and run nfs/seqscratch09/dsth/BedPatch/DP1KbBins_rc1 sn.ppid.realn.recal.bam 20 10 c | tee sn.ppid.coverage_bins.2
+        ################## fixing this is trivial. just untar the coverage.tar.gz and run /nfs/informatics/loading/DP_bin/DP1KbBins_rc1 sn.ppid.realn.recal.bam 20 10 c | tee sn.ppid.coverage_bins.2
         ################## grep -P '^prob_chr\t' ... > ... and re-load...
         of=os.path.join(self.scratch_dir,"{}.coverage_bins".format(self.name_prep))
         print("using '{}".format(of))
