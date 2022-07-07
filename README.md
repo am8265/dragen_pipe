@@ -12,7 +12,7 @@ To run automation script:<br>
 
 To run manually using parallel :
 
-cat {sample_file} | parallel -j {n_jobs} --joblog {parallel_log_file} --tmpdir /nfs/seqscratch09/rp2801/parallel_tmp/ /nfs/goldstein/software/python2.7.7/bin/python run_gatk_jobs.py
+cat {sample_file} | parallel -j {n_jobs} --joblog {parallel_log_file} --tmpdir /nfs/seqscratch_ssd/rp2801/parallel_tmp/ /nfs/goldstein/software/python2.7.7/bin/python run_gatk_jobs.py
 
 To import samples:<br>
 ssh to annodb02<br>

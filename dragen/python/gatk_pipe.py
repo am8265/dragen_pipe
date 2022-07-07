@@ -1855,9 +1855,9 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
         # unbelieavable_wgs_hack=False
 
         if self.sample_type == "GENOME_AS_FAKE_EXOME":
-            if not os.path.exists("/nfs/seqscratch09/informatics/logs/postmerge/{}.{}.txt".format(self.pseudo_prepid,self.sample_name)):
+            if not os.path.exists("/nfs/seqscratch_ssd/informatics/logs/postmerge/{}.{}.txt".format(self.pseudo_prepid,self.sample_name)):
                 hack_for_incorrect_single_rg_wgs="/nfs/goldstein/software/informatics/bin/alignstats -q 10 -i /nfs/seqscratch_ssd/ALIGNMENT/BUILD37/DRAGEN/GENOME_AS_FAKE_EXOME/{1}.{0}/{1}.{0}.bam \
-                    -t /nfs/seqscratch_ssd/PIPELINE_DATA/ccds_regions.bed  -o /nfs/seqscratch09/informatics/logs/postmerge/{0}.{1}.txt".format(self.pseudo_prepid,self.sample_name)
+                    -t /nfs/seqscratch_ssd/PIPELINE_DATA/ccds_regions.bed  -o /nfs/seqscratch_ssd/informatics/logs/postmerge/{0}.{1}.txt".format(self.pseudo_prepid,self.sample_name)
             # if not os.path.exists("/nfs/seqscratch_ssd/informatics/logs/postmerge/{}.{}.txt".format(self.pseudo_prepid,self.sample_name)):
             #     hack_for_incorrect_single_rg_wgs="/nfs/goldstein/software/informatics/bin/alignstats -q 10 -i /nfs/seqscratch_ssd/ALIGNMENT/BUILD37/DRAGEN/GENOME_AS_FAKE_EXOME/{1}.{0}/{1}.{0}.bam \
             #         -t /nfs/seqscratch_ssd/PIPELINE_DATA/ccds_regions.bed  -o /nfs/seqscratch_ssd/informatics/logs/postmerge/{0}.{1}.txt".format(self.pseudo_prepid,self.sample_name)
@@ -1972,7 +1972,7 @@ class UpdateSeqdbMetrics(GATKFPipelineTask):
             ###### no need for locking anything anymore!?!
             ########## just gonna hack it for now and integrate the newer pre-release and release intermediates in a completely non-systematic manner (these were new features patched on as separate pipelines...)
             gvcf_lazy=""
-            metrics_lazy="/nfs/seqscratch09/informatics/logs/postmerge/{}.{}.txt".format(self.pseudo_prepid,self.sample_name)
+            metrics_lazy="/nfs/seqscratch_ssd/informatics/logs/postmerge/{}.{}.txt".format(self.pseudo_prepid,self.sample_name)
             # metrics_lazy="/nfs/seqscratch_ssd/informatics/logs/postmerge/{}.{}.txt".format(self.pseudo_prepid,self.sample_name)
             # yuck!?!
             '''
