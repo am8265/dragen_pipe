@@ -88,7 +88,7 @@ def main(database, seqscratch, force_failed_samples, sample_names,
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
     root_handler = handlers.TimedRotatingFileHandler(
-        "/nfs/informatics/data/pipeline/dragen_pipe/dragen_import_log.txt",
+        "/nfs/seqscratch09/dragen_import/dragen_import_log.txt",
         when="midnight", backupCount=10)
     root_handler.setLevel(logging.DEBUG)
     root_handler.setFormatter(formatter)

@@ -25,7 +25,7 @@ RUNdir = scratch + 'NEWTEST'              #This is the directory where KING runs
 plinkOUT = scratch + 'NEWTEST/newbedout'  #Name of Plink PED/MAP binary file that KING uses
 plink_software = '/nfs/goldstein/goldsteinlab/software/PLINK_107/plink'  
 king_software = '/nfs/goldstein/goldsteinlab/software/king_relatedness/king'
-master_ped = '/nfs/informatics/data/pipeline/dragen_pipe/RELATEDNESS_QC/test'
+master_ped = '/nfs/seqscratch09/RELATEDNESS_QC/test'
                                         
 '''
 All threshold based on kinship values from KING

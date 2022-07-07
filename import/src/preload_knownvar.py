@@ -20,7 +20,7 @@ from waldb_globals import *
 cfg = get_cfg()
 
 JAVA = "/nfs/goldstein/software/jdk1.8.0_05/bin/java"
-CLINEFF = "/nfs/goldstein/software/clinEff/ClinEff.jar"
+CLINEFF = "/nfs/seqscratch09/clineff/clinEff/ClinEff.jar"
 DBSNP = "/nfs/seqscratch11/rp2801/ethnicity_1000g/dbsnp_fixed.vcf"
 ANNOTATE_VCF = (
     "{java} -Xmx6G -jar {clineff} GRCh37.87 -db {dbsnp} {vcf}")

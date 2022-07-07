@@ -120,7 +120,7 @@ def run_gatk(max_samples_concurrently, workers, additional_sample_requirements,
     root_logger = logging.getLogger()
     root_logger.setLevel(debug_level)
     root_handler = handlers.TimedRotatingFileHandler(
-        "/nfs/informatics/data/pipeline/dragen_pipe/logs/gatk_pipe.txt",
+        "/nfs/seqscratch09/dragen_gatk/gatk_pipe.txt",
         when="midnight", backupCount=10)
     root_handler.setLevel(debug_level)
     root_handler.setFormatter(formatter)

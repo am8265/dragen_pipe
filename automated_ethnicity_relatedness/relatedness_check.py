@@ -33,7 +33,7 @@ class UpdateDBRelatedness(SGEJobTask):
 
     # n_cpu           = 1
     # parallel_env    = "threaded"
-    # shared_tmp_dir  = "/nfs/informatics/data/pipeline/dragen_pipe/tmp/luigi_test"
+    # shared_tmp_dir  = "/nfs/seqscratch09/tmp/luigi_test"
 
     batch_size = luigi.IntParameter()
     ######## the f'ing map?!
@@ -343,9 +343,9 @@ class RunKing(SGEJobTask):
 
     n_cpu = 1
     parallel_env = "threaded"
-    shared_tmp_dir = "/nfs/informatics/data/pipeline/dragen_pipe/tmp/luigi_test"
+    shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
 
-    masterped = luigi.Parameter(default="/nfs/informatics/data/pipeline/dragen_pipe/relatedness_check/masterped.ped")
+    masterped = luigi.Parameter(default="/nfs/seqscratch09/rp2801/relatedness_check/masterped.ped")
     output_directory = luigi.Parameter()
     markers = luigi.Parameter(default="{0}/filtered.37MB.master.training.map".format(os.getcwd()))
     genotyping_dir  = luigi.Parameter()
@@ -396,7 +396,7 @@ class AppendMasterPed(SGEJobTask):
 
     # n_cpu = 1
     # parallel_env = "threaded"
-    # shared_tmp_dir = "/nfs/informatics/data/pipeline/dragen_pipe/tmp/luigi_test"
+    # shared_tmp_dir = "/nfs/seqscratch09/tmp/luigi_test"
 
     masterped = luigi.Parameter()
     output_directory = luigi.Parameter()
