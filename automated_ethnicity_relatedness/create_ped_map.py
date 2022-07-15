@@ -5,6 +5,8 @@ import gzip
 import bz2
 import os
 from collections import defaultdict,OrderedDict
+import sys
+sys.path.insert(1, "/nfs/goldstein/software/python2.7.7_dev/lib/python2.7/site-packages/")
 import pysam
 import warnings
 import logging 
