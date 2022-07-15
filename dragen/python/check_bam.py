@@ -7,8 +7,9 @@ Checks:
     proper read groups
 """
 
-import pysam
 import sys
+sys.path.insert(1, "/nfs/goldstein/software/python2.7.7_dev/lib/python2.7/site-packages/")
+import pysam
 import subprocess
 import os
 from collections import Counter
