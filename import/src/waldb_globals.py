@@ -846,9 +846,7 @@ class GATKPipelineTask(DragenPipelineTask):
             self.scratch_dir, self.sample_name + ".genomecvg.bed")
         self.cov_dir = os.path.join(self.scratch_dir, "cvg_binned")
         self.gq_dir = os.path.join(self.scratch_dir, "gq_binned")
-        self.check_variant_counts = (
-            (self.sample_type != "CUSTOM_CAPTURE") and
-            ("DEBUG_INTERVALS" not in os.environ))
+        self.check_variant_counts = false
         self.shell_options["record_commands_fn"] = self.script
         self.shell_options["stdout"] = self.log_file
         self.shell_options["stderr"] = self.err
