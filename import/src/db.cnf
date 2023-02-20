@@ -2,7 +2,7 @@
 user=pipeline
 password=PipeLine001
 database=WalDB
-host=annodb06
+host=10.73.50.37
 
 [clientseqdb]
 user=pipeline_user
